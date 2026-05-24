@@ -63,6 +63,9 @@ class MigrationContext:
         self.do_extensions: bool = True
         self.do_cookies: bool = False
         self.do_history: bool = False
+        self.do_autofill: bool = False
+        self.do_cards: bool = False
+        self.do_search_engines: bool = False
         self.extensions_online: bool = True
         self.dry_run: bool = False
         self.direct_write_passwords: bool = False
@@ -339,11 +342,23 @@ class ItemsPage(WizardPage):
         self._history_row = self._make_row("Browsing history",
             "Convert the source URL+visit log to a fresh Firefox places.sqlite for swap-in.",
             default_checked=False)
+        self._autofill_row = self._make_row("Form autofill",
+            "Translate Chromium's Web Data.autofill into Firefox's formhistory.sqlite.",
+            default_checked=False)
+        self._cards_row = self._make_row("Saved credit cards (CSV)",
+            "Decrypt card numbers and write a CSV. Firefox has no native store; import into a password manager.",
+            default_checked=False)
+        self._search_engines_row = self._make_row("Search engines",
+            "Export every Chromium search engine as OpenSearch XML the user can drag-install in Firefox.",
+            default_checked=False)
         card_layout.addWidget(self._passwords_row[0])
         card_layout.addWidget(self._bookmarks_row[0])
         card_layout.addWidget(self._extensions_row[0])
         card_layout.addWidget(self._cookies_row[0])
         card_layout.addWidget(self._history_row[0])
+        card_layout.addWidget(self._autofill_row[0])
+        card_layout.addWidget(self._cards_row[0])
+        card_layout.addWidget(self._search_engines_row[0])
         self.add_content(card)
 
         # Online lookup checkbox
@@ -426,6 +441,9 @@ class ItemsPage(WizardPage):
         self._ctx.do_extensions = self._extensions_row[1].isChecked()
         self._ctx.do_cookies = self._cookies_row[1].isChecked()
         self._ctx.do_history = self._history_row[1].isChecked()
+        self._ctx.do_autofill = self._autofill_row[1].isChecked()
+        self._ctx.do_cards = self._cards_row[1].isChecked()
+        self._ctx.do_search_engines = self._search_engines_row[1].isChecked()
         self._ctx.extensions_online = self._online_cb.isChecked()
         self._ctx.dry_run = self._dry_cb.isChecked()
         self._ctx.direct_write_passwords = self._direct_cb.isChecked()
@@ -453,6 +471,9 @@ class ItemsPage(WizardPage):
             self._extensions_row[1].isChecked(),
             self._cookies_row[1].isChecked(),
             self._history_row[1].isChecked(),
+            self._autofill_row[1].isChecked(),
+            self._cards_row[1].isChecked(),
+            self._search_engines_row[1].isChecked(),
         ])
 
     def on_enter(self) -> None:

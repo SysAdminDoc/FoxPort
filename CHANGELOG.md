@@ -4,6 +4,40 @@ All notable changes to FoxPort are documented here. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/), versioning per
 [SemVer](https://semver.org/).
 
+## [0.6.0] — 2026-05-23
+
+Additional data types — form autofill, saved cards, search engines.
+
+### Added
+- **Form autofill migration** (`migrate/autofill.py`) — Walk Chromium's
+  `Web Data.autofill` SQLite (fieldname, value, count, date_created,
+  date_last_used) and write a Firefox v4-schema `formhistory.sqlite` from
+  scratch. Time conversion is seconds-since-1601 (NOT microseconds, unlike
+  passwords) → microseconds-since-1970. GUIDs are base64-encoded 9-byte
+  tokens matching Firefox's `PlacesUtils.history.makeGuid()` shape.
+- **Saved cards CSV** (`migrate/cards.py`) — Decrypt `Web Data.credit_cards`
+  with the AES master key (Windows DPAPI / macOS Keychain / Linux secret
+  store all work) and write a CSV with the 1Password import shape:
+  `Type, Name, Number, Expiration (MM/YYYY), Cardholder name, Notes`.
+  Firefox has no native card store, so this is opt-in and informational.
+- **Search engines** (`migrate/search_engines.py`) — Read `Web Data.keywords`
+  and emit `search-engines.json` plus one OpenSearch XML file per engine
+  under `search-engines/<slug>.xml`. Chromium-specific URL tokens
+  (`{google:baseURL}`, `{yahoo:...}`, etc.) are stripped during render
+  so the resulting templates work in Firefox. User opens each XML in
+  Firefox → Settings → Search → Add.
+- Items wizard step gains three new checkboxes (Form autofill, Saved
+  credit cards, Search engines) all defaulting to off.
+- CLI `--items` and `--all` accept `autofill`, `cards`, `search_engines`.
+
+### Notes
+- Open tabs (Chromium `Sessions/Session_*` SNSS binary → Firefox
+  `recovery.jsonlz4`) is genuinely complex (SNSS protobuf-ish format
+  requires its own parser) — deferred to v0.6.1 / v0.7.
+- Search engines fall short of writing `search.json.mozlz4` directly
+  because that file is hash-validated and the schema flips with each
+  Firefox release; the OpenSearch-per-engine approach is robust.
+
 ## [0.5.0] — 2026-05-23
 
 Cross-platform — macOS and Linux support across detection, decryption,

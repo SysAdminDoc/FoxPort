@@ -1,6 +1,6 @@
 # FoxPort
 
-[![version](https://img.shields.io/badge/version-0.5.0-f5c2e7?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-0.6.0-f5c2e7?style=flat-square)](CHANGELOG.md)
 [![license](https://img.shields.io/badge/license-MIT-89b4fa?style=flat-square)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-cdd6f4?style=flat-square)](#)
 [![python](https://img.shields.io/badge/python-3.11%2B-a6e3a1?style=flat-square)](https://www.python.org/)
@@ -8,6 +8,22 @@
 **Port Chromium browsers to Firefox.** FoxPort scans your installed Chromium-family browsers (Chrome, Brave, Edge, Vivaldi, Opera, Arc, Thorium, Yandex, ...), decrypts your saved passwords, packages up your bookmarks, and maps your Chrome extensions to their Firefox equivalents on addons.mozilla.org — all in one click.
 
 The source browser is never modified. FoxPort writes Firefox-native import files into an output folder; you import them through the target browser's normal UI.
+
+## What's new in v0.6.0
+
+- **Form autofill migration** — Chromium `Web Data.autofill` becomes a
+  Firefox v4-schema `formhistory.sqlite` with proper `firstUsed/lastUsed`
+  µs conversion and base64-encoded `guid`s.
+- **Saved cards CSV export** — Decrypt credit card numbers from
+  `Web Data.credit_cards` and write a 1Password-importable CSV. Firefox
+  has no native card store, so the CSV is informational.
+- **Search engines export** — Read `Web Data.keywords` and emit a
+  machine-readable `search-engines.json` inventory plus a per-engine
+  OpenSearch XML descriptor (`search-engines/<slug>.xml`) the user can
+  drag-install in Firefox. Chromium-specific URL tokens
+  (`{google:baseURL}` etc.) stripped during emission.
+- All new categories work cross-platform (Windows/macOS/Linux) and honor
+  dry-run mode.
 
 ## What's new in v0.5.0
 
@@ -91,6 +107,9 @@ The source browser is never modified. FoxPort writes Firefox-native import files
 | **Extensions** | Profile `Extensions/<id>/<ver>/manifest.json` | HTML page of AMO install links | Open the HTML in Firefox, click each link |
 | **Cookies** | `Network/Cookies` SQLite + DPAPI key | Firefox `cookies.sqlite` (v17) | Close Firefox, back up existing, drop in |
 | **History** | `History` SQLite (`urls` + `visits`) | Firefox `places.sqlite` (v77) | Close Firefox, back up existing, drop in |
+| **Form autofill** | `Web Data.autofill` SQLite | Firefox `formhistory.sqlite` | Close Firefox, back up existing, drop in |
+| **Saved cards** | `Web Data.credit_cards` + AES key | CSV (1Password import shape) | Firefox has no native store — import into a password manager |
+| **Search engines** | `Web Data.keywords` SQLite | OpenSearch XML per engine + JSON inventory | Open each XML in Firefox → Settings → Search → Add |
 
 ---
 

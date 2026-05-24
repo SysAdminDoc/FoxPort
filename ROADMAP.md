@@ -69,15 +69,22 @@ ideas from the bottom of the file as scope firms up.
 - [x] macOS Firefox profile detection (`~/Library/Application Support/Firefox`)
 - [x] Linux Firefox profile detection (`~/.mozilla/firefox` + per-vendor dotfiles)
 
-## v0.6.0 — Additional data types
+## v0.6.0 — Additional data types  ✅ shipped 2026-05-23 (open tabs deferred)
 - [ ] **Open tabs** — Chromium session storage → Firefox `recovery.jsonlz4`
-      (`mozLz40\0` magic + lz4-block-compressed JSON; Firefox must be closed).
-- [ ] **Form autofill** — Chromium `Web Data.autofill` → Firefox
+      (`mozLz40\0` magic + lz4-block-compressed JSON; Firefox must be
+      closed). Deferred — needs an SNSS protobuf-ish parser.
+- [x] **Form autofill** — Chromium `Web Data.autofill` → Firefox
       `formhistory.sqlite/moz_formhistory`.
-- [ ] **Saved cards (CSV-only)** — Chromium `Web Data` cards table; Firefox
+- [x] **Saved cards (CSV-only)** — Chromium `Web Data` cards table; Firefox
       has no native card store so CSV-only output.
-- [ ] **Search engines** — Chromium TLD-engine list → `search.json.mozlz4`
-      append-only.
+- [x] **Search engines** — Chromium `Web Data.keywords` → per-engine
+      OpenSearch XML + JSON inventory (writing `search.json.mozlz4`
+      directly is too fragile due to per-Firefox-version hash validation).
+
+## v0.6.1 — Open tabs
+- [ ] SNSS parser for Chromium `Sessions/Session_<num>` binary format
+- [ ] Translate to Firefox `sessionstore-backups/recovery.jsonlz4`
+      (`b"mozLz40\\0"` magic + lz4-block-compressed JSON)
 
 ## Reverse direction — v1.x
 - [ ] Firefox → Chromium port (passwords via Firefox CSV export → re-encrypt

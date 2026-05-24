@@ -38,14 +38,20 @@ from foxport.browsers.detect import (
 )
 from foxport.browsers.firefox import import_instructions, make_export_dir
 from foxport.crypto.dpapi import DecryptionError
+from foxport.migrate.autofill import migrate_autofill
 from foxport.migrate.bookmarks import migrate_bookmarks
+from foxport.migrate.cards import migrate_cards
 from foxport.migrate.cookies import migrate_cookies
 from foxport.migrate.extensions import migrate_extensions
 from foxport.migrate.history import migrate_history
 from foxport.migrate.passwords import migrate_passwords
+from foxport.migrate.search_engines import migrate_search_engines
 
 
-ALL_ITEMS = ("passwords", "bookmarks", "extensions", "cookies", "history")
+ALL_ITEMS = (
+    "passwords", "bookmarks", "extensions", "cookies", "history",
+    "autofill", "cards", "search_engines",
+)
 
 
 def _find_chromium(spec: str, profiles: list[ChromiumProfile]) -> ChromiumProfile | None:
@@ -200,6 +206,31 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
         print(f"  {r.urls} URLs / {r.visits} visits ({len(r.failures)} failed)")
         if not args.dry_run:
             exports["history"] = r.sqlite_path
+
+    if "autofill" in items:
+        print("\n[autofill]")
+        r = migrate_autofill(source, out_dir, dry_run=args.dry_run)
+        print(f"  {r.written} field/value pairs ({r.skipped} skipped, {len(r.failures)} failed)")
+        if not args.dry_run:
+            exports["autofill"] = r.sqlite_path
+
+    if "cards" in items:
+        print("\n[cards]")
+        try:
+            r = migrate_cards(source, out_dir, dry_run=args.dry_run)
+        except DecryptionError as exc:
+            print(f"  FAILED: {exc}")
+        else:
+            print(f"  {r.decrypted} decrypted, {r.failed} failed of {r.total} total")
+            if not args.dry_run and r.decrypted > 0:
+                exports["cards"] = r.csv_path
+
+    if "search_engines" in items:
+        print("\n[search_engines]")
+        r = migrate_search_engines(source, out_dir, dry_run=args.dry_run)
+        print(f"  {r.written} OpenSearch XML files written ({r.total} total entries)")
+        if not args.dry_run:
+            exports["search_engines"] = r.json_path
 
     if exports:
         instructions_path = out_dir / "README.txt"

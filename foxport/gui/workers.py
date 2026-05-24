@@ -16,7 +16,9 @@ from foxport.browsers.detect import (
 )
 from foxport.browsers.firefox import import_instructions, make_export_dir
 from foxport.crypto.dpapi import DecryptionError
+from foxport.migrate.autofill import migrate_autofill
 from foxport.migrate.bookmarks import migrate_bookmarks
+from foxport.migrate.cards import migrate_cards
 from foxport.migrate.cookies import migrate_cookies
 from foxport.migrate.extensions import migrate_extensions
 from foxport.migrate.history import migrate_history
@@ -25,6 +27,7 @@ from foxport.migrate.nss_passwords import (
     migrate_passwords_via_nss,
 )
 from foxport.migrate.passwords import migrate_passwords
+from foxport.migrate.search_engines import migrate_search_engines
 
 
 @dataclass
@@ -39,6 +42,9 @@ class MigrationRequest:
     do_extensions: bool
     do_cookies: bool = False
     do_history: bool = False
+    do_autofill: bool = False
+    do_cards: bool = False
+    do_search_engines: bool = False
     extensions_online: bool = True
     dry_run: bool = False
     password_include_keys: set[str] | None = None
@@ -78,6 +84,7 @@ class MigrationWorker(QObject):
         steps = sum([
             req.do_passwords, req.do_bookmarks, req.do_extensions,
             req.do_cookies, req.do_history,
+            req.do_autofill, req.do_cards, req.do_search_engines,
         ]) or 1
         target_label = req.target.label if req.target else "firefox"
         if req.dry_run:
@@ -227,6 +234,47 @@ class MigrationWorker(QObject):
                 self.log.emit(
                     f"  {history_result.urls} URLs / {history_result.visits} visits "
                     f"({len(history_result.failures)} failed)."
+                )
+
+            if req.do_autofill:
+                current += 1
+                self.step.emit(current, steps)
+                self.log.emit("Exporting form autofill...")
+                autofill_result = migrate_autofill(req.source, out_dir, dry_run=req.dry_run)
+                if not req.dry_run:
+                    exports["autofill"] = autofill_result.sqlite_path
+                self.log.emit(
+                    f"  {autofill_result.written} field/value pairs written, "
+                    f"{autofill_result.skipped} skipped, "
+                    f"{len(autofill_result.failures)} failed."
+                )
+
+            if req.do_cards:
+                current += 1
+                self.step.emit(current, steps)
+                self.log.emit("Exporting saved cards (CSV — Firefox has no native store)...")
+                try:
+                    cards_result = migrate_cards(req.source, out_dir, dry_run=req.dry_run)
+                except DecryptionError as exc:
+                    self.log.emit(f"  Card decryption failed: {exc}")
+                else:
+                    if not req.dry_run and cards_result.decrypted > 0:
+                        exports["cards"] = cards_result.csv_path
+                    self.log.emit(
+                        f"  {cards_result.decrypted} cards decrypted, "
+                        f"{cards_result.failed} failed of {cards_result.total} total."
+                    )
+
+            if req.do_search_engines:
+                current += 1
+                self.step.emit(current, steps)
+                self.log.emit("Exporting search engines...")
+                se_result = migrate_search_engines(req.source, out_dir, dry_run=req.dry_run)
+                if not req.dry_run:
+                    exports["search_engines"] = se_result.json_path
+                self.log.emit(
+                    f"  {se_result.written} OpenSearch XML files written, "
+                    f"{se_result.total} total entries."
                 )
 
             if not req.dry_run:
