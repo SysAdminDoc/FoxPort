@@ -101,6 +101,11 @@ class Tile(QFrame):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setMinimumHeight(72)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Make the tile keyboard-reachable: Tab moves focus to it; Space/Enter
+        # activates it like a button. Screen readers announce title + subtitle.
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAccessibleName(title)
+        self.setAccessibleDescription(subtitle)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 10, 14, 10)
@@ -139,6 +144,16 @@ class Tile(QFrame):
         if event.button() == Qt.MouseButton.LeftButton and not self.property("disabled"):
             self.clicked.emit()
         super().mousePressEvent(event)
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802 (Qt API)
+        """Space/Enter activate the tile when it's keyboard-focused."""
+        if not self.property("disabled") and event.key() in (
+            Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter,
+        ):
+            self.clicked.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:  # noqa: N802
         if event.mimeData().hasUrls():

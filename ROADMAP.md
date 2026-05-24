@@ -44,15 +44,15 @@ ideas from the bottom of the file as scope firms up.
 - [ ] Run the release workflow end-to-end + publish the first signed binary
 - [ ] Raster logo + Windows EXE icon
 - [ ] Monthly curated-map auditor scheduled workflow
-- [ ] Per-page screen-reader / keyboard navigation pass
-- [ ] Docs: `docs/architecture.md`, `docs/file-formats.md`, `docs/troubleshooting.md`
+- [x] Per-page screen-reader / keyboard navigation pass — `Tile` is keyboard-focusable, Space/Enter activate, accessibleName/Description set
+- [x] Docs: `docs/architecture.md`, `docs/file-formats.md`, `docs/troubleshooting.md`
 
 ### Larger bets (Phase 4+)
 - [ ] **FIDO CXF v1.0 passkey export** — Chrome `Web Data.webauthn_credentials` → CXF JSON
-- [ ] **Downloads migration** — Chrome `History.downloads` → Firefox `moz_annos`
-- [ ] **Browser snapshot `.fxport` bundle** + `restore` CLI subcommand
-- [ ] **Pocket / Pinboard / OPML bookmark input** via the manual-source tile
-- [ ] **Brave / Vivaldi / Edge as reverse target** (parameterize the Chromium write path)
+- [x] **Downloads migration** — Chromium `History.downloads` → portable CSV. Direct-write to Firefox `moz_annos` queued for v1.3.
+- [x] **Browser snapshot `.fxport` bundle** + `restore` CLI subcommand (plain or PBKDF2 + AES-256-GCM encrypted)
+- [x] **Pocket / Pinboard / OPML bookmark input** via `foxport/import_/` adapters (Netscape HTML too)
+- [x] **Brave / Vivaldi / Edge as reverse target** — `import_instructions` generalized; Chrome import CSV + Netscape HTML are universal across Chromium forks
 
 
 

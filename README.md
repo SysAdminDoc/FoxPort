@@ -294,6 +294,12 @@ The output folder is configurable in the UI.
 
 ---
 
+## Environment overrides
+
+- `FOXPORT_NSS_PATH` — absolute path to a Firefox `nss3.dll` /
+  `libnss3.dylib` / `libnss3.so`. Lets NSS direct-write target portable
+  Firefox installs that aren't in the standard search paths.
+
 ## Security notes
 
 - **Local-only.** Decryption happens on your machine; the only network call is an optional AMO lookup for extension names + GUIDs. Passwords never leave the box.

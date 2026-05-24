@@ -43,6 +43,7 @@ from foxport.migrate.bookmarks import migrate_bookmarks
 from foxport.migrate.cards import migrate_cards
 from foxport.migrate.cookies import migrate_cookies
 from foxport.migrate.extensions import migrate_extensions
+from foxport.migrate.downloads import migrate_downloads
 from foxport.migrate.history import migrate_history
 from foxport.migrate.open_tabs import migrate_open_tabs
 from foxport.migrate.passwords import migrate_passwords
@@ -54,7 +55,7 @@ from foxport.migrate_reverse.passwords import migrate_passwords_reverse
 
 ALL_ITEMS = (
     "passwords", "bookmarks", "extensions", "cookies", "history",
-    "autofill", "cards", "search_engines", "open_tabs",
+    "autofill", "cards", "search_engines", "open_tabs", "downloads",
 )
 
 REVERSE_ITEMS = ("passwords", "bookmarks", "extensions")
@@ -276,6 +277,13 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
         if not args.dry_run and r.tabs > 0:
             exports["open_tabs"] = r.out_path
 
+    if "downloads" in items:
+        print("\n[downloads]")
+        r = migrate_downloads(source, out_dir, dry_run=args.dry_run)
+        print(f"  {r.written} of {r.total} download(s) exported")
+        if not args.dry_run and r.written > 0:
+            exports["downloads"] = r.csv_path
+
     if exports:
         instructions_path = out_dir / "README.txt"
         instructions_path.write_text(
@@ -312,6 +320,25 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Skip AMO online lookup for unknown extensions")
     mig.add_argument("--hibp", action="store_true",
                      help="Check decrypted passwords against haveibeenpwned.com (k-anonymity API)")
+
+    snap = sub.add_parser("snapshot",
+                          help="Bundle a previous output folder into a portable .fxport archive")
+    snap.add_argument("--input-dir", required=True,
+                     help="Output folder produced by a previous `migrate` run")
+    snap.add_argument("--out", required=True, help="Path to write the .fxport file")
+    snap.add_argument("--source-label", default="(unknown)",
+                     help="Human label for the source profile (recorded in the manifest)")
+    snap.add_argument("--target-label", default="(unknown)",
+                     help="Human label for the target profile")
+    snap.add_argument("--passphrase", default="",
+                     help="If set, encrypt the bundle with PBKDF2 + AES-256-GCM")
+
+    restore = sub.add_parser("restore",
+                              help="Unpack a .fxport bundle back into a folder")
+    restore.add_argument("--snapshot", required=True, help="Path to the .fxport file")
+    restore.add_argument("--out-dir", required=True, help="Folder to write the unpacked artifacts to")
+    restore.add_argument("--passphrase", default="",
+                         help="Passphrase for encrypted bundles (omit for plain ones)")
 
     diff = sub.add_parser("diff",
                            help="Show what's in the source that the target doesn't have yet")
@@ -404,6 +431,45 @@ def _cmd_diff(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_snapshot(args: argparse.Namespace) -> int:
+    from foxport.snapshot import create_snapshot
+    in_dir = Path(args.input_dir)
+    out_path = Path(args.out)
+    if not in_dir.is_dir():
+        print(f"error: {in_dir} is not a directory", file=sys.stderr)
+        return 2
+    manifest = create_snapshot(
+        in_dir, out_path,
+        source_label=args.source_label,
+        target_label=args.target_label,
+        passphrase=args.passphrase or None,
+    )
+    print(f"Bundled {len(manifest.files)} file(s) into {out_path}")
+    print(f"  Source: {manifest.source_label}")
+    print(f"  Target: {manifest.target_label}")
+    print(f"  Encrypted: {manifest.encrypted}")
+    return 0
+
+
+def _cmd_restore(args: argparse.Namespace) -> int:
+    from foxport.snapshot import restore_snapshot
+    bundle = Path(args.snapshot)
+    out_dir = Path(args.out_dir)
+    if not bundle.is_file():
+        print(f"error: {bundle} not found", file=sys.stderr)
+        return 2
+    try:
+        manifest = restore_snapshot(bundle, out_dir, passphrase=args.passphrase or None)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(f"Restored {len(manifest.files)} file(s) into {out_dir}")
+    print(f"  Source: {manifest.source_label}")
+    print(f"  Target: {manifest.target_label}")
+    print(f"  Created: {manifest.created_iso}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -415,6 +481,10 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_migrate_reverse(args)
     if args.command == "diff":
         return _cmd_diff(args)
+    if args.command == "snapshot":
+        return _cmd_snapshot(args)
+    if args.command == "restore":
+        return _cmd_restore(args)
     parser.error("no command")
     return 2
 

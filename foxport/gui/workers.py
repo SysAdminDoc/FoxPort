@@ -20,6 +20,7 @@ from foxport.migrate.autofill import migrate_autofill
 from foxport.migrate.bookmarks import migrate_bookmarks
 from foxport.migrate.cards import migrate_cards
 from foxport.migrate.cookies import migrate_cookies
+from foxport.migrate.downloads import migrate_downloads
 from foxport.migrate.extensions import migrate_extensions
 from foxport.migrate.history import migrate_history
 from foxport.migrate.nss_cookies import write_cookies_into_target
@@ -52,6 +53,7 @@ class MigrationRequest:
     do_cards: bool = False
     do_search_engines: bool = False
     do_open_tabs: bool = False
+    do_downloads: bool = False
     extensions_online: bool = True
     dry_run: bool = False
     password_include_keys: set[str] | None = None
@@ -103,7 +105,7 @@ class MigrationWorker(QObject):
             req.do_passwords, req.do_bookmarks, req.do_extensions,
             req.do_cookies, req.do_history,
             req.do_autofill, req.do_cards, req.do_search_engines,
-            req.do_open_tabs,
+            req.do_open_tabs, req.do_downloads,
         ]) or 1
         target_label = req.target.label if req.target else "firefox"
         if req.dry_run:
@@ -332,6 +334,18 @@ class MigrationWorker(QObject):
                 self.log.emit(
                     f"  {se_result.written} OpenSearch XML files written, "
                     f"{se_result.total} total entries."
+                )
+
+            if req.do_downloads:
+                current += 1
+                self.step.emit(current, steps)
+                self.log.emit("Exporting downloads...")
+                dl_result = migrate_downloads(req.source, out_dir, dry_run=req.dry_run)
+                if not req.dry_run and dl_result.written > 0:
+                    exports["downloads"] = dl_result.csv_path
+                self.log.emit(
+                    f"  {dl_result.written} download(s) written of "
+                    f"{dl_result.total} total."
                 )
 
             if req.do_open_tabs:

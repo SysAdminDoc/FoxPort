@@ -57,9 +57,15 @@ def make_export_dir(parent: Path, source_label: str, target_label: str) -> Path:
     return out
 
 
-def import_instructions(profile: FirefoxProfile | None, exports: dict[str, Path]) -> str:
-    """Build a human-readable instruction sheet for the produced exports."""
-    target = profile.label if profile else "your Firefox-family browser"
+def import_instructions(profile, exports: dict[str, Path]) -> str:
+    """Build a human-readable instruction sheet for the produced exports.
+
+    ``profile`` may be a :class:`FirefoxProfile` (forward direction) or a
+    :class:`ChromiumProfile` (reverse direction). The text is identical in
+    structure; the destination-tool wording is generic enough to apply to
+    both Firefox-family and Chromium-family targets.
+    """
+    target = profile.label if profile else "your destination browser"
     lines: list[str] = [
         f"FoxPort — migration files ready for {target}",
         "=" * 64,

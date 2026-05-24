@@ -75,6 +75,7 @@ class MigrationContext:
         self.do_cards: bool = False
         self.do_search_engines: bool = False
         self.do_open_tabs: bool = False
+        self.do_downloads: bool = False
         self.extensions_online: bool = True
         self.dry_run: bool = False
         self.direct_write_passwords: bool = False
@@ -498,6 +499,9 @@ class ItemsPage(WizardPage):
         self._open_tabs_row = self._make_row("Open tabs",
             "Recover the URL list from Chromium's latest session and emit a Firefox recovery.jsonlz4.",
             default_checked=False)
+        self._downloads_row = self._make_row("Downloads (CSV)",
+            "Export Chromium's downloads history (source URL, target path, completion time) as CSV.",
+            default_checked=False)
         card_layout.addWidget(self._passwords_row[0])
         card_layout.addWidget(self._bookmarks_row[0])
         card_layout.addWidget(self._extensions_row[0])
@@ -507,6 +511,7 @@ class ItemsPage(WizardPage):
         card_layout.addWidget(self._cards_row[0])
         card_layout.addWidget(self._search_engines_row[0])
         card_layout.addWidget(self._open_tabs_row[0])
+        card_layout.addWidget(self._downloads_row[0])
         self.add_content(card)
 
         # Online lookup checkbox
@@ -617,6 +622,7 @@ class ItemsPage(WizardPage):
         self._ctx.do_cards = self._cards_row[1].isChecked()
         self._ctx.do_search_engines = self._search_engines_row[1].isChecked()
         self._ctx.do_open_tabs = self._open_tabs_row[1].isChecked()
+        self._ctx.do_downloads = self._downloads_row[1].isChecked()
         self._ctx.extensions_online = self._online_cb.isChecked()
         self._ctx.dry_run = self._dry_cb.isChecked()
         self._ctx.direct_write_passwords = self._direct_cb.isChecked()
@@ -651,6 +657,7 @@ class ItemsPage(WizardPage):
             self._cards_row[1].isChecked(),
             self._search_engines_row[1].isChecked(),
             self._open_tabs_row[1].isChecked(),
+            self._downloads_row[1].isChecked(),
         ])
 
     def apply_context_defaults(self) -> None:
@@ -669,7 +676,8 @@ class ItemsPage(WizardPage):
         reverse = self._ctx.direction == MigrationContext.DIRECTION_REVERSE
         # Categories without a reverse implementation get disabled + unchecked.
         for row in (self._cookies_row, self._history_row, self._autofill_row,
-                    self._cards_row, self._search_engines_row, self._open_tabs_row):
+                    self._cards_row, self._search_engines_row, self._open_tabs_row,
+                    self._downloads_row):
             if reverse:
                 row[1].setChecked(False)
                 row[1].setEnabled(False)
