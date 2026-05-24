@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import shutil
 import sqlite3
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -162,7 +163,10 @@ def _iter_decrypted_cookies(
         conn = sqlite3.connect(str(copy))
         try:
             db_version = _read_meta_version(conn)
-            strip_host_key_prefix = db_version >= 24
+            # Chrome 130+ prepends SHA-256(host_key) to the AES-GCM plaintext.
+            # That only applies to the Windows GCM path; macOS/Linux CBC blobs
+            # don't carry it, and stripping would chew real cookie bytes.
+            strip_host_key_prefix = db_version >= 24 and sys.platform == "win32"
             cur = conn.execute(
                 "SELECT creation_utc, host_key, name, value, encrypted_value, path, "
                 "expires_utc, is_secure, is_httponly, last_access_utc, "

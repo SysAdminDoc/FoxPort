@@ -4,6 +4,51 @@ All notable changes to FoxPort are documented here. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/), versioning per
 [SemVer](https://semver.org/).
 
+## [0.5.0] — 2026-05-23
+
+Cross-platform — macOS and Linux support across detection, decryption,
+and NSS write-back.
+
+### Added
+- **macOS browser detection** — `_CHROMIUM_SPECS_MAC` covers Chrome stable
+  / Beta / Canary, Chromium, Brave (3 channels), Edge (3 channels),
+  Vivaldi, Opera + GX (flat layout under `com.operasoftware.*`), Yandex,
+  Arc, Thorium. Firefox-family detection uses `~/Library/Application
+  Support/<vendor>/profiles.ini`.
+- **Linux browser detection** — `_CHROMIUM_SPECS_LINUX` covers the same
+  set under `$XDG_CONFIG_HOME` (or `~/.config`). Firefox-family detection
+  walks per-vendor dotfiles (`~/.mozilla/firefox`, `~/.librewolf`,
+  `~/.waterfox`, `~/.floorp`, `~/.zen`, etc.).
+- **Cross-platform master-key recovery** (`crypto/keychain.py`) —
+  - macOS: `security find-generic-password -w -s "<Browser> Safe Storage"`
+    → PBKDF2-SHA1 with `salt="saltysalt"`, 1003 iterations, 16-byte key.
+  - Linux: `secret-tool` → `kwallet-query` / `kwallet5-query` →
+    `"peanuts"` plaintext fallback → PBKDF2-SHA1 with 1 iteration.
+  - All paths return an AES-128 key; cookies/passwords on these platforms
+    use AES-128-CBC of `v10`-prefixed blobs (PKCS7-padded, IV = sixteen
+    spaces). `decrypt_value()` branches on key length.
+- **NSS auto-detection on macOS/Linux** (`crypto/nss.py`) — covers
+  `/Applications/<Browser>.app/Contents/MacOS/libnss3.dylib` and
+  `/usr/lib*/libnss3.so` plus Flatpak/Snap paths.
+- **Cross-platform process detection** (`is_chromium_running`) — uses
+  `ps -axo comm=` on Linux/macOS, `tasklist /FO CSV /NH` on Windows.
+
+### Changed
+- `ChromiumKey` now accepts 16-byte (AES-128, macOS/Linux v10) or 32-byte
+  (AES-256, Windows v10/v11/v20) keys.
+- `migrate_cookies` only strips the 32-byte HOST_KEY prefix on Windows
+  (the Chrome 130+ behavior only applies to the GCM path).
+- `_chromium_base()` and `_firefox_base()` consolidate per-platform root
+  selection so the rest of the detection code stays platform-agnostic.
+- Platform badge in README updated to Windows | macOS | Linux.
+
+### Notes
+- The ABE sidecar remains Windows-only (it's a COM consumer of the per-
+  browser `IElevator` interface). macOS and Linux Chrome don't currently
+  ship an equivalent ABE layer for the cookie/password store.
+- LibreWolf is the same shape as Firefox on every platform — no special
+  cases needed.
+
 ## [0.4.0] — 2026-05-23
 
 CLI mode, per-row filtering, and NSS direct-write password import.

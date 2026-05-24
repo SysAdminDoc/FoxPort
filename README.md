@@ -1,13 +1,32 @@
 # FoxPort
 
-[![version](https://img.shields.io/badge/version-0.4.0-f5c2e7?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-0.5.0-f5c2e7?style=flat-square)](CHANGELOG.md)
 [![license](https://img.shields.io/badge/license-MIT-89b4fa?style=flat-square)](LICENSE)
-[![platform](https://img.shields.io/badge/platform-Windows-cdd6f4?style=flat-square)](#)
+[![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-cdd6f4?style=flat-square)](#)
 [![python](https://img.shields.io/badge/python-3.11%2B-a6e3a1?style=flat-square)](https://www.python.org/)
 
 **Port Chromium browsers to Firefox.** FoxPort scans your installed Chromium-family browsers (Chrome, Brave, Edge, Vivaldi, Opera, Arc, Thorium, Yandex, ...), decrypts your saved passwords, packages up your bookmarks, and maps your Chrome extensions to their Firefox equivalents on addons.mozilla.org — all in one click.
 
 The source browser is never modified. FoxPort writes Firefox-native import files into an output folder; you import them through the target browser's normal UI.
+
+## What's new in v0.5.0
+
+- **macOS support** — Chromium-family profiles under
+  `~/Library/Application Support/<vendor>`, Firefox-family profiles under
+  `~/Library/Application Support/<vendor>/profiles.ini`. Master keys
+  recovered from the Keychain (`security find-generic-password -s
+  "<Browser> Safe Storage"`) + PBKDF2-SHA1 with 1003 iterations,
+  AES-128-CBC decrypt for `v10` blobs.
+- **Linux support** — Chromium-family profiles under `~/.config/<vendor>`
+  (or `$XDG_CONFIG_HOME`), Firefox-family under `~/.mozilla/firefox/`,
+  `~/.librewolf/`, `~/.floorp/`, `~/.waterfox/`, `~/.zen/`, etc. Master
+  key recovered via `secret-tool` → `kwallet-query` → `"peanuts"`
+  plaintext fallback, PBKDF2-SHA1 with 1 iteration. NSS lookup covers
+  `/usr/lib/firefox/libnss3.so`, distro-package locations, Flatpak, Snap.
+- **Browser-running detection** is now Linux/macOS-aware (`ps -axo comm=`
+  instead of `tasklist`).
+- All five migration paths (passwords, bookmarks, extensions, cookies,
+  history) work identically across all three platforms.
 
 ## What's new in v0.4.0
 

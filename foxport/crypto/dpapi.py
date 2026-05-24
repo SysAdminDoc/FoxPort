@@ -32,13 +32,20 @@ class AppBoundEncryptionError(DecryptionError):
 
 @dataclass(frozen=True)
 class ChromiumKey:
-    """Decrypted AES-256 master key extracted from ``Local State``."""
+    """Decrypted master key extracted from ``Local State`` (Windows) or
+    derived from the platform keychain (macOS / Linux).
+
+    Length depends on platform: Windows uses AES-256 (32 bytes), while
+    macOS and Linux use AES-128 (16 bytes). The :func:`decrypt_value`
+    function branches on blob prefix and key length to call the right
+    cipher.
+    """
 
     key: bytes
 
     def __post_init__(self) -> None:
-        if len(self.key) != 32:
-            raise DecryptionError(f"expected 32-byte AES key, got {len(self.key)}")
+        if len(self.key) not in (16, 32):
+            raise DecryptionError(f"expected 16- or 32-byte AES key, got {len(self.key)}")
 
 
 @dataclass(frozen=True)
@@ -97,14 +104,32 @@ def load_master_key(
     browser_display: str | None = None,
     try_abe: bool = True,
 ) -> ChromiumKey:
-    """Extract and decrypt the AES master key from a Chromium ``Local State`` file.
+    """Extract / derive the master AES key for this Chromium profile.
 
-    When the profile has only the App-Bound Encryption key (Chrome 127+) and
-    ``try_abe`` is set, FoxPort calls the bundled ``foxport_abe.exe`` sidecar
-    to recover the key. If the sidecar isn't bundled, an
-    :class:`AppBoundEncryptionError` is raised that the GUI can surface
-    cleanly without aborting the rest of the migration.
+    Dispatches by platform:
+
+    * **Windows** — DPAPI unwrap of ``os_crypt.encrypted_key``, falling back
+      to the ABE sidecar when only the App-Bound key is present.
+    * **macOS** — Keychain item lookup + PBKDF2-SHA1 (1003 iterations).
+    * **Linux** — libsecret / kwallet / "peanuts" fallback + PBKDF2-SHA1
+      (1 iteration).
     """
+    display = browser_display or "Google Chrome"
+    if sys.platform == "darwin":
+        from foxport.crypto.keychain import KeychainError, load_master_key_macos
+        try:
+            v10 = load_master_key_macos(display)
+        except KeychainError as exc:
+            raise DecryptionError(str(exc)) from exc
+        return ChromiumKey(key=v10.key)
+    if sys.platform.startswith("linux"):
+        from foxport.crypto.keychain import KeychainError, load_master_key_linux
+        try:
+            v10 = load_master_key_linux(display)
+        except KeychainError as exc:
+            raise DecryptionError(str(exc)) from exc
+        return ChromiumKey(key=v10.key)
+
     info = inspect_local_state(local_state_path)
     if info.has_classic_key:
         wrapped = base64.b64decode(info.encrypted_key_b64 or "")
@@ -139,12 +164,20 @@ def decrypt_value(blob: bytes, master: ChromiumKey) -> str:
     """Decrypt a single Chromium-encrypted value (password, cookie, etc.).
 
     Returns the decoded UTF-8 string. Raises :class:`DecryptionError` on failure.
-    Handles both modern (v10/v11 AES-GCM) and legacy (raw DPAPI) blobs.
+    Handles three blob formats:
+
+    * **v10/v11 AES-GCM** with a 32-byte key (Windows Chromium 80+)
+    * **v10 AES-128-CBC** with a 16-byte key (macOS/Linux Chromium 80+)
+    * **Raw DPAPI UTF-16LE** (pre-Chromium 80, Windows only)
     """
     if not blob:
         return ""
     prefix = blob[:3]
     if prefix in (b"v10", b"v11"):
+        # 16-byte key => macOS/Linux CBC path; 32-byte key => Windows GCM path.
+        if len(master.key) == 16:
+            from foxport.crypto.keychain import ChromiumKeyV10, decrypt_value_v10
+            return decrypt_value_v10(blob, ChromiumKeyV10(key=master.key))
         nonce = blob[3:15]
         ct_and_tag = blob[15:]
         aes = AESGCM(master.key)
@@ -153,7 +186,7 @@ def decrypt_value(blob: bytes, master: ChromiumKey) -> str:
         except Exception as exc:
             raise DecryptionError(f"AES-GCM decrypt failed: {exc}") from exc
         return plaintext.decode("utf-8", errors="replace")
-    # Pre-Chromium 80: raw DPAPI-encrypted UTF-16LE string
+    # Pre-Chromium 80: raw DPAPI-encrypted UTF-16LE string (Windows only).
     try:
         plaintext = _dpapi_unprotect(blob)
     except DecryptionError:

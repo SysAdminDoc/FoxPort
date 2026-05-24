@@ -75,8 +75,8 @@ class NSSLibrary:
     install_path: Path
 
 
-# Where Firefox-family browsers typically install nss3.dll on Windows.
-_NSS_SEARCH_GLOBS = [
+# Per-platform NSS shared-library names + install search paths.
+_NSS_SEARCH_WIN = [
     r"C:\Program Files\Mozilla Firefox\nss3.dll",
     r"C:\Program Files (x86)\Mozilla Firefox\nss3.dll",
     r"C:\Program Files\Firefox Nightly\nss3.dll",
@@ -88,12 +88,39 @@ _NSS_SEARCH_GLOBS = [
     r"C:\Program Files\Zen Browser\nss3.dll",
 ]
 
+_NSS_SEARCH_MAC = [
+    "/Applications/Firefox.app/Contents/MacOS/libnss3.dylib",
+    "/Applications/Firefox Nightly.app/Contents/MacOS/libnss3.dylib",
+    "/Applications/Firefox ESR.app/Contents/MacOS/libnss3.dylib",
+    "/Applications/LibreWolf.app/Contents/MacOS/libnss3.dylib",
+    "/Applications/Waterfox.app/Contents/MacOS/libnss3.dylib",
+    "/Applications/Floorp.app/Contents/MacOS/libnss3.dylib",
+    "/Applications/Mullvad Browser.app/Contents/MacOS/libnss3.dylib",
+    "/Applications/Zen Browser.app/Contents/MacOS/libnss3.dylib",
+]
+
+_NSS_SEARCH_LINUX = [
+    "/usr/lib/firefox/libnss3.so",
+    "/usr/lib64/firefox/libnss3.so",
+    "/usr/lib/x86_64-linux-gnu/libnss3.so",
+    "/usr/lib/librewolf/libnss3.so",
+    "/usr/lib/waterfox/libnss3.so",
+    "/opt/firefox/libnss3.so",
+    "/snap/firefox/current/usr/lib/firefox/libnss3.so",
+    "/var/lib/flatpak/app/org.mozilla.firefox/current/active/files/lib/firefox/libnss3.so",
+]
+
 
 def find_nss() -> Path | None:
-    """Return the first Firefox-shipped ``nss3.dll`` we can find, or None."""
-    if sys.platform != "win32":
+    """Return the first Firefox-shipped NSS library we can find, or None."""
+    if sys.platform == "win32":
+        candidates: list[str] = list(_NSS_SEARCH_WIN)
+    elif sys.platform == "darwin":
+        candidates = list(_NSS_SEARCH_MAC)
+    elif sys.platform.startswith("linux"):
+        candidates = list(_NSS_SEARCH_LINUX)
+    else:
         return None
-    candidates: list[str] = list(_NSS_SEARCH_GLOBS)
     # Allow override via env var for advanced users / portable installs.
     override = os.environ.get("FOXPORT_NSS_PATH")
     if override:

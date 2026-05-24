@@ -63,11 +63,11 @@ ideas from the bottom of the file as scope firms up.
 - [ ] Cookies direct-write via NSS (use OPgp-equivalent path for cookies)
 - [ ] History direct-write to a live (closed) profile's places.sqlite
 
-## v0.5.0 — Cross-platform
-- [ ] macOS Chromium support — Keychain unwrap of the AES key
-- [ ] Linux Chromium support — gnome-keyring / kwallet / plain-text fallback
-- [ ] macOS Firefox profile detection (`~/Library/Application Support/Firefox`)
-- [ ] Linux Firefox profile detection (`~/.mozilla/firefox`)
+## v0.5.0 — Cross-platform  ✅ shipped 2026-05-23
+- [x] macOS Chromium support — Keychain unwrap of the AES key
+- [x] Linux Chromium support — gnome-keyring / kwallet / plain-text fallback
+- [x] macOS Firefox profile detection (`~/Library/Application Support/Firefox`)
+- [x] Linux Firefox profile detection (`~/.mozilla/firefox` + per-vendor dotfiles)
 
 ## v0.6.0 — Additional data types
 - [ ] **Open tabs** — Chromium session storage → Firefox `recovery.jsonlz4`

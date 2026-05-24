@@ -74,16 +74,22 @@ class FirefoxProfile:
 
 @dataclass(frozen=True)
 class _BrowserSpec:
-    """How to find a particular Chromium-family browser on disk."""
+    """How to find a particular Chromium-family browser on disk.
+
+    ``base`` semantics by platform:
+      Windows: "local" = %LOCALAPPDATA%, "roaming" = %APPDATA%
+      macOS:   "local" / "roaming" both map to ~/Library/Application Support
+      Linux:   "local" / "roaming" both map to ~/.config
+    """
 
     rel_path: str
     layout: str = "profile"     # "profile" for Default/Profile N, "flat" for Opera
-    base: str = "local"         # "local" = %LOCALAPPDATA%, "roaming" = %APPDATA%
+    base: str = "local"
     processes: tuple[str, ...] = ()
 
 
-# Map display name -> spec.
-_CHROMIUM_SPECS: dict[str, _BrowserSpec] = {
+# Windows registry — most common case.
+_CHROMIUM_SPECS_WIN: dict[str, _BrowserSpec] = {
     "Google Chrome":       _BrowserSpec(r"Google\Chrome\User Data",                   processes=("chrome.exe",)),
     "Google Chrome Beta":  _BrowserSpec(r"Google\Chrome Beta\User Data",              processes=("chrome.exe",)),
     "Google Chrome Canary": _BrowserSpec(r"Google\Chrome SxS\User Data",              processes=("chrome.exe",)),
@@ -102,7 +108,55 @@ _CHROMIUM_SPECS: dict[str, _BrowserSpec] = {
     "Thorium":             _BrowserSpec(r"Thorium\User Data",                         processes=("thorium.exe", "chrome.exe")),
 }
 
-_FIREFOX_PROFILES_ROOT: dict[str, str] = {
+# macOS — paths are relative to ~/Library/Application Support
+_CHROMIUM_SPECS_MAC: dict[str, _BrowserSpec] = {
+    "Google Chrome":        _BrowserSpec("Google/Chrome",            processes=("Google Chrome",)),
+    "Google Chrome Beta":   _BrowserSpec("Google/Chrome Beta",       processes=("Google Chrome Beta",)),
+    "Google Chrome Canary": _BrowserSpec("Google/Chrome Canary",     processes=("Google Chrome Canary",)),
+    "Chromium":             _BrowserSpec("Chromium",                 processes=("Chromium",)),
+    "Brave":                _BrowserSpec("BraveSoftware/Brave-Browser",         processes=("Brave Browser",)),
+    "Brave Beta":           _BrowserSpec("BraveSoftware/Brave-Browser-Beta",    processes=("Brave Browser Beta",)),
+    "Brave Nightly":        _BrowserSpec("BraveSoftware/Brave-Browser-Nightly", processes=("Brave Browser Nightly",)),
+    "Microsoft Edge":       _BrowserSpec("Microsoft Edge",           processes=("Microsoft Edge",)),
+    "Microsoft Edge Beta":  _BrowserSpec("Microsoft Edge Beta",      processes=("Microsoft Edge Beta",)),
+    "Microsoft Edge Dev":   _BrowserSpec("Microsoft Edge Dev",       processes=("Microsoft Edge Dev",)),
+    "Vivaldi":              _BrowserSpec("Vivaldi",                  processes=("Vivaldi",)),
+    "Opera":                _BrowserSpec("com.operasoftware.Opera",            layout="flat", processes=("Opera",)),
+    "Opera GX":             _BrowserSpec("com.operasoftware.OperaGX",          layout="flat", processes=("Opera GX",)),
+    "Yandex":               _BrowserSpec("Yandex/YandexBrowser",     processes=("Yandex",)),
+    "Arc":                  _BrowserSpec("Arc/User Data",            processes=("Arc",)),
+    "Thorium":              _BrowserSpec("Thorium",                  processes=("Thorium",)),
+}
+
+# Linux — paths are relative to ~/.config
+_CHROMIUM_SPECS_LINUX: dict[str, _BrowserSpec] = {
+    "Google Chrome":        _BrowserSpec("google-chrome",            processes=("chrome", "google-chrome")),
+    "Google Chrome Beta":   _BrowserSpec("google-chrome-beta",       processes=("chrome",)),
+    "Google Chrome Canary": _BrowserSpec("google-chrome-unstable",   processes=("chrome",)),
+    "Chromium":             _BrowserSpec("chromium",                 processes=("chromium", "chromium-browser")),
+    "Brave":                _BrowserSpec("BraveSoftware/Brave-Browser",         processes=("brave",)),
+    "Brave Beta":           _BrowserSpec("BraveSoftware/Brave-Browser-Beta",    processes=("brave",)),
+    "Brave Nightly":        _BrowserSpec("BraveSoftware/Brave-Browser-Nightly", processes=("brave",)),
+    "Microsoft Edge":       _BrowserSpec("microsoft-edge",           processes=("msedge", "microsoft-edge")),
+    "Microsoft Edge Beta":  _BrowserSpec("microsoft-edge-beta",      processes=("msedge",)),
+    "Microsoft Edge Dev":   _BrowserSpec("microsoft-edge-dev",       processes=("msedge",)),
+    "Vivaldi":              _BrowserSpec("vivaldi",                  processes=("vivaldi",)),
+    "Opera":                _BrowserSpec("opera",                    layout="flat", processes=("opera",)),
+    "Opera GX":             _BrowserSpec("opera-gx",                 layout="flat", processes=("opera",)),
+    "Yandex":               _BrowserSpec("yandex-browser",           processes=("yandex_browser",)),
+    "Thorium":              _BrowserSpec("thorium",                  processes=("thorium",)),
+}
+
+# Picked at import-time so the rest of the module can stay platform-agnostic.
+if sys.platform == "darwin":
+    _CHROMIUM_SPECS: dict[str, _BrowserSpec] = _CHROMIUM_SPECS_MAC
+elif sys.platform.startswith("linux"):
+    _CHROMIUM_SPECS = _CHROMIUM_SPECS_LINUX
+else:
+    _CHROMIUM_SPECS = _CHROMIUM_SPECS_WIN
+
+
+_FIREFOX_PROFILES_ROOT_WIN: dict[str, str] = {
     "Firefox":         r"Mozilla\Firefox",
     "Firefox Nightly": r"Mozilla\Firefox",
     "Firefox ESR":     r"Mozilla\Firefox",
@@ -112,6 +166,54 @@ _FIREFOX_PROFILES_ROOT: dict[str, str] = {
     "Mullvad Browser": r"Mullvad\MullvadBrowser",
     "Zen Browser":     r"zen",
 }
+
+_FIREFOX_PROFILES_ROOT_MAC: dict[str, str] = {
+    "Firefox":         "Firefox",
+    "Firefox Nightly": "Firefox",
+    "Firefox ESR":     "Firefox",
+    "LibreWolf":       "LibreWolf",
+    "Waterfox":        "Waterfox",
+    "Floorp":          "Floorp",
+    "Mullvad Browser": "MullvadBrowser",
+    "Zen Browser":     "zen",
+}
+
+_FIREFOX_PROFILES_ROOT_LINUX: dict[str, str] = {
+    "Firefox":         ".mozilla/firefox",
+    "Firefox Nightly": ".mozilla/firefox",
+    "Firefox ESR":     ".mozilla/firefox",
+    "LibreWolf":       ".librewolf",
+    "Waterfox":        ".waterfox",
+    "Floorp":          ".floorp",
+    "Mullvad Browser": ".mullvad/MullvadBrowser",
+    "Zen Browser":     ".zen",
+}
+
+if sys.platform == "darwin":
+    _FIREFOX_PROFILES_ROOT: dict[str, str] = _FIREFOX_PROFILES_ROOT_MAC
+elif sys.platform.startswith("linux"):
+    _FIREFOX_PROFILES_ROOT = _FIREFOX_PROFILES_ROOT_LINUX
+else:
+    _FIREFOX_PROFILES_ROOT = _FIREFOX_PROFILES_ROOT_WIN
+
+
+def _chromium_base() -> Path:
+    """Where Chromium-family browsers live on this platform."""
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support"
+    if sys.platform.startswith("linux"):
+        xdg = os.environ.get("XDG_CONFIG_HOME")
+        return Path(xdg) if xdg else Path.home() / ".config"
+    return _local_appdata()
+
+
+def _firefox_base() -> Path:
+    """Where Firefox-family browsers' ``profiles.ini`` lives on this platform."""
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support"
+    if sys.platform.startswith("linux"):
+        return Path.home()
+    return _appdata()
 
 
 def _local_appdata() -> Path:
@@ -140,10 +242,9 @@ def _enumerate_profile_subdirs(user_data: Path) -> list[str]:
 def detect_chromium() -> list[ChromiumProfile]:
     """Find every Chromium-family profile installed for the current user."""
     found: list[ChromiumProfile] = []
-    local = _local_appdata()
-    roaming = _appdata()
+    base = _chromium_base()
     for display, spec in _CHROMIUM_SPECS.items():
-        root = (roaming if spec.base == "roaming" else local) / spec.rel_path
+        root = base / spec.rel_path
         local_state = root / "Local State"
         if not local_state.is_file():
             continue
@@ -215,7 +316,7 @@ def _parse_profiles_ini(ini_path: Path, root: Path) -> list[FirefoxProfile]:
 
 def detect_firefox() -> list[FirefoxProfile]:
     found: list[FirefoxProfile] = []
-    base = _appdata()
+    base = _firefox_base()
     seen: set[Path] = set()
     for display, rel in _FIREFOX_PROFILES_ROOT.items():
         root = base / rel
@@ -241,9 +342,9 @@ def detect_firefox() -> list[FirefoxProfile]:
 def is_chromium_running(profile: ChromiumProfile) -> bool:
     """True if the source browser appears to be running.
 
-    Two signals: (a) any of the browser's known exe names show up in the
-    current process list (tasklist on Windows), or (b) a SingletonLock /
-    SingletonCookie sits in the user-data directory.
+    Three signals, in order: SingletonLock/SingletonCookie sentinel files
+    in the user-data dir, the platform's process list, and (Unix only) a
+    symlink-style SingletonLock that points at hostname/pid.
     """
     if (profile.user_data_dir / "SingletonLock").exists():
         return True
@@ -251,18 +352,20 @@ def is_chromium_running(profile: ChromiumProfile) -> bool:
         return True
     if not profile.process_names:
         return False
-    if sys.platform != "win32":
-        return False
+    import subprocess
+    kwargs: dict = {
+        "capture_output": True,
+        "text": True,
+        "timeout": 4,
+    }
+    if sys.platform == "win32":
+        cmd = ["tasklist", "/FO", "CSV", "/NH"]
+        kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+    else:
+        # `pgrep -af` would be cleaner but isn't on every distro; `ps -ax` is universal.
+        cmd = ["ps", "-axo", "comm="]
     try:
-        import subprocess
-        # tasklist /FO CSV is fast and parsable; one call covers all exe names.
-        completed = subprocess.run(
-            ["tasklist", "/FO", "CSV", "/NH"],
-            capture_output=True,
-            text=True,
-            timeout=4,
-            creationflags=0x08000000,  # CREATE_NO_WINDOW
-        )
+        completed = subprocess.run(cmd, **kwargs)
     except (OSError, subprocess.TimeoutExpired):
         return False
     if completed.returncode != 0:
