@@ -205,7 +205,7 @@ QCheckBox::indicator:hover {{ border-color: {ACCENT2}; }}
 QCheckBox::indicator:checked {{
     background-color: {ACCENT2};
     border-color: {ACCENT2};
-    image: none;
+    image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M2.5 6.5 L5 9 L9.5 3' stroke='%2311111b' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
 }}
 QPushButton {{
     background-color: {SURFACE0};

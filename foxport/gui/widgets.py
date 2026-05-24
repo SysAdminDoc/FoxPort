@@ -24,11 +24,12 @@ class StepRail(QFrame):
         self.setObjectName("StepRail")
         self.setFixedWidth(220)
         self._labels: list[QLabel] = []
+        self._names: list[str] = list(step_names)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 18, 0, 18)
         layout.setSpacing(2)
         for i, name in enumerate(step_names, start=1):
-            label = QLabel(f"  {i}.  {name}")
+            label = QLabel("")
             label.setObjectName("StepRailItem")
             self._labels.append(label)
             layout.addWidget(label)
@@ -39,26 +40,23 @@ class StepRail(QFrame):
         self.set_current(0)
 
     def set_current(self, index: int) -> None:
+        # Rebuild label text from the original name list each time so the
+        # checkmark doesn't accumulate (and we don't have to parse our own
+        # display string back out).
         for i, label in enumerate(self._labels):
+            base = f"  {i + 1}.  {self._names[i]}"
             if i < index:
                 label.setProperty("active", False)
                 label.setProperty("completed", True)
-                label.setText(f"  {i + 1}.  {label.text().lstrip().split('.', 1)[-1].strip()}  ✓")
+                label.setText(f"{base}  ✓")
             elif i == index:
                 label.setProperty("active", True)
                 label.setProperty("completed", False)
-                text = label.text()
-                if text.endswith("  ✓"):
-                    text = text[:-3]
-                label.setText(text)
+                label.setText(base)
             else:
                 label.setProperty("active", False)
                 label.setProperty("completed", False)
-                text = label.text()
-                if text.endswith("  ✓"):
-                    text = text[:-3]
-                label.setText(text)
-            # Re-polish so the dynamic stylesheet properties take effect.
+                label.setText(base)
             label.style().unpolish(label)
             label.style().polish(label)
 

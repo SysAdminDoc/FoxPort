@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 280" role="img" aria-label="FoxPort">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1e1e2e"/>
+      <stop offset="1" stop-color="#181825"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f5c2e7"/>
+      <stop offset="0.55" stop-color="#cba6f7"/>
+      <stop offset="1" stop-color="#89b4fa"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="280" rx="16" fill="url(#bg)"/>
+  <rect x="40" y="40" width="6" height="200" rx="3" fill="url(#accent)"/>
+  <text x="74" y="138" font-family="'Segoe UI', 'Inter', system-ui, sans-serif"
+        font-size="84" font-weight="800" fill="#cdd6f4">FoxPort</text>
+  <text x="78" y="186" font-family="'Segoe UI', 'Inter', system-ui, sans-serif"
+        font-size="22" font-weight="500" fill="#a6adc8">
+    Migrate passwords, bookmarks, extensions, cookies, history,
+  </text>
+  <text x="78" y="216" font-family="'Segoe UI', 'Inter', system-ui, sans-serif"
+        font-size="22" font-weight="500" fill="#a6adc8">
+    autofill, cards, and search engines — Chromium ↔ Firefox.
+  </text>
+  <g transform="translate(960, 100)">
+    <circle cx="0" cy="0" r="58" fill="none" stroke="#313244" stroke-width="6"/>
+    <text x="0" y="6" font-family="'Segoe UI', system-ui, sans-serif"
+          font-size="22" font-weight="700" fill="#a6e3a1" text-anchor="middle">v1.0.0</text>
+    <text x="0" y="32" font-family="'Segoe UI', system-ui, sans-serif"
+          font-size="13" font-weight="500" fill="#bac2de" text-anchor="middle">stable</text>
+  </g>
+  <g transform="translate(960, 200)" font-family="'Cascadia Code', monospace" font-size="12" fill="#6c7086">
+    <text x="0" y="0" text-anchor="middle">Windows · macOS · Linux</text>
+  </g>
+</svg>

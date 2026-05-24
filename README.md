@@ -1,13 +1,35 @@
+<p align="center">
+  <img src="assets/banner.svg" alt="FoxPort — Chromium ↔ Firefox migration" width="100%"/>
+</p>
+
 # FoxPort
 
 [![version](https://img.shields.io/badge/version-1.0.0-f5c2e7?style=flat-square)](CHANGELOG.md)
 [![license](https://img.shields.io/badge/license-MIT-89b4fa?style=flat-square)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-cdd6f4?style=flat-square)](#)
 [![python](https://img.shields.io/badge/python-3.11%2B-a6e3a1?style=flat-square)](https://www.python.org/)
+[![CI](https://github.com/SysAdminDoc/FoxPort/actions/workflows/ci.yml/badge.svg)](https://github.com/SysAdminDoc/FoxPort/actions/workflows/ci.yml)
 
 **Port Chromium browsers to Firefox.** FoxPort scans your installed Chromium-family browsers (Chrome, Brave, Edge, Vivaldi, Opera, Arc, Thorium, Yandex, ...), decrypts your saved passwords, packages up your bookmarks, and maps your Chrome extensions to their Firefox equivalents on addons.mozilla.org — all in one click.
 
 The source browser is never modified. FoxPort writes Firefox-native import files into an output folder; you import them through the target browser's normal UI.
+
+## Screenshots
+
+The wizard walks through Source → Target → Items → Preview → Run/Done with a
+left-rail step indicator and Catppuccin Mocha dark theme:
+
+<p align="center">
+  <img src="assets/screenshots/1-source.png" alt="Source picker" width="49%"/>
+  <img src="assets/screenshots/2-target.png" alt="Target picker" width="49%"/>
+</p>
+<p align="center">
+  <img src="assets/screenshots/3-items.png" alt="Items step" width="49%"/>
+  <img src="assets/screenshots/4-preview.png" alt="Preview step" width="49%"/>
+</p>
+<p align="center">
+  <img src="assets/screenshots/5-run.png" alt="Run / done step" width="80%"/>
+</p>
 
 ## What's new in v1.0.0
 

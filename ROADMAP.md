@@ -92,12 +92,20 @@ ideas from the bottom of the file as scope firms up.
 - [x] AMO → CWS extension mapping (inverted curated + GUID table)
 - [ ] GUI direction toggle on the Source step — queued for v1.1.0
 
-## Distribution
-- [ ] PyInstaller --onedir bundle, signed Windows release artifact
-- [ ] GitHub Actions release workflow (`workflow_dispatch`, builds + uploads
-      `.zip`)
-- [ ] Logo / banner art
-- [ ] DPI-aware README screenshots of the wizard
+## Distribution  ✅ mostly shipped 2026-05-23
+- [x] PyInstaller --onedir bundle via `foxport.spec` (bundles
+      `foxport_abe.exe` when present)
+- [x] GitHub Actions release workflow (`workflow_dispatch`,
+      `.github/workflows/release.yml`) — builds the ABE sidecar with
+      MSVC v143, runs PyInstaller, zips, creates the GH release
+- [x] CI workflow (`.github/workflows/ci.yml`) — AST + import smoke +
+      CLI sanity on Windows/macOS/Linux × Python 3.11/3.12
+- [x] DPI-aware README screenshots via `scripts/capture_screenshots.py`
+- [x] SVG banner header at `assets/banner.svg`
+- [ ] Replace SVG banner with proper raster logo + favicon set
+      (needs ChatGPT image gen pass — not autonomously generatable)
+- [ ] Authenticode-sign the released ZIP and the ABE sidecar EXE
+      (needs a code-signing cert)
 
 ## Reach goals
 - [ ] Browser-profile diff viewer (what will be migrated vs. what already
