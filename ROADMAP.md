@@ -43,7 +43,7 @@ ideas from the bottom of the file as scope firms up.
 - [ ] Auto-update via WinSparkle / Sparkle
 - [ ] Run the release workflow end-to-end + publish the first signed binary
 - [ ] Raster logo + Windows EXE icon
-- [ ] Monthly curated-map auditor scheduled workflow
+- [x] Monthly curated-map auditor scheduled workflow — `.github/workflows/curated-map-audit.yml` (cron 1st of month + workflow_dispatch; files a GitHub issue on broken/disabled entries)
 - [x] Per-page screen-reader / keyboard navigation pass — `Tile` is keyboard-focusable, Space/Enter activate, accessibleName/Description set
 - [x] Docs: `docs/architecture.md`, `docs/file-formats.md`, `docs/troubleshooting.md`
 
