@@ -1,0 +1,66 @@
+# FoxPort .gitignore
+
+# AI agent working files (NEVER commit)
+CLAUDE.md
+CODEX_CHANGELOG.md
+.claude/
+.codex/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Runtime / Output
+*.log
+crash_*.log
+output/
+exports/
+*.csv
+*.html
+!data/*.html
+!data/*.csv
+
+# PyInstaller
+*.spec
+!foxport.spec
+build/
+dist/
+
+# Local config / secrets
+config.local.json
+.env
