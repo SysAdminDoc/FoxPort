@@ -154,7 +154,7 @@ class MigrationWorker(QObject):
                             f"  Wrote {nss_result.written} new login(s) into {nss_result.target_logins_json}; "
                             f"{nss_result.skipped_existing} already present, {nss_result.failed} failed."
                         )
-                        if nss_result.backup_file.exists():
+                        if nss_result.backup_file is not None:
                             self.log.emit(f"  Previous logins.json backed up to {nss_result.backup_file.name}")
                         # Also emit CSV alongside for safety/audit.
                 try:
@@ -260,10 +260,16 @@ class MigrationWorker(QObject):
                         except ProfileLockedError as exc:
                             self.log.emit(f"  Cookies direct-write aborted: {exc}")
                         else:
-                            self.log.emit(
-                                f"  Wrote cookies.sqlite into {cdw.target_path}; "
-                                f"previous backed up as {cdw.backup_path.name}"
-                            )
+                            if cdw.backup_path is not None:
+                                self.log.emit(
+                                    f"  Wrote cookies.sqlite into {cdw.target_path}; "
+                                    f"previous backed up as {cdw.backup_path.name}"
+                                )
+                            else:
+                                self.log.emit(
+                                    f"  Wrote cookies.sqlite into {cdw.target_path} "
+                                    "(no previous file to back up)"
+                                )
 
             if req.do_history:
                 current += 1
@@ -289,10 +295,20 @@ class MigrationWorker(QObject):
                     except ProfileLockedError as exc:
                         self.log.emit(f"  History direct-write aborted: {exc}")
                     else:
-                        favicons_note = " favicons.sqlite cleared" if hdw.favicons_deleted else ""
+                        if hdw.backup_path is not None:
+                            places_note = f"previous backed up as {hdw.backup_path.name}"
+                        else:
+                            places_note = "no previous places.sqlite to back up"
+                        if hdw.favicons_backup_path is not None:
+                            favicons_note = (
+                                f" favicons.sqlite moved aside to "
+                                f"{hdw.favicons_backup_path.name} (Firefox will rebuild)."
+                            )
+                        else:
+                            favicons_note = ""
                         self.log.emit(
                             f"  Wrote places.sqlite into {hdw.target_path}; "
-                            f"previous backed up as {hdw.backup_path.name}.{favicons_note}"
+                            f"{places_note}.{favicons_note}"
                         )
 
             if req.do_autofill:

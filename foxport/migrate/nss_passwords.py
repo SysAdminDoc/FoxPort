@@ -68,10 +68,14 @@ from foxport.migrate.passwords import (
 
 @dataclass
 class DirectWriteResult:
-    """Outcome of an NSS direct-write migration."""
+    """Outcome of an NSS direct-write migration.
+
+    Invariant: ``total >= written + skipped_existing + failed`` (rows with
+    empty plaintext are excluded from ``total`` upstream of this struct).
+    """
 
     target_logins_json: Path
-    backup_file: Path
+    backup_file: Path | None             # None when target had nothing to back up
     total: int
     written: int
     skipped_existing: int
@@ -83,26 +87,53 @@ class ProfileLockedError(RuntimeError):
     """The target profile is in use; bailing out before NSS gets confused."""
 
 
-def _existing_guids(logins_json: Path) -> tuple[dict, set[str]]:
-    """Read existing logins.json (if any) and return (parsed_dict, guid_set)."""
+class LoginsCorruptError(RuntimeError):
+    """The target's existing logins.json is unreadable / malformed.
+
+    We refuse to proceed because overwriting it would destroy real login
+    data the user has accumulated. The user should investigate the
+    profile (typically a previous Firefox crash mid-write) before re-running.
+    """
+
+
+_EMPTY_LOGINS_STORE = {
+    "nextId": 1,
+    "logins": [],
+    "potentiallyVulnerablePasswords": [],
+    "dismissedBreachAlertsByLoginGUID": {},
+    "version": 3,
+}
+
+
+def _read_existing_logins(logins_json: Path) -> tuple[dict, set[str]]:
+    """Read existing ``logins.json`` and return ``(parsed_dict, guid_set)``.
+
+    * File doesn't exist → return the empty-store skeleton.
+    * File exists but I/O fails or JSON is malformed → raise
+      :class:`LoginsCorruptError`. We deliberately do NOT treat this as
+      "start from empty" because the previous code path silently
+      overwrote real user data when the target was momentarily unreadable.
+    """
     if not logins_json.is_file():
-        return {
-            "nextId": 1,
-            "logins": [],
-            "potentiallyVulnerablePasswords": [],
-            "dismissedBreachAlertsByLoginGUID": {},
-            "version": 3,
-        }, set()
+        return dict(_EMPTY_LOGINS_STORE), set()
     try:
-        data = json.loads(logins_json.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {
-            "nextId": 1,
-            "logins": [],
-            "potentiallyVulnerablePasswords": [],
-            "dismissedBreachAlertsByLoginGUID": {},
-            "version": 3,
-        }, set()
+        raw = logins_json.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise LoginsCorruptError(
+            f"could not read existing {logins_json}: {exc}. "
+            "Refusing to overwrite — investigate the profile before re-running."
+        ) from exc
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise LoginsCorruptError(
+            f"existing {logins_json} is not valid JSON ({exc}). "
+            "Refusing to overwrite — investigate the profile before re-running."
+        ) from exc
+    if not isinstance(data, dict) or "logins" not in data:
+        raise LoginsCorruptError(
+            f"existing {logins_json} is missing the 'logins' key — refusing to overwrite."
+        )
     guids: set[str] = set()
     for login in data.get("logins", []) or []:
         if isinstance(login, dict):
@@ -112,11 +143,16 @@ def _existing_guids(logins_json: Path) -> tuple[dict, set[str]]:
     return data, guids
 
 
-def _backup_target(logins_json: Path) -> Path:
-    """Copy the existing logins.json to a timestamped sibling. Returns the backup path."""
+def _backup_target(logins_json: Path) -> Path | None:
+    """Copy the existing logins.json to a timestamped sibling.
+
+    Returns the backup path, or ``None`` when the target didn't exist
+    (nothing to back up).
+    """
     if not logins_json.is_file():
-        return logins_json.with_suffix(".json.no-backup-needed")
-    backup = logins_json.with_name(f"logins.foxport-backup-{int(Path(logins_json).stat().st_mtime)}.json")
+        return None
+    mtime = int(logins_json.stat().st_mtime)
+    backup = logins_json.with_name(f"logins.foxport-backup-{mtime}.json")
     shutil.copy2(logins_json, backup)
     return backup
 
@@ -181,7 +217,7 @@ def migrate_passwords_via_nss(
     if dry_run:
         return DirectWriteResult(
             target_logins_json=logins_json,
-            backup_file=logins_json.with_suffix(".json.dry-run"),
+            backup_file=None,
             total=total,
             written=0,
             skipped_existing=0,
@@ -189,7 +225,10 @@ def migrate_passwords_via_nss(
             failures=failures,
         )
 
-    existing, existing_guids = _existing_guids(logins_json)
+    # Read first — raises LoginsCorruptError if the existing logins.json
+    # exists but is unparseable. Catching that and "starting from empty"
+    # would silently destroy user data, so we let it propagate.
+    existing, existing_guids = _read_existing_logins(logins_json)
     backup_path = _backup_target(logins_json)
 
     written = 0
@@ -197,12 +236,7 @@ def migrate_passwords_via_nss(
     next_id = int(existing.get("nextId", 1) or 1)
     logins_array: list[dict] = list(existing.get("logins", []) or [])
 
-    try:
-        session: NSSSession = open_session(target, master_password=master_password)
-    except NSSError as exc:
-        # Restore the backup pointer if we created one (we haven't written anything yet).
-        raise
-
+    session: NSSSession = open_session(target, master_password=master_password)
     with session:
         for row, plaintext in decrypted:
             stable_guid = "{" + str(uuid.uuid5(

@@ -55,9 +55,20 @@ def _web_data_path(profile: ChromiumProfile) -> Path | None:
 
 
 def _copy_for_read(src: Path) -> Path:
+    """Copy ``src`` (Chromium SQLite DB) plus its WAL/SHM siblings to a temp dir.
+
+    Pulling the siblings is essential: SQLite stores recent uncommitted writes
+    in the ``-wal`` file, so opening a stand-alone copy of just ``src`` returns
+    a stale snapshot (the table may even appear missing rows the user can see
+    in their browser right now).
+    """
     tmp = Path(tempfile.mkdtemp(prefix="foxport_search_"))
     dest = tmp / src.name
     shutil.copy2(src, dest)
+    for suffix in ("-wal", "-shm"):
+        sibling = src.with_name(src.name + suffix)
+        if sibling.exists():
+            shutil.copy2(sibling, tmp / sibling.name)
     return dest
 
 
