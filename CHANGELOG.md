@@ -4,6 +4,49 @@ All notable changes to FoxPort are documented here. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/), versioning per
 [SemVer](https://semver.org/).
 
+## [1.0.0] — 2026-05-23
+
+Reverse direction shipped — FoxPort now flows both ways.
+
+### Added
+- **Firefox source readers** (`browsers/firefox_read.py`):
+  - `read_firefox_logins` opens an NSS session against a Firefox profile,
+    binds `PK11SDR_Decrypt`, and yields `FirefoxLogin` records with
+    fully-decrypted username/password fields. Refuses to run on a locked
+    profile, propagates master-password failures as `NSSError`.
+  - `read_firefox_bookmarks` walks `places.sqlite` (`moz_bookmarks` +
+    `moz_places`) and returns `FirefoxBookmark` records flattened with
+    their folder path (`toolbar`/`menu`/`unfiled`/`mobile`).
+  - `read_firefox_extensions` parses `extensions.json` and filters out
+    system add-ons (`*@mozilla.org`, `*@mozilla.com`).
+- **Reverse migrators** (`foxport/migrate_reverse/`):
+  - `passwords.py` decrypts Firefox logins and writes Chrome's
+    import-format CSV (`name, url, username, password, note`). The
+    `note` column carries the Firefox GUID for traceability.
+  - `bookmarks.py` emits a Netscape HTML grouped so the Firefox
+    `toolbar` root lands first and gets `PERSONAL_TOOLBAR_FOLDER="true"`,
+    which Chrome maps to its Bookmarks Bar on import. ADD_DATE values
+    converted from Firefox µs/1970 to seconds/1970.
+  - `extensions.py` inverts `CURATED_MAP` (slug → Chrome ID) and adds an
+    `AMO_GUID_TO_CHROME` table for well-known AMO GUIDs like
+    `uBlock0@raymondhill.net`. Unmapped extensions fall back to a Chrome
+    Web Store text-search URL the user can click.
+- **CLI**: new `migrate-reverse` subcommand mirroring `migrate`'s shape
+  with `--source / --items / --master-password / --dry-run / --out`.
+
+### Changed
+- AMO User-Agent bumped to `FoxPort/1.0.0`.
+- Direction is no longer implicit — the README and ROADMAP now describe
+  FoxPort as bidirectional.
+
+### Notes
+- GUI integration of the reverse direction (a "Direction" toggle on the
+  Source step) is queued for v1.1.0; the CLI is the supported surface
+  for reverse migrations in v1.0.
+- Chrome Web Store has no public search API equivalent to AMO's, so
+  unmapped Firefox extensions surface a CWS-search-URL link rather than
+  a direct install link.
+
 ## [0.6.0] — 2026-05-23
 
 Additional data types — form autofill, saved cards, search engines.

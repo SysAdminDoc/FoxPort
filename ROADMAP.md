@@ -86,10 +86,11 @@ ideas from the bottom of the file as scope firms up.
 - [ ] Translate to Firefox `sessionstore-backups/recovery.jsonlz4`
       (`b"mozLz40\\0"` magic + lz4-block-compressed JSON)
 
-## Reverse direction — v1.x
-- [ ] Firefox → Chromium port (passwords via Firefox CSV export → re-encrypt
-      with target Chromium's DPAPI key)
-- [ ] AMO → CWS extension mapping table (inverse of current curated map)
+## Reverse direction — v1.0.0  ✅ shipped 2026-05-23 (CLI-only)
+- [x] Firefox → Chromium passwords (CSV format Chrome's import accepts)
+- [x] Firefox → Chromium bookmarks (Netscape HTML, toolbar promoted)
+- [x] AMO → CWS extension mapping (inverted curated + GUID table)
+- [ ] GUI direction toggle on the Source step — queued for v1.1.0
 
 ## Distribution
 - [ ] PyInstaller --onedir bundle, signed Windows release artifact

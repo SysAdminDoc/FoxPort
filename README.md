@@ -1,6 +1,6 @@
 # FoxPort
 
-[![version](https://img.shields.io/badge/version-0.6.0-f5c2e7?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-1.0.0-f5c2e7?style=flat-square)](CHANGELOG.md)
 [![license](https://img.shields.io/badge/license-MIT-89b4fa?style=flat-square)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-cdd6f4?style=flat-square)](#)
 [![python](https://img.shields.io/badge/python-3.11%2B-a6e3a1?style=flat-square)](https://www.python.org/)
@@ -8,6 +8,21 @@
 **Port Chromium browsers to Firefox.** FoxPort scans your installed Chromium-family browsers (Chrome, Brave, Edge, Vivaldi, Opera, Arc, Thorium, Yandex, ...), decrypts your saved passwords, packages up your bookmarks, and maps your Chrome extensions to their Firefox equivalents on addons.mozilla.org — all in one click.
 
 The source browser is never modified. FoxPort writes Firefox-native import files into an output folder; you import them through the target browser's normal UI.
+
+## What's new in v1.0.0
+
+- **Reverse direction (Firefox → Chromium)** is now supported through the
+  CLI as `python -m foxport.cli migrate-reverse --source "Firefox/default-
+  release" --items passwords,bookmarks,extensions`.
+- **Firefox-side readers** (`browsers/firefox_read.py`) — NSS-decrypt
+  `logins.json`, walk `places.sqlite` for bookmarks, parse
+  `extensions.json` for installed AMO add-ons.
+- **Reverse migrators** in `foxport/migrate_reverse/`:
+  - `passwords.py` writes Chrome's `name,url,username,password,note` CSV.
+  - `bookmarks.py` writes a Netscape HTML with the Firefox toolbar root
+    promoted to Chrome's `PERSONAL_TOOLBAR_FOLDER`.
+  - `extensions.py` inverts the curated map and falls back to a Chrome
+    Web Store text-search URL for unmapped AMO GUIDs.
 
 ## What's new in v0.6.0
 

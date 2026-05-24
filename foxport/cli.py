@@ -46,12 +46,17 @@ from foxport.migrate.extensions import migrate_extensions
 from foxport.migrate.history import migrate_history
 from foxport.migrate.passwords import migrate_passwords
 from foxport.migrate.search_engines import migrate_search_engines
+from foxport.migrate_reverse.bookmarks import migrate_bookmarks_reverse
+from foxport.migrate_reverse.extensions import migrate_extensions_reverse
+from foxport.migrate_reverse.passwords import migrate_passwords_reverse
 
 
 ALL_ITEMS = (
     "passwords", "bookmarks", "extensions", "cookies", "history",
     "autofill", "cards", "search_engines",
 )
+
+REVERSE_ITEMS = ("passwords", "bookmarks", "extensions")
 
 
 def _find_chromium(spec: str, profiles: list[ChromiumProfile]) -> ChromiumProfile | None:
@@ -266,7 +271,59 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Output root directory (default: ~/Documents/FoxPort)")
     mig.add_argument("--no-online", action="store_true",
                      help="Skip AMO online lookup for unknown extensions")
+
+    rev = sub.add_parser("migrate-reverse",
+                          help="Reverse direction: Firefox profile → Chromium-importable bundle")
+    rev.add_argument("--source", required=True,
+                     help="Firefox-family source profile (e.g. 'Firefox/default-release')")
+    rev.add_argument("--items", default=None,
+                     help=f"Comma-separated subset of {','.join(REVERSE_ITEMS)} (default: all three)")
+    rev.add_argument("--master-password", default="",
+                     help="Master password for the source Firefox profile, if set")
+    rev.add_argument("--dry-run", action="store_true",
+                     help="Decrypt and count, write nothing")
+    rev.add_argument("--out", default=None,
+                     help="Output root directory (default: ~/Documents/FoxPort)")
     return parser
+
+
+def _cmd_migrate_reverse(args: argparse.Namespace) -> int:
+    firefox = detect_firefox()
+    source = _find_firefox(args.source, firefox)
+    if not source:
+        print(f"error: no Firefox source matched '{args.source}'", file=sys.stderr)
+        print("\nAvailable Firefox profiles:", file=sys.stderr)
+        for p in firefox:
+            print(f"  {p.browser}/{p.profile_name}", file=sys.stderr)
+        return 2
+    items = set((args.items or ",".join(REVERSE_ITEMS)).split(","))
+    items = {i.strip().lower() for i in items if i.strip()}
+    unknown = items - set(REVERSE_ITEMS)
+    if unknown:
+        print(f"error: unknown reverse items {unknown}", file=sys.stderr)
+        return 2
+    out_root = Path(args.out) if args.out else Path.home() / "Documents" / "FoxPort"
+    label = f"{source.label}_reverse" + ("_dryrun" if args.dry_run else "")
+    out_dir = make_export_dir(out_root, label, "chrome")
+    print(f"Source: {source.label}")
+    print(f"Items:  {', '.join(sorted(items))}")
+    print(f"Output: {out_dir}")
+
+    if "passwords" in items:
+        print("\n[passwords]")
+        r = migrate_passwords_reverse(source, out_dir,
+                                       master_password=args.master_password,
+                                       dry_run=args.dry_run)
+        print(f"  {r.written} written, {len(r.failures)} failed of {r.total} total")
+    if "bookmarks" in items:
+        print("\n[bookmarks]")
+        r = migrate_bookmarks_reverse(source, out_dir, dry_run=args.dry_run)
+        print(f"  {r.urls} URLs across {r.folders} folders")
+    if "extensions" in items:
+        print("\n[extensions]")
+        r = migrate_extensions_reverse(source, out_dir, dry_run=args.dry_run)
+        print(f"  {r.matched} matched, {r.unmatched} unmatched of {len(r.matches)} installed")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -276,6 +333,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_list(args)
     if args.command == "migrate":
         return _cmd_migrate(args)
+    if args.command == "migrate-reverse":
+        return _cmd_migrate_reverse(args)
     parser.error("no command")
     return 2
 
