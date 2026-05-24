@@ -18,15 +18,15 @@ the user can swap it in cleanly while Firefox is closed. The bookmarks tree
 is left empty here — bookmarks have their own dedicated migrator that targets
 the HTML import flow.
 
-URL hash (``url_hash``): Firefox uses a custom function combining a 16-bit
-scheme tag in the high bits with a 48-bit hash of the URL in the low bits.
-We replicate the algorithm from ``toolkit/components/places/Helpers.cpp``
-faithfully enough that the AwesomeBar can search the imported entries.
+URL hash (``url_hash``): Firefox uses a custom 64-bit function — the high
+16 bits are ``HashString(scheme + "://") & 0xFFFF`` and the low 32 bits
+are ``HashString(url)`` capped at 1500 chars. ``HashString`` itself is
+the multiply-rotate-xor mix from ``mfbt/HashFunctions.h`` — see
+:mod:`foxport.crypto.mozhash` for the byte-for-byte Python port.
 """
 
 from __future__ import annotations
 
-import hashlib
 import shutil
 import sqlite3
 import tempfile
@@ -37,6 +37,7 @@ from urllib.parse import urlsplit
 
 from foxport.browsers.chromium import is_browser_internal_url
 from foxport.browsers.detect import ChromiumProfile
+from foxport.crypto.mozhash import places_url_hash
 
 _CHROME_TO_UNIX_MICROS = 11_644_473_600_000_000
 
@@ -63,6 +64,8 @@ CREATE TABLE moz_origins (
     recalc_frecency INTEGER NOT NULL DEFAULT 0,
     alt_frecency INTEGER,
     recalc_alt_frecency INTEGER NOT NULL DEFAULT 0,
+    block_until_ms INTEGER NOT NULL DEFAULT 0,
+    block_pages_until_ms INTEGER NOT NULL DEFAULT 0,
     UNIQUE (prefix, host)
 );
 
@@ -147,7 +150,7 @@ CREATE TABLE moz_meta (
     value NOT NULL
 ) WITHOUT ROWID;
 
-PRAGMA user_version = 77;
+PRAGMA user_version = 86;
 """
 
 # Trigger that auto-resolves moz_places.origin_id whenever a place is
@@ -211,33 +214,6 @@ def _rev_host(host: str) -> str:
     if not host:
         return ""
     return host.lower()[::-1] + "."
-
-
-# Scheme prefix tags from toolkit/components/places/Helpers.cpp.
-_SCHEME_PREFIX_TAG: dict[str, int] = {
-    "http://":   130,
-    "https://":  131,
-    "ftp://":    129,
-    "file://":   128,
-    "place:":    132,
-}
-
-
-def _url_hash(url: str) -> int:
-    """Firefox-compatible 64-bit URL hash.
-
-    The high 16 bits are a tag derived from the URL scheme; the low 48 bits
-    are the bottom-half of MD5(url). Mismatched values silently disable
-    AwesomeBar matches for the row but do not corrupt the DB.
-    """
-    tag = 0
-    for prefix, value in _SCHEME_PREFIX_TAG.items():
-        if url.startswith(prefix):
-            tag = value
-            break
-    digest = hashlib.md5(url.encode("utf-8")).digest()
-    low48 = int.from_bytes(digest[:6], "little")
-    return (tag << 48) | low48
 
 
 def _get_prefix(url: str) -> str:
@@ -369,7 +345,7 @@ def migrate_history(
                             1 if (typed_count or 0) > 0 else 0,
                             _chrome_micros_to_unix_micros(last_visit_time or 0) or None,
                             "{" + str(uuid.uuid4()) + "}"[1:-1][:12],
-                            _url_hash(url),
+                            places_url_hash(url),
                             origin_id,
                         ),
                     )

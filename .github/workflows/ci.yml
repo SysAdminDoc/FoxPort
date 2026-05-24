@@ -27,6 +27,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install pytest==8.3.4
 
       - name: AST-parse every Python file
         run: |
@@ -44,3 +45,7 @@ jobs:
       - name: CLI list (allowed to find zero profiles in CI)
         run: |
           python -m foxport.cli list
+
+      - name: Run unit tests
+        run: |
+          pytest -ra -q

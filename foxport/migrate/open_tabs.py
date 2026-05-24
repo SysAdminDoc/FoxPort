@@ -1,24 +1,37 @@
-"""Open-tabs migration — Chromium ``Sessions/Session_<num>`` → Firefox
+"""Open-tabs migration — Chromium ``Sessions/{Session,Tabs}_*`` SNSS files
+→ Firefox ``sessionstore-backups/recovery.jsonlz4``.
+
+Chromium splits session storage across two filename prefixes in the same
+``Sessions/`` directory:
+
+* ``Session_<id>`` — window/tab structure (which tab is selected, window
+  bounds, group ownership).
+* ``Tabs_<id>``    — per-tab navigation entries (URLs + titles + indices).
+
+Live evidence from a real Chrome Default profile on this host: the
+``Session_*`` files contain almost no inline URLs; the ``Tabs_*`` files
+are where they live, encoded as **UTF-8** (not UTF-16LE — that was a
+v0.6.1 regression).
+
+Each SNSS file is:
+
+* 4-byte magic ``SNSS``
+* 4-byte little-endian version
+* Sequence of commands: ``uint16_le(size)`` + ``uint8(command_id)`` +
+  ``(size - 1)`` bytes of payload.
+
+We use a robust two-track approach:
+
+1. **Structural parser** walks every command, and for the navigation
+   command IDs (6 / 33 in newer Chromium) parses the embedded Pickle
+   to pull out the URL field cleanly.
+2. **Fallback URL scanner** (UTF-8 regex with the RFC 3986 char class)
+   runs if the structural parser produces zero hits — covers schema
+   drift that's frequent across Chrome releases.
+
+Output:  ``recovery.jsonlz4`` = ``b"mozLz40\0"`` + ``uint32_le(orig_size)``
++ ``lz4.block.compress(JSON)``. Optional direct-write to
 ``sessionstore-backups/recovery.jsonlz4``.
-
-The Chromium SNSS format is well-documented but version-dependent: command
-IDs and Pickle field layouts drift. Rather than maintain a per-Chrome-version
-SNSS parser, this implementation uses the **URL-scanning fallback** the
-xaitax/cookie_crimes community settled on:
-
-1. Read the most recent ``Sessions/Session_<n>`` file in the source profile.
-2. Scan the raw bytes for UTF-16LE strings beginning with ``http://``,
-   ``https://``, or ``file://``. SNSS stores SerializedNavigationEntry URLs
-   as UTF-16LE Pickle entries, so this finds them reliably even when the
-   command structure shifts.
-3. Dedupe (preserving order) and write a Firefox session-restore JSON.
-
-Firefox's ``recovery.jsonlz4`` is:
-
-    b"mozLz40\\0"  +  uint32_le(uncompressed_size)  +  lz4.block.compress(json)
-
-The JSON shape is the minimum Firefox accepts: one window, one tab per URL,
-``index=1`` so the first entry is selected.
 """
 
 from __future__ import annotations
@@ -33,15 +46,16 @@ from foxport.browsers.chromium import is_browser_internal_url
 from foxport.browsers.detect import ChromiumProfile, FirefoxProfile
 
 
-# Match UTF-16LE-encoded URLs in the SNSS binary. ``\x00`` between every char
-# is what UTF-16LE looks like for ASCII URL bytes. The repeated char class is
-# the RFC 3986 unreserved + reserved + percent-encoded set; using the full
-# printable ASCII range would let one URL leak into the next when a Pickle
-# field ends without a NUL gap.
-_URL_UTF16_RE = re.compile(
-    rb"(?:h\x00t\x00t\x00p\x00s?\x00|f\x00i\x00l\x00e\x00)"
-    rb":\x00/\x00/\x00"
-    rb"(?:[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]\x00){1,2048}"
+# Chrome command IDs for navigation updates. The integer value drifts
+# slightly across Chrome versions; the most common are 6 and 33.
+_NAVIGATION_COMMAND_IDS = {6, 0x21}  # kCommandUpdateTabNavigation{,13}
+
+_SNSS_MAGIC = b"SNSS"
+
+# UTF-8 URL scanner — RFC 3986 unreserved + reserved + percent-encoded set.
+# Used both as fallback and to validate structural-parser output.
+_URL_UTF8_RE = re.compile(
+    rb"(?:https?|file)://[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]{4,2048}"
 )
 
 
@@ -52,51 +66,110 @@ class OpenTabsResult:
     failures: list[str] = field(default_factory=list)
 
 
-def _latest_session_file(profile: ChromiumProfile) -> Path | None:
-    """Return the highest-numbered Session_<n> file in the profile's Sessions dir.
+def _latest_session_files(profile: ChromiumProfile) -> list[Path]:
+    """Return every SNSS file (Session_* and Tabs_*) in the latest session.
 
-    Falls back to the legacy ``Current Session`` filename when present.
+    Chrome rotates session/tabs files by timestamp; we pick the most-recently-
+    modified Sessions/ dir contents (both prefixes) and fall back to legacy
+    ``Current Session`` and ``Current Tabs``.
     """
+    files: list[Path] = []
     sessions_dir = profile.profile_dir / "Sessions"
-    candidates: list[Path] = []
     if sessions_dir.is_dir():
-        for p in sessions_dir.glob("Session_*"):
-            candidates.append(p)
-    legacy = profile.profile_dir / "Current Session"
-    if legacy.is_file():
-        candidates.append(legacy)
-    if not candidates:
-        return None
-    return max(candidates, key=lambda p: p.stat().st_mtime)
+        candidates = list(sessions_dir.glob("Session_*")) + list(sessions_dir.glob("Tabs_*"))
+        if candidates:
+            files.extend(candidates)
+    for legacy_name in ("Current Session", "Current Tabs", "Last Session", "Last Tabs"):
+        legacy = profile.profile_dir / legacy_name
+        if legacy.is_file():
+            files.append(legacy)
+    return files
 
 
-def _extract_urls(session_bytes: bytes) -> list[str]:
-    """Return open-tab URLs in original-order, deduped.
+def _iter_snss_commands(data: bytes):
+    """Yield ``(command_id, payload)`` for every command in an SNSS blob.
 
-    URLs are stored as UTF-16LE Pickle fields. We strip the embedded NULs
-    after match and dedupe via an order-preserving dict.
+    Tolerates truncated files (stops at the first short read).
     """
+    if len(data) < 8 or data[:4] != _SNSS_MAGIC:
+        return
+    offset = 8                       # skip 4-byte magic + 4-byte version
+    while offset + 3 <= len(data):
+        (size,) = struct.unpack_from("<H", data, offset)
+        offset += 2
+        if size == 0 or offset + size > len(data):
+            break
+        command_id = data[offset]
+        payload = data[offset + 1: offset + size]
+        offset += size
+        yield command_id, payload
+
+
+def _extract_url_from_navigation_payload(payload: bytes) -> str | None:
+    """Pluck the URL out of a kCommandUpdateTabNavigation Pickle.
+
+    Pickle wire format (Chrome ``base/pickle.cc``):
+
+    * 4-byte tab_id (SessionID)
+    * 4-byte pickle payload size
+    * 4-byte index
+    * 4-byte url_len + url bytes (UTF-8) + 4-byte alignment padding
+
+    Returns the URL string or None if the layout doesn't match.
+    """
+    if len(payload) < 16:
+        return None
+    try:
+        # Skip tab_id (4) + pickle payload size (4) + navigation index (4) = 12 bytes.
+        url_len = struct.unpack_from("<I", payload, 12)[0]
+    except struct.error:
+        return None
+    if url_len == 0 or url_len > 2048:
+        return None
+    start = 16
+    end = start + url_len
+    if end > len(payload):
+        return None
+    try:
+        url = payload[start:end].decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    # Sanity check — must look like a URL we'd care about.
+    if not url.startswith(("http://", "https://", "file://", "ftp://")):
+        return None
+    return url
+
+
+def _scan_urls_utf8(data: bytes) -> list[str]:
+    """Fallback URL extractor — UTF-8 regex over raw bytes."""
     seen: dict[str, None] = {}
-    for match in _URL_UTF16_RE.finditer(session_bytes):
-        raw = match.group(0)
-        # Strip every other byte (the UTF-16LE high byte for ASCII).
-        url = raw.decode("utf-16-le", errors="ignore")
-        # Many URLs trail with garbage characters from the next Pickle field;
-        # cut at the first whitespace/control char.
-        for i, ch in enumerate(url):
-            if ord(ch) < 0x20 or ch in ('"', "<", ">", "\\"):
-                url = url[:i]
-                break
-        if not url.startswith(("http://", "https://", "file://")):
+    for match in _URL_UTF8_RE.finditer(data):
+        try:
+            url = match.group(0).decode("utf-8")
+        except UnicodeDecodeError:
             continue
-        if len(url) < 8:
+        if not url:
             continue
-        # `file://` is allowed (user docs / local PDFs); `chrome://` is not
-        # — Firefox can't navigate to it.
         if is_browser_internal_url(url):
             continue
         seen.setdefault(url, None)
     return list(seen)
+
+
+def _extract_urls(data: bytes) -> list[str]:
+    """Walk SNSS commands, extract URLs from navigation Pickles, fall back to
+    UTF-8 regex scanning when the structural parser finds nothing."""
+    seen: dict[str, None] = {}
+    for command_id, payload in _iter_snss_commands(data):
+        if command_id not in _NAVIGATION_COMMAND_IDS:
+            continue
+        url = _extract_url_from_navigation_payload(payload)
+        if url and not is_browser_internal_url(url):
+            seen.setdefault(url, None)
+    if seen:
+        return list(seen)
+    # Fallback: regex scan the whole file.
+    return _scan_urls_utf8(data)
 
 
 def _build_session_json(urls: list[str]) -> bytes:
@@ -142,22 +215,27 @@ def migrate_open_tabs(
     *,
     dry_run: bool = False,
 ) -> OpenTabsResult:
-    """Walk the latest Chromium session file, extract every URL, and emit
-    a Firefox-importable ``recovery.jsonlz4`` in ``out_dir``."""
+    """Walk every SNSS file in the source profile, extract URLs, emit a
+    Firefox-importable ``recovery.jsonlz4`` in ``out_dir``."""
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "recovery.jsonlz4"
     failures: list[str] = []
-    session = _latest_session_file(profile)
-    if not session:
-        failures.append("no Sessions/Session_* or Current Session file found")
-        return OpenTabsResult(out_path=out_path, tabs=0, failures=failures)
-    try:
-        raw = session.read_bytes()
-    except OSError as exc:
-        failures.append(f"read {session}: {exc}")
+    files = _latest_session_files(profile)
+    if not files:
+        failures.append("no Sessions/Session_* or Tabs_* file found")
         return OpenTabsResult(out_path=out_path, tabs=0, failures=failures)
 
-    urls = _extract_urls(raw)
+    all_urls: dict[str, None] = {}
+    for snss in files:
+        try:
+            raw = snss.read_bytes()
+        except OSError as exc:
+            failures.append(f"read {snss.name}: {exc}")
+            continue
+        for url in _extract_urls(raw):
+            all_urls.setdefault(url, None)
+
+    urls = list(all_urls)
 
     if dry_run:
         return OpenTabsResult(out_path=out_path, tabs=len(urls), failures=failures)

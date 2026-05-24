@@ -15,26 +15,26 @@ ideas from the bottom of the file as scope firms up.
 - [ ] **Add `tests/` suite** — pytest config, fixtures, round-trip tests for every migrator. CI workflow runs `pytest`.
 
 ### P1 (schema gaps + UX trust)
-- [ ] **`cookies.sqlite` add `updateTime`** column (v17 spec compliance)
+- [x] **`cookies.sqlite` add `updateTime`** column (v17 spec compliance)
 - [ ] **`bookmarks.html` toolbar** — stop relying on `PERSONAL_TOOLBAR_FOLDER`; document or implement post-import move
-- [ ] **Filter `chrome://`, `chrome-extension://`, `edge://`, `brave://`, `about:`** URLs from bookmark + history + tab exports by default
-- [ ] **`diff` CLI refuses ambiguous profile matches** — multiple substring hits print list and exit 2
+- [x] **Filter `chrome://`, `chrome-extension://`, `edge://`, `brave://`, `about:`** URLs from bookmark + history + tab exports by default
+- [x] **`diff` CLI refuses ambiguous profile matches** — multiple substring hits print list and exit 2
 - [ ] **Wire drag-and-drop "Manual source" tile** — currently dead code
-- [ ] **`favicons.sqlite` backup, not delete** in history direct-write
+- [x] **`favicons.sqlite` backup, not delete** in history direct-write
 - [ ] **HIBP scan during password migration** — opt-in; produces `compromised-passwords.txt`
 
 ### P2 (polish + small features)
-- [ ] **Password preview dialog masks values by default** (per-row eye icon)
-- [ ] **Hide already-installed extensions** in `extensions.html` by default
+- [x] **Password preview dialog masks values by default** (Show-all toggle; per-row eye is a future polish pass)
+- [x] **Hide already-installed extensions** in `extensions.html` by default (collapsed `<details>` block)
 - [ ] **Settings page** — output dir, mask-passwords, online-AMO, dry-run default, telemetry opt-in
-- [ ] **Master-password retry loop** (up to 3 attempts)
+- [x] **Master-password retry loop** (up to 3 attempts)
 - [ ] **NSSSession.decrypt method** in `crypto/nss.py` (currently bound inline in `firefox_read.py`)
 - [ ] **`formhistory.sqlite` v4 → v5** with `moz_sources` + `moz_history_to_sources`
 - [ ] **Reverse-direction matcher coverage** (13 → 60+ AMO_GUID_TO_CHROME entries) via harvester script
 - [ ] **History time-range filter dialog** (last N days + custom range)
 - [ ] **Path-traversal hardening** on `make_export_dir`
-- [ ] **Curated map placeholder cleanup** — remove `"{446900e4-…}": ""` and audit fabricated entries
-- [ ] **`check_curated_map.py --strict-stale` flag** — fail CI on entries older than N months
+- [x] **Curated map placeholder cleanup** — removed `"{446900e4-…}": ""` and the bad ClearURLs entry
+- [x] **`check_curated_map.py --strict-stale` flag** — fail CI on entries older than N months
 
 ### P3 (distribution + observability)
 - [ ] First-run dialog with opt-in for Glean + Sentry
