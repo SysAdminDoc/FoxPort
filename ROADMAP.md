@@ -57,11 +57,11 @@ ideas from the bottom of the file as scope firms up.
 - [x] **Password preview/filter** — `PasswordPreviewDialog` shows
       decrypted rows with search + per-row checkboxes.
 
-## v0.4.1 — Direct-write polish
-- [ ] Master-password prompt in the GUI when target has one set
+## v0.4.1 — Direct-write polish  ✅ shipped 2026-05-23 (per-item conflict UI deferred)
+- [x] Master-password prompt in the GUI when source/target has one set
 - [ ] Per-item conflict resolution UI (skip / merge / overwrite per duplicate)
-- [ ] Cookies direct-write via NSS (use OPgp-equivalent path for cookies)
-- [ ] History direct-write to a live (closed) profile's places.sqlite
+- [x] Cookies direct-write into closed target profile
+- [x] History direct-write to a closed profile's places.sqlite
 
 ## v0.5.0 — Cross-platform  ✅ shipped 2026-05-23
 - [x] macOS Chromium support — Keychain unwrap of the AES key
@@ -81,16 +81,18 @@ ideas from the bottom of the file as scope firms up.
       OpenSearch XML + JSON inventory (writing `search.json.mozlz4`
       directly is too fragile due to per-Firefox-version hash validation).
 
-## v0.6.1 — Open tabs
-- [ ] SNSS parser for Chromium `Sessions/Session_<num>` binary format
-- [ ] Translate to Firefox `sessionstore-backups/recovery.jsonlz4`
+## v0.6.1 — Open tabs  ✅ shipped 2026-05-23
+- [x] URL scanner for Chromium `Sessions/Session_<num>` (UTF-16LE pickle
+      regex with RFC-3986 char class)
+- [x] Translate to Firefox `sessionstore-backups/recovery.jsonlz4`
       (`b"mozLz40\\0"` magic + lz4-block-compressed JSON)
+- [x] Optional direct-write into the closed target profile
 
-## Reverse direction — v1.0.0  ✅ shipped 2026-05-23 (CLI-only)
+## Reverse direction — v1.0.0  ✅ shipped 2026-05-23
 - [x] Firefox → Chromium passwords (CSV format Chrome's import accepts)
 - [x] Firefox → Chromium bookmarks (Netscape HTML, toolbar promoted)
 - [x] AMO → CWS extension mapping (inverted curated + GUID table)
-- [ ] GUI direction toggle on the Source step — queued for v1.1.0
+- [x] GUI direction toggle on the Source step (v1.1.0)
 
 ## Distribution  ✅ mostly shipped 2026-05-23
 - [x] PyInstaller --onedir bundle via `foxport.spec` (bundles
@@ -108,8 +110,7 @@ ideas from the bottom of the file as scope firms up.
       (needs a code-signing cert)
 
 ## Reach goals
-- [ ] Browser-profile diff viewer (what will be migrated vs. what already
-      exists in target)
+- [x] Browser-profile diff viewer (`python -m foxport.cli diff`) — v1.1.0
 - [ ] Extension-settings best-effort — only for the small set of cross-browser
       extensions that share storage shape (Stylus userstyles, Bitwarden vault
       URL, uBO filter lists)
@@ -117,7 +118,7 @@ ideas from the bottom of the file as scope firms up.
       breaks, launch the user's own browser headless and slurp cookies via CDP
 
 ## Curated map upkeep
-- [ ] Monthly health check that hits AMO for every curated slug and flags
-      `is_disabled` / removed entries
+- [x] Monthly health check (`scripts/check_curated_map.py`) — hits AMO
+      for every curated slug, flags `is_disabled` / removed / stale entries
 - [ ] Auto-PR generator that proposes new entries from frequently-seen
       "no-match" extensions across users (opt-in telemetry)

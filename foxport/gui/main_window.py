@@ -86,6 +86,9 @@ class MainWindow(QMainWindow):
                      self._preview_page, self._run_page):
             self._stack.addWidget(page)
             page.canAdvanceChanged.connect(self._refresh_footer)
+        # When the user flips Source → Target direction, the target tiles need
+        # to re-render against the swapped profile list.
+        self._source_page.directionChanged.connect(self._target_page._render_for_direction)
 
         top_layout.addWidget(self._rail)
         top_layout.addWidget(self._stack, 1)
@@ -203,11 +206,10 @@ class MainWindow(QMainWindow):
         self._detect_worker = None
 
     def _on_detected(self, chromium: list, firefox: list) -> None:
-        # Firefox profiles need their browser field stamped from the registry walk.
         self._ctx.chromium_profiles = list(chromium)
         self._ctx.firefox_profiles = list(firefox)
-        self._source_page.populate(chromium)
-        self._target_page.populate(firefox)
+        self._source_page.populate(chromium, firefox)
+        self._target_page.populate()
         self.statusBar().showMessage(
             f"Detected {len(chromium)} Chromium profile(s), {len(firefox)} Firefox profile(s)."
         )
@@ -222,6 +224,22 @@ class MainWindow(QMainWindow):
             return
         if self._migrate_thread is not None:
             return
+        # Reverse mode: source is a Firefox profile — prompt for master password
+        # if NSS will need one. We probe by attempting a no-op NSS open.
+        if self._ctx.direction == "reverse":
+            from foxport.crypto.nss import open_session, NSSError
+            try:
+                sess = open_session(self._ctx.source, master_password=self._ctx.master_password)
+                sess.close()
+            except NSSError as exc:
+                if "master password" in str(exc).lower():
+                    from foxport.gui.dialogs import prompt_master_password
+                    pw = prompt_master_password(self, self._ctx.source.label)
+                    if pw is None:
+                        QMessageBox.information(self, "FoxPort",
+                                                "Migration cancelled — master password required.")
+                        return
+                    self._ctx.master_password = pw
         # Push counts into Items page so the user sees them on back-nav too.
         self._items_page.set_counts(
             self._ctx.password_count,
@@ -242,11 +260,16 @@ class MainWindow(QMainWindow):
             do_autofill=self._ctx.do_autofill,
             do_cards=self._ctx.do_cards,
             do_search_engines=self._ctx.do_search_engines,
+            do_open_tabs=self._ctx.do_open_tabs,
             extensions_online=self._ctx.extensions_online,
             dry_run=self._ctx.dry_run,
             password_include_keys=self._ctx.password_include_keys,
             bookmark_excluded_paths=set(self._ctx.bookmark_excluded_paths),
             direct_write_passwords=self._ctx.direct_write_passwords,
+            direct_write_cookies=self._ctx.direct_write_cookies,
+            direct_write_history=self._ctx.direct_write_history,
+            direction=self._ctx.direction,
+            master_password=self._ctx.master_password,
         )
         self._run_page.reset()
         self._run_page.set_busy()

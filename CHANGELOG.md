@@ -4,6 +4,55 @@ All notable changes to FoxPort are documented here. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/), versioning per
 [SemVer](https://semver.org/).
 
+## [1.1.0] — 2026-05-23
+
+GUI direction toggle, direct-write cookies/history, open tabs migration,
+profile diff CLI, curated-map auditor.
+
+### Added
+- **Source step direction toggle** — Segmented Chromium → Firefox /
+  Firefox → Chromium selector wired through `MigrationContext.direction`.
+  Both `SourcePage` and `TargetPage` swap their tile lists on flip; the
+  Items step disables categories not yet supported in reverse mode and
+  the Preview step short-circuits to a placeholder for reverse.
+- **Master-password prompt** (`gui/dialogs.py:prompt_master_password`) —
+  Qt password dialog auto-shown when reverse-mode NSS open fails with a
+  master-password error. Re-tries with the entered string; cancel aborts.
+- **Cookies direct-write** (`migrate/nss_cookies.py`) — Backs up the
+  target's existing `cookies.sqlite` to a timestamped sibling, drops the
+  new one in place, and clears `-wal`/`-shm` siblings so Firefox doesn't
+  re-merge stale state on next launch. Refuses on locked profile.
+- **History direct-write** (`migrate/nss_history.py`) — Same shape as
+  cookies; additionally deletes `favicons.sqlite` so Firefox rebuilds
+  favicons from the imported visits.
+- **Open tabs migration** (`migrate/open_tabs.py`) — URL-scanning SNSS
+  parser (RFC 3986 char class on a UTF-16LE regex to prevent field
+  bleed) plus an `mozLz40\0` writer that produces Firefox-compatible
+  `recovery.jsonlz4`. Optional direct-write to
+  `sessionstore-backups/recovery.jsonlz4`.
+- **Profile diff** (`foxport/diff.py` + CLI `diff` subcommand) — Reports
+  passwords (by URL+username), bookmarks (by URL), and extensions (by
+  AMO GUID) that exist in source but not in target, with up to 5
+  samples per category.
+- **Curated-map auditor** (`scripts/check_curated_map.py`) — Hits AMO's
+  detail endpoint for every slug; flags 404, `is_disabled=True`, and
+  entries with `last_updated` older than `--stale-months`. Exits 1 on
+  any broken result.
+
+### Changed
+- `MigrationRequest` gained `direct_write_cookies`, `direct_write_history`,
+  `direct_write_open_tabs`, `do_open_tabs`, `direction`, `master_password`.
+- `requirements.txt` adds `lz4==4.3.3` (for the recovery.jsonlz4 writer).
+- AMO User-Agent bumped to `FoxPort/1.1.0`.
+
+### Notes
+- Direct-write cookies/history/open-tabs are forward-only (Chromium →
+  Firefox). Reverse-mode direct-write to Chromium's profile DBs is on
+  the v1.2 roadmap.
+- SNSS URL extraction is intentionally lossy — it gets the URL list
+  reliably but not per-tab metadata (window placement, scroll position,
+  tab order). A full SNSS Pickle parser is a v1.2 candidate when needed.
+
 ## [1.0.0] — 2026-05-23
 
 Reverse direction shipped — FoxPort now flows both ways.

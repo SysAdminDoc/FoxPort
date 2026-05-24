@@ -22,20 +22,26 @@ from foxport.migrate.cards import migrate_cards
 from foxport.migrate.cookies import migrate_cookies
 from foxport.migrate.extensions import migrate_extensions
 from foxport.migrate.history import migrate_history
+from foxport.migrate.nss_cookies import write_cookies_into_target
+from foxport.migrate.nss_history import write_history_into_target
+from foxport.migrate.open_tabs import migrate_open_tabs, write_session_into_target
 from foxport.migrate.nss_passwords import (
     ProfileLockedError,
     migrate_passwords_via_nss,
 )
 from foxport.migrate.passwords import migrate_passwords
 from foxport.migrate.search_engines import migrate_search_engines
+from foxport.migrate_reverse.bookmarks import migrate_bookmarks_reverse
+from foxport.migrate_reverse.extensions import migrate_extensions_reverse
+from foxport.migrate_reverse.passwords import migrate_passwords_reverse
 
 
 @dataclass
 class MigrationRequest:
     """Inputs collected from the wizard before kicking off a run."""
 
-    source: ChromiumProfile
-    target: FirefoxProfile | None
+    source: ChromiumProfile | FirefoxProfile
+    target: FirefoxProfile | ChromiumProfile | None
     out_root: Path
     do_passwords: bool
     do_bookmarks: bool
@@ -45,11 +51,17 @@ class MigrationRequest:
     do_autofill: bool = False
     do_cards: bool = False
     do_search_engines: bool = False
+    do_open_tabs: bool = False
     extensions_online: bool = True
     dry_run: bool = False
     password_include_keys: set[str] | None = None
     bookmark_excluded_paths: set[tuple[str, ...]] = field(default_factory=set)
     direct_write_passwords: bool = False
+    direct_write_cookies: bool = False
+    direct_write_history: bool = False
+    direct_write_open_tabs: bool = False
+    direction: str = "forward"      # "forward" (chromium->firefox) or "reverse"
+    master_password: str = ""
 
 
 class DetectWorker(QObject):
@@ -81,10 +93,14 @@ class MigrationWorker(QObject):
 
     def run(self) -> None:
         req = self._req
+        if req.direction == "reverse":
+            self._run_reverse()
+            return
         steps = sum([
             req.do_passwords, req.do_bookmarks, req.do_extensions,
             req.do_cookies, req.do_history,
             req.do_autofill, req.do_cards, req.do_search_engines,
+            req.do_open_tabs,
         ]) or 1
         target_label = req.target.label if req.target else "firefox"
         if req.dry_run:
@@ -223,6 +239,16 @@ class MigrationWorker(QObject):
                         f"  {cookie_result.decrypted} decrypted, {cookie_result.failed} failed "
                         f"out of {cookie_result.total} total."
                     )
+                    if req.direct_write_cookies and req.target and not req.dry_run:
+                        try:
+                            cdw = write_cookies_into_target(req.source, req.target, out_dir)
+                        except ProfileLockedError as exc:
+                            self.log.emit(f"  Cookies direct-write aborted: {exc}")
+                        else:
+                            self.log.emit(
+                                f"  Wrote cookies.sqlite into {cdw.target_path}; "
+                                f"previous backed up as {cdw.backup_path.name}"
+                            )
 
             if req.do_history:
                 current += 1
@@ -235,6 +261,17 @@ class MigrationWorker(QObject):
                     f"  {history_result.urls} URLs / {history_result.visits} visits "
                     f"({len(history_result.failures)} failed)."
                 )
+                if req.direct_write_history and req.target and not req.dry_run:
+                    try:
+                        hdw = write_history_into_target(req.source, req.target, out_dir)
+                    except ProfileLockedError as exc:
+                        self.log.emit(f"  History direct-write aborted: {exc}")
+                    else:
+                        favicons_note = " favicons.sqlite cleared" if hdw.favicons_deleted else ""
+                        self.log.emit(
+                            f"  Wrote places.sqlite into {hdw.target_path}; "
+                            f"previous backed up as {hdw.backup_path.name}.{favicons_note}"
+                        )
 
             if req.do_autofill:
                 current += 1
@@ -277,6 +314,25 @@ class MigrationWorker(QObject):
                     f"{se_result.total} total entries."
                 )
 
+            if req.do_open_tabs:
+                current += 1
+                self.step.emit(current, steps)
+                self.log.emit("Reconstructing open tabs from Chromium session...")
+                ot_result = migrate_open_tabs(req.source, out_dir, dry_run=req.dry_run)
+                self.log.emit(
+                    f"  {ot_result.tabs} tab URL(s) recovered "
+                    f"({len(ot_result.failures)} failure(s))."
+                )
+                if not req.dry_run and ot_result.tabs > 0:
+                    exports["open_tabs"] = ot_result.out_path
+                if req.direct_write_open_tabs and req.target and not req.dry_run and ot_result.tabs > 0:
+                    try:
+                        installed = write_session_into_target(req.source, req.target, out_dir)
+                    except ProfileLockedError as exc:
+                        self.log.emit(f"  Open-tabs direct-write aborted: {exc}")
+                    else:
+                        self.log.emit(f"  Wrote recovery.jsonlz4 to {installed}")
+
             if not req.dry_run:
                 instructions_path = out_dir / "README.txt"
                 instructions_path.write_text(
@@ -288,6 +344,56 @@ class MigrationWorker(QObject):
             self.finished.emit(True, str(out_dir), {k: str(v) for k, v in exports.items()})
 
         except Exception as exc:
+            self.log.emit(f"FATAL: {exc}")
+            self.finished.emit(False, str(exc), {})
+
+
+    def _run_reverse(self) -> None:
+        req = self._req
+        steps = sum([req.do_passwords, req.do_bookmarks, req.do_extensions]) or 1
+        target_label = (req.target.label if req.target else "chrome") + (
+            "_dryrun" if req.dry_run else ""
+        )
+        out_dir = make_export_dir(req.out_root, f"{req.source.label}_reverse", target_label)
+        self.log.emit(f"Output: {out_dir}")
+        if req.dry_run:
+            self.log.emit("DRY RUN — counts only; no files will be written.")
+        current = 0
+        exports: dict[str, str] = {}
+        try:
+            if req.do_passwords:
+                current += 1
+                self.step.emit(current, steps)
+                self.log.emit("Decrypting Firefox logins via NSS...")
+                r = migrate_passwords_reverse(
+                    req.source, out_dir,
+                    master_password=req.master_password, dry_run=req.dry_run,
+                )
+                self.log.emit(
+                    f"  {r.written} written, {len(r.failures)} failed of {r.total} total."
+                )
+                if not req.dry_run and r.written:
+                    exports["passwords"] = str(r.csv_path)
+            if req.do_bookmarks:
+                current += 1
+                self.step.emit(current, steps)
+                self.log.emit("Converting Firefox bookmarks to Chrome HTML...")
+                r = migrate_bookmarks_reverse(req.source, out_dir, dry_run=req.dry_run)
+                self.log.emit(f"  {r.urls} URLs across {r.folders} folders.")
+                if not req.dry_run:
+                    exports["bookmarks"] = str(r.html_path)
+            if req.do_extensions:
+                current += 1
+                self.step.emit(current, steps)
+                self.log.emit("Mapping Firefox extensions to Chrome Web Store...")
+                r = migrate_extensions_reverse(req.source, out_dir, dry_run=req.dry_run)
+                self.log.emit(
+                    f"  {r.matched} matched, {r.unmatched} unmatched of {len(r.matches)} installed."
+                )
+                if not req.dry_run:
+                    exports["extensions"] = str(r.html_path)
+            self.finished.emit(True, str(out_dir), exports)
+        except Exception as exc:  # noqa: BLE001
             self.log.emit(f"FATAL: {exc}")
             self.finished.emit(False, str(exc), {})
 

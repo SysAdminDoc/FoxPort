@@ -4,7 +4,7 @@
 
 # FoxPort
 
-[![version](https://img.shields.io/badge/version-1.0.0-f5c2e7?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-1.1.0-f5c2e7?style=flat-square)](CHANGELOG.md)
 [![license](https://img.shields.io/badge/license-MIT-89b4fa?style=flat-square)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-cdd6f4?style=flat-square)](#)
 [![python](https://img.shields.io/badge/python-3.11%2B-a6e3a1?style=flat-square)](https://www.python.org/)
@@ -30,6 +30,34 @@ left-rail step indicator and Catppuccin Mocha dark theme:
 <p align="center">
   <img src="assets/screenshots/5-run.png" alt="Run / done step" width="80%"/>
 </p>
+
+## What's new in v1.1.0
+
+- **GUI direction toggle** — A segmented Chromium → Firefox / Firefox →
+  Chromium selector on the Source step; the Source and Target pages swap
+  their tile lists when you flip it. Items step disables the categories
+  not yet supported in reverse mode.
+- **Master-password prompt** — Reverse mode auto-prompts via a Qt
+  password dialog when the Firefox source has one set, then retries NSS
+  with the entered string. Cancel aborts the migration cleanly.
+- **Direct-write cookies + history** — Sibling checkboxes to the existing
+  direct-write-passwords one on the Items step. Each backs up the
+  pre-existing file in the target profile to a timestamped sibling,
+  refuses on locked profile, and for history additionally deletes
+  `favicons.sqlite` so Firefox rebuilds it from the imported visits.
+- **Open tabs migration** — Reads the most recent Chromium
+  `Sessions/Session_<n>` SNSS binary, scans for UTF-16LE-encoded URLs
+  (RFC 3986 char class to avoid bleed between fields), and emits a
+  Firefox-compatible `recovery.jsonlz4` (`mozLz40\0` magic + lz4-block-
+  compressed JSON). Optional direct-write to
+  `sessionstore-backups/recovery.jsonlz4`.
+- **Profile diff** — New CLI `diff` subcommand reports
+  passwords/bookmarks/extensions that exist in source but not in target,
+  with samples. Useful before committing a migration: `python -m
+  foxport.cli diff --source "Brave/Default" --target "Firefox/default-release"`.
+- **Curated-map auditor** — `scripts/check_curated_map.py` hits AMO for
+  every slug in the curated map, flags 404s / disabled / stale entries,
+  exits non-zero on broken results. Designed for monthly CI runs.
 
 ## What's new in v1.0.0
 

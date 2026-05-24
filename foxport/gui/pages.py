@@ -52,12 +52,20 @@ from foxport.gui.widgets import (
 class MigrationContext:
     """Per-run state passed between wizard pages."""
 
+    DIRECTION_FORWARD = "forward"   # Chromium → Firefox (default)
+    DIRECTION_REVERSE = "reverse"   # Firefox → Chromium
+
     def __init__(self) -> None:
         self.chromium_profiles: list[ChromiumProfile] = []
         self.firefox_profiles: list[FirefoxProfile] = []
-        self.source: ChromiumProfile | None = None
-        self.target: FirefoxProfile | None = None
+        # In forward mode source = ChromiumProfile, target = FirefoxProfile.
+        # In reverse mode source = FirefoxProfile, target = ChromiumProfile.
+        # The fields stay typed loosely so the existing page code keeps working.
+        self.source = None
+        self.target = None
         self.dropped_source_path: Path | None = None
+        self.direction: str = self.DIRECTION_FORWARD
+        self.master_password: str = ""
         self.do_passwords: bool = True
         self.do_bookmarks: bool = True
         self.do_extensions: bool = True
@@ -66,9 +74,12 @@ class MigrationContext:
         self.do_autofill: bool = False
         self.do_cards: bool = False
         self.do_search_engines: bool = False
+        self.do_open_tabs: bool = False
         self.extensions_online: bool = True
         self.dry_run: bool = False
         self.direct_write_passwords: bool = False
+        self.direct_write_cookies: bool = False
+        self.direct_write_history: bool = False
         self.out_root: Path = Path.home() / "Documents" / "FoxPort"
         # Preview counts
         self.password_count: int = 0
@@ -99,20 +110,42 @@ def _count_bookmarks(roots) -> int:
 # ----------------------------------------------------------- Step 1: Source
 
 class SourcePage(WizardPage):
-    """Tile picker for Chromium-family source profiles + drag-drop fallback."""
+    """Tile picker for source profiles (Chromium or Firefox) + drag-drop fallback."""
 
     detectionRequested = pyqtSignal()
+    directionChanged = pyqtSignal()
 
     def __init__(self, ctx: MigrationContext, parent: QWidget | None = None) -> None:
         super().__init__(
             "Pick your source browser",
-            "Select the Chromium-family profile you want to migrate from. "
-            "Detected profiles appear below. You can also drag a profile folder "
-            "or a `Login Data` file onto the manual tile.",
+            "Select the profile you want to migrate from. The direction selector "
+            "above flips between Chromium → Firefox and Firefox → Chromium.",
             parent,
         )
         self._ctx = ctx
         self._tiles: dict[int, Tile] = {}
+
+        # Direction selector — segmented control implemented as two buttons.
+        direction_row = QHBoxLayout()
+        direction_row.setSpacing(0)
+        direction_row.addWidget(QLabel("Direction:"))
+        direction_row.addSpacing(10)
+        from PyQt6.QtWidgets import QPushButton
+        self._forward_btn = QPushButton("Chromium → Firefox")
+        self._reverse_btn = QPushButton("Firefox → Chromium")
+        self._forward_btn.setCheckable(True)
+        self._reverse_btn.setCheckable(True)
+        self._forward_btn.setChecked(True)
+        for btn in (self._forward_btn, self._reverse_btn):
+            btn.setObjectName("DirectionToggle")
+        self._forward_btn.clicked.connect(lambda: self._set_direction(MigrationContext.DIRECTION_FORWARD))
+        self._reverse_btn.clicked.connect(lambda: self._set_direction(MigrationContext.DIRECTION_REVERSE))
+        direction_row.addWidget(self._forward_btn)
+        direction_row.addWidget(self._reverse_btn)
+        direction_row.addStretch(1)
+        direction_widget = QFrame()
+        direction_widget.setLayout(direction_row)
+        self.add_content(direction_widget)
 
         self._banner = Banner(
             "Scanning for installed browsers…",
@@ -139,48 +172,81 @@ class SourcePage(WizardPage):
         self._manual.fileDropped.connect(self._on_drop)
         self.add_content(self._manual)
 
-    def populate(self, profiles: list[ChromiumProfile]) -> None:
+    def populate(self, chromium: list[ChromiumProfile], firefox: list[FirefoxProfile]) -> None:
+        # Cache both lists; only render the one matching the current direction.
+        self._ctx.chromium_profiles = chromium
+        self._ctx.firefox_profiles = firefox
+        self._render_for_direction()
+
+    def _render_for_direction(self) -> None:
         # Clear any prior tiles.
         for tile in self._tiles.values():
             tile.setParent(None)
         self._tiles.clear()
-        # Clear stretch + repopulate.
         while self._tile_layout.count():
             self._tile_layout.takeAt(0)
+
+        if self._ctx.direction == MigrationContext.DIRECTION_REVERSE:
+            profiles = self._ctx.firefox_profiles
+            family_name = "Firefox-family"
+            running_helper = is_firefox_profile_locked
+            running_label = "⚠ locked (Firefox is open)"
+        else:
+            profiles = self._ctx.chromium_profiles
+            family_name = "Chromium"
+            running_helper = is_chromium_running
+            running_label = "⚠ currently running"
+
         if not profiles:
             self._banner.set_text(
-                "No Chromium browsers were detected on this account. "
-                "You can still drag a User Data folder onto the manual tile below."
+                f"No {family_name} browsers were detected on this account. "
+                "You can still drag a profile folder onto the manual tile below."
             )
             self._tile_layout.addStretch(1)
             return
-        running = any(is_chromium_running(p) for p in profiles)
+        running = any(running_helper(p) for p in profiles)
         if running:
             self._banner.set_text(
-                "One or more source browsers are running. Data may be incomplete or locked. "
-                "Close them for the best result — FoxPort will copy the database files safely."
+                f"One or more {family_name} source profiles are in use. "
+                "Close them for the best result — FoxPort will copy database files safely."
             )
         else:
             self._banner.set_text(
-                f"{len(profiles)} Chromium profile(s) found. None are currently running."
+                f"{len(profiles)} {family_name} profile(s) found. None are currently in use."
             )
         for i, prof in enumerate(profiles):
             subtitle_parts = [str(prof.profile_dir)]
-            if is_chromium_running(prof):
-                subtitle_parts.append("⚠ currently running")
+            if running_helper(prof):
+                subtitle_parts.append(running_label)
             tile = Tile(prof.label, "  ·  ".join(subtitle_parts))
             tile.clicked.connect(lambda i=i: self._on_pick(i))
             self._tile_layout.addWidget(tile)
             self._tiles[i] = tile
         self._tile_layout.addStretch(1)
-        # Restore prior selection if any.
+        # Restore prior selection if any (only if it's of the right type).
         if self._ctx.source in profiles:
             self._select(profiles.index(self._ctx.source))
 
+    def _set_direction(self, direction: str) -> None:
+        if self._ctx.direction == direction:
+            return
+        self._ctx.direction = direction
+        self._forward_btn.setChecked(direction == MigrationContext.DIRECTION_FORWARD)
+        self._reverse_btn.setChecked(direction == MigrationContext.DIRECTION_REVERSE)
+        # Clear the prior source/target — they were of the wrong family.
+        self._ctx.source = None
+        self._ctx.target = None
+        self._render_for_direction()
+        self.directionChanged.emit()
+        self.canAdvanceChanged.emit(False)
+
     def _on_pick(self, index: int) -> None:
         self._select(index)
-        self._ctx.source = self._ctx.chromium_profiles[index]
-        self._refresh_abe_check()
+        if self._ctx.direction == MigrationContext.DIRECTION_REVERSE:
+            self._ctx.source = self._ctx.firefox_profiles[index]
+        else:
+            self._ctx.source = self._ctx.chromium_profiles[index]
+            self._refresh_abe_check()
         self.canAdvanceChanged.emit(True)
 
     def _select(self, index: int) -> None:
@@ -198,7 +264,7 @@ class SourcePage(WizardPage):
         )
 
     def _refresh_abe_check(self) -> None:
-        if not self._ctx.source:
+        if not self._ctx.source or not hasattr(self._ctx.source, "local_state"):
             return
         info = inspect_local_state(self._ctx.source.local_state)
         self._ctx.source_uses_abe = info.has_app_bound_key
@@ -222,13 +288,13 @@ class SourcePage(WizardPage):
 # ----------------------------------------------------------- Step 2: Target
 
 class TargetPage(WizardPage):
-    """Pick the Firefox-family target profile (or skip — exports are still useful)."""
+    """Pick the target profile — the family swaps based on context direction."""
 
     def __init__(self, ctx: MigrationContext, parent: QWidget | None = None) -> None:
         super().__init__(
             "Pick your target browser",
-            "Choose where the import files should be aimed. FoxPort never writes into "
-            "the target profile directly — files land in an output folder you'll import manually.",
+            "Choose where the import files should be aimed. The output folder "
+            "always gets the import-ready files even when no target is selected.",
             parent,
         )
         self._ctx = ctx
@@ -255,28 +321,44 @@ class TargetPage(WizardPage):
         self._skip_tile.clicked.connect(self._on_skip)
         self.add_content(self._skip_tile)
 
-    def populate(self, profiles: list[FirefoxProfile]) -> None:
+    def populate(self) -> None:
+        self._render_for_direction()
+
+    def _render_for_direction(self) -> None:
         for tile in self._tiles.values():
             tile.setParent(None)
         self._tiles.clear()
         while self._tile_layout.count():
             self._tile_layout.takeAt(0)
+        if self._ctx.direction == MigrationContext.DIRECTION_REVERSE:
+            profiles = self._ctx.chromium_profiles
+            lock_helper = is_chromium_running
+            locked_label = "⚠ currently running"
+            empty_msg = ("No Chromium-family targets found — you can still run the "
+                          "migration without a target.")
+            busy_msg = ("One or more Chromium browsers are running. "
+                        "Close them before applying the import files.")
+        else:
+            profiles = self._ctx.firefox_profiles
+            lock_helper = is_firefox_profile_locked
+            locked_label = "⚠ locked (Firefox is open)"
+            empty_msg = ("No Firefox profiles found — you can still run the migration "
+                          "without a target.")
+            busy_msg = ("One or more Firefox profiles are currently open. "
+                        "Close them before importing — Firefox won't open the import "
+                        "dialog otherwise.")
         if not profiles:
             self._banner.setVisible(True)
-            self._banner.set_text("No Firefox profiles found — you can still run the migration without a target.")
+            self._banner.set_text(empty_msg)
             self._tile_layout.addStretch(1)
             return
-        any_locked = any(is_firefox_profile_locked(p) for p in profiles)
-        if any_locked:
+        if any(lock_helper(p) for p in profiles):
             self._banner.setVisible(True)
-            self._banner.set_text(
-                "One or more Firefox profiles are currently open. "
-                "Close them before importing — Firefox won't open the import dialog otherwise."
-            )
+            self._banner.set_text(busy_msg)
         for i, prof in enumerate(profiles):
             subtitle_parts = [str(prof.profile_dir)]
-            if is_firefox_profile_locked(prof):
-                subtitle_parts.append("⚠ locked (Firefox is open)")
+            if lock_helper(prof):
+                subtitle_parts.append(locked_label)
             tile = Tile(prof.label, "  ·  ".join(subtitle_parts))
             tile.clicked.connect(lambda i=i: self._on_pick(i))
             self._tile_layout.addWidget(tile)
@@ -284,13 +366,17 @@ class TargetPage(WizardPage):
         self._tile_layout.addStretch(1)
         if self._ctx.target in profiles:
             self._select(profiles.index(self._ctx.target))
-        else:
-            default_idx = next((i for i, p in enumerate(profiles) if p.is_default), None)
+        elif self._ctx.direction == MigrationContext.DIRECTION_FORWARD:
+            default_idx = next((i for i, p in enumerate(profiles)
+                                  if getattr(p, "is_default", False)), None)
             if default_idx is not None:
                 self._on_pick(default_idx)
 
     def _on_pick(self, index: int) -> None:
-        self._ctx.target = self._ctx.firefox_profiles[index]
+        if self._ctx.direction == MigrationContext.DIRECTION_REVERSE:
+            self._ctx.target = self._ctx.chromium_profiles[index]
+        else:
+            self._ctx.target = self._ctx.firefox_profiles[index]
         self._skip_tile.set_selected(False)
         self._select(index)
         self.canAdvanceChanged.emit(True)
@@ -351,6 +437,9 @@ class ItemsPage(WizardPage):
         self._search_engines_row = self._make_row("Search engines",
             "Export every Chromium search engine as OpenSearch XML the user can drag-install in Firefox.",
             default_checked=False)
+        self._open_tabs_row = self._make_row("Open tabs",
+            "Recover the URL list from Chromium's latest session and emit a Firefox recovery.jsonlz4.",
+            default_checked=False)
         card_layout.addWidget(self._passwords_row[0])
         card_layout.addWidget(self._bookmarks_row[0])
         card_layout.addWidget(self._extensions_row[0])
@@ -359,6 +448,7 @@ class ItemsPage(WizardPage):
         card_layout.addWidget(self._autofill_row[0])
         card_layout.addWidget(self._cards_row[0])
         card_layout.addWidget(self._search_engines_row[0])
+        card_layout.addWidget(self._open_tabs_row[0])
         self.add_content(card)
 
         # Online lookup checkbox
@@ -373,6 +463,21 @@ class ItemsPage(WizardPage):
         self._direct_cb.setChecked(False)
         self._direct_cb.stateChanged.connect(self._sync)  # type: ignore[arg-type]
         self.add_content(self._direct_cb)
+
+        # Direct-write cookies/history into the target profile.
+        self._direct_cookies_cb = QCheckBox(
+            "Direct-write cookies.sqlite into the target profile (close Firefox first)"
+        )
+        self._direct_cookies_cb.setChecked(False)
+        self._direct_cookies_cb.stateChanged.connect(self._sync)  # type: ignore[arg-type]
+        self.add_content(self._direct_cookies_cb)
+
+        self._direct_history_cb = QCheckBox(
+            "Direct-write places.sqlite (history) into the target profile (close Firefox first)"
+        )
+        self._direct_history_cb.setChecked(False)
+        self._direct_history_cb.stateChanged.connect(self._sync)  # type: ignore[arg-type]
+        self.add_content(self._direct_history_cb)
 
         # Dry-run checkbox
         self._dry_cb = QCheckBox("Dry run — count items and test decryption, but do not write any files")
@@ -444,9 +549,12 @@ class ItemsPage(WizardPage):
         self._ctx.do_autofill = self._autofill_row[1].isChecked()
         self._ctx.do_cards = self._cards_row[1].isChecked()
         self._ctx.do_search_engines = self._search_engines_row[1].isChecked()
+        self._ctx.do_open_tabs = self._open_tabs_row[1].isChecked()
         self._ctx.extensions_online = self._online_cb.isChecked()
         self._ctx.dry_run = self._dry_cb.isChecked()
         self._ctx.direct_write_passwords = self._direct_cb.isChecked()
+        self._ctx.direct_write_cookies = self._direct_cookies_cb.isChecked()
+        self._ctx.direct_write_history = self._direct_history_cb.isChecked()
         self.canAdvanceChanged.emit(self.can_advance())
 
     def set_counts(self, passwords: int, bookmarks: int, extensions: int,
@@ -474,10 +582,32 @@ class ItemsPage(WizardPage):
             self._autofill_row[1].isChecked(),
             self._cards_row[1].isChecked(),
             self._search_engines_row[1].isChecked(),
+            self._open_tabs_row[1].isChecked(),
         ])
 
     def on_enter(self) -> None:
         self._sync()
+        reverse = self._ctx.direction == MigrationContext.DIRECTION_REVERSE
+        # Categories without a reverse implementation get disabled + unchecked.
+        for row in (self._cookies_row, self._history_row, self._autofill_row,
+                    self._cards_row, self._search_engines_row, self._open_tabs_row):
+            if reverse:
+                row[1].setChecked(False)
+                row[1].setEnabled(False)
+                row[1].setToolTip("Not yet supported in Firefox → Chromium direction "
+                                  "(passwords/bookmarks/extensions only for now).")
+            else:
+                row[1].setEnabled(True)
+                row[1].setToolTip("")
+        # Direct-write only makes sense forward right now too.
+        for cb in (self._direct_cb, self._direct_cookies_cb, self._direct_history_cb):
+            cb.setEnabled(not reverse)
+            if reverse:
+                cb.setChecked(False)
+                cb.setToolTip("Reverse direction uses CSV/HTML only — direct-write into "
+                              "Chrome's profile is on the v1.2 roadmap.")
+            else:
+                cb.setToolTip("")
 
     def _customize_passwords(self) -> None:
         if not self._ctx.source:
@@ -539,10 +669,40 @@ class PreviewPage(WizardPage):
         source_node.addChild(QTreeWidgetItem(
             ["Target", ctx.target.label if ctx.target else "(no target selected — files only)"]
         ))
+        source_node.addChild(QTreeWidgetItem([
+            "Direction",
+            "Firefox → Chromium" if ctx.direction == MigrationContext.DIRECTION_REVERSE else "Chromium → Firefox",
+        ]))
         source_node.addChild(QTreeWidgetItem(["Output", str(ctx.out_root)]))
         if ctx.dry_run:
             source_node.addChild(QTreeWidgetItem(["Mode", "DRY RUN (nothing will be written)"]))
         self._tree.addTopLevelItem(source_node)
+
+        # Reverse mode: source is a FirefoxProfile, the chromium read helpers
+        # don't apply. Show item categories with placeholder counts and tell
+        # the user real counts will appear in the Run log.
+        if ctx.direction == MigrationContext.DIRECTION_REVERSE:
+            if ctx.do_passwords:
+                self._tree.addTopLevelItem(QTreeWidgetItem([
+                    "Passwords",
+                    "chrome-passwords.csv → Chrome Settings → Passwords → Import",
+                ]))
+            if ctx.do_bookmarks:
+                self._tree.addTopLevelItem(QTreeWidgetItem([
+                    "Bookmarks",
+                    "chrome-bookmarks.html → Chrome Bookmark Manager → Import",
+                ]))
+            if ctx.do_extensions:
+                self._tree.addTopLevelItem(QTreeWidgetItem([
+                    "Extensions",
+                    "chrome-extensions.html → click each Install on Chrome link",
+                ]))
+            source_node.setExpanded(True)
+            self._note.setText(
+                "Counts will appear in the Run log. The source Firefox profile must be "
+                "closed (NSS holds the same lock Firefox does)."
+            )
+            return
 
         if ctx.source:
             if ctx.do_passwords:

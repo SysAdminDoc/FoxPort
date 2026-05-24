@@ -44,6 +44,7 @@ from foxport.migrate.cards import migrate_cards
 from foxport.migrate.cookies import migrate_cookies
 from foxport.migrate.extensions import migrate_extensions
 from foxport.migrate.history import migrate_history
+from foxport.migrate.open_tabs import migrate_open_tabs
 from foxport.migrate.passwords import migrate_passwords
 from foxport.migrate.search_engines import migrate_search_engines
 from foxport.migrate_reverse.bookmarks import migrate_bookmarks_reverse
@@ -53,7 +54,7 @@ from foxport.migrate_reverse.passwords import migrate_passwords_reverse
 
 ALL_ITEMS = (
     "passwords", "bookmarks", "extensions", "cookies", "history",
-    "autofill", "cards", "search_engines",
+    "autofill", "cards", "search_engines", "open_tabs",
 )
 
 REVERSE_ITEMS = ("passwords", "bookmarks", "extensions")
@@ -237,6 +238,13 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
         if not args.dry_run:
             exports["search_engines"] = r.json_path
 
+    if "open_tabs" in items:
+        print("\n[open_tabs]")
+        r = migrate_open_tabs(source, out_dir, dry_run=args.dry_run)
+        print(f"  {r.tabs} URL(s) recovered ({len(r.failures)} failure(s))")
+        if not args.dry_run and r.tabs > 0:
+            exports["open_tabs"] = r.out_path
+
     if exports:
         instructions_path = out_dir / "README.txt"
         instructions_path.write_text(
@@ -271,6 +279,13 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Output root directory (default: ~/Documents/FoxPort)")
     mig.add_argument("--no-online", action="store_true",
                      help="Skip AMO online lookup for unknown extensions")
+
+    diff = sub.add_parser("diff",
+                           help="Show what's in the source that the target doesn't have yet")
+    diff.add_argument("--source", required=True, help="Chromium source profile")
+    diff.add_argument("--target", required=True, help="Firefox target profile")
+    diff.add_argument("--master-password", default="",
+                       help="Master password for the target Firefox profile, if set")
 
     rev = sub.add_parser("migrate-reverse",
                           help="Reverse direction: Firefox profile → Chromium-importable bundle")
@@ -326,6 +341,36 @@ def _cmd_migrate_reverse(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_diff(args: argparse.Namespace) -> int:
+    chromium = detect_chromium()
+    firefox = detect_firefox()
+    source = _find_chromium(args.source, chromium)
+    target = _find_firefox(args.target, firefox)
+    if not source or not target:
+        if not source:
+            print(f"error: no Chromium source matched '{args.source}'", file=sys.stderr)
+        if not target:
+            print(f"error: no Firefox target matched '{args.target}'", file=sys.stderr)
+        return 2
+    from foxport.diff import diff_profiles
+    d = diff_profiles(source, target, master_password=args.master_password)
+    print(f"Diff: {source.label} -> {target.label}")
+    print()
+    print(f"Passwords:  +{d.passwords_only_in_source} new, "
+          f"{d.passwords_in_both} already in target")
+    for s in d.samples.get("passwords", []):
+        print(f"    +  {s}")
+    print(f"Bookmarks:  +{d.bookmark_urls_only_in_source} new, "
+          f"{d.bookmark_urls_in_both} already in target")
+    for s in d.samples.get("bookmarks", []):
+        print(f"    +  {s}")
+    print(f"Extensions: +{d.extensions_only_in_source} new, "
+          f"{d.extensions_in_both} already in target")
+    for s in d.samples.get("extensions", []):
+        print(f"    +  {s}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -335,6 +380,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_migrate(args)
     if args.command == "migrate-reverse":
         return _cmd_migrate_reverse(args)
+    if args.command == "diff":
+        return _cmd_diff(args)
     parser.error("no command")
     return 2
 

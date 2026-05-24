@@ -33,6 +33,22 @@ from foxport.browsers.chromium import (
 from foxport.browsers.detect import ChromiumProfile
 from foxport.crypto.dpapi import decrypt_value, load_master_key
 
+from PyQt6.QtWidgets import QInputDialog
+
+
+def prompt_master_password(parent: QWidget | None, profile_label: str) -> str | None:
+    """Show a one-shot password dialog. Returns the entered string, or None on Cancel."""
+    text, ok = QInputDialog.getText(
+        parent,
+        "Master password required",
+        f"The Firefox profile {profile_label} has a master password set.\n"
+        "Enter it to decrypt logins (it never leaves this machine).",
+        QInputDialog.EchoMode.Password,
+    )
+    if not ok:
+        return None
+    return text
+
 
 class PasswordPreviewDialog(QDialog):
     """Live table of decrypted logins with search + per-row checkboxes.
