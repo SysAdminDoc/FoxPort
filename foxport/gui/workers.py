@@ -17,7 +17,9 @@ from foxport.browsers.detect import (
 from foxport.browsers.firefox import import_instructions, make_export_dir
 from foxport.crypto.dpapi import DecryptionError
 from foxport.migrate.bookmarks import migrate_bookmarks
+from foxport.migrate.cookies import migrate_cookies
 from foxport.migrate.extensions import migrate_extensions
+from foxport.migrate.history import migrate_history
 from foxport.migrate.passwords import migrate_passwords
 
 
@@ -31,7 +33,10 @@ class MigrationRequest:
     do_passwords: bool
     do_bookmarks: bool
     do_extensions: bool
-    extensions_online: bool
+    do_cookies: bool = False
+    do_history: bool = False
+    extensions_online: bool = True
+    dry_run: bool = False
 
 
 class DetectWorker(QObject):
@@ -63,15 +68,22 @@ class MigrationWorker(QObject):
 
     def run(self) -> None:
         req = self._req
-        steps = sum([req.do_passwords, req.do_bookmarks, req.do_extensions]) or 1
+        steps = sum([
+            req.do_passwords, req.do_bookmarks, req.do_extensions,
+            req.do_cookies, req.do_history,
+        ]) or 1
         target_label = req.target.label if req.target else "firefox"
+        if req.dry_run:
+            target_label += "_dryrun"
         out_dir = make_export_dir(req.out_root, req.source.label, target_label)
         self.log.emit(f"Output: {out_dir}")
+        if req.dry_run:
+            self.log.emit("DRY RUN — counts and decrypt tests only; no files will be written.")
         current = 0
         exports: dict[str, Path] = {}
 
         already_installed: set[str] = set()
-        if req.target:
+        if req.target and not req.dry_run:
             already_installed = read_installed_firefox_extensions(req.target)
             if already_installed:
                 self.log.emit(
@@ -85,11 +97,12 @@ class MigrationWorker(QObject):
                 self.step.emit(current, steps)
                 self.log.emit("Decrypting passwords...")
                 try:
-                    result = migrate_passwords(req.source, out_dir)
+                    result = migrate_passwords(req.source, out_dir, dry_run=req.dry_run)
                 except DecryptionError as exc:
                     self.log.emit(f"  Password decryption failed: {exc}")
                 else:
-                    exports["passwords"] = result.csv_path
+                    if not req.dry_run:
+                        exports["passwords"] = result.csv_path
                     self.log.emit(
                         f"  {result.decrypted} decrypted, {result.skipped_empty} empty, "
                         f"{result.failed} failed out of {result.total} total."
@@ -104,8 +117,9 @@ class MigrationWorker(QObject):
                 current += 1
                 self.step.emit(current, steps)
                 self.log.emit("Converting bookmarks...")
-                bookmark_result = migrate_bookmarks(req.source, out_dir)
-                exports["bookmarks"] = bookmark_result.html_path
+                bookmark_result = migrate_bookmarks(req.source, out_dir, dry_run=req.dry_run)
+                if not req.dry_run:
+                    exports["bookmarks"] = bookmark_result.html_path
                 self.log.emit(
                     f"  {bookmark_result.urls} URLs across {bookmark_result.folders} folders."
                 )
@@ -120,8 +134,10 @@ class MigrationWorker(QObject):
                     out_dir,
                     online=req.extensions_online,
                     already_installed_guids=already_installed,
+                    dry_run=req.dry_run,
                 )
-                exports["extensions"] = ext_result.html_path
+                if not req.dry_run:
+                    exports["extensions"] = ext_result.html_path
                 if already_installed:
                     self.log.emit(
                         f"  {ext_result.matched} matched ({ext_result.already_installed} already installed), "
@@ -133,11 +149,42 @@ class MigrationWorker(QObject):
                         f"out of {len(ext_result.matches)} installed."
                     )
 
-            instructions_path = out_dir / "README.txt"
-            instructions_path.write_text(
-                import_instructions(req.target, exports), encoding="utf-8"
-            )
-            self.log.emit(f"Instructions written to {instructions_path.name}")
+            if req.do_cookies:
+                current += 1
+                self.step.emit(current, steps)
+                self.log.emit("Decrypting cookies...")
+                try:
+                    cookie_result = migrate_cookies(req.source, out_dir, dry_run=req.dry_run)
+                except DecryptionError as exc:
+                    self.log.emit(f"  Cookie decryption failed: {exc}")
+                else:
+                    if not req.dry_run:
+                        exports["cookies"] = cookie_result.sqlite_path
+                    self.log.emit(
+                        f"  {cookie_result.decrypted} decrypted, {cookie_result.failed} failed "
+                        f"out of {cookie_result.total} total."
+                    )
+
+            if req.do_history:
+                current += 1
+                self.step.emit(current, steps)
+                self.log.emit("Migrating history...")
+                history_result = migrate_history(req.source, out_dir, dry_run=req.dry_run)
+                if not req.dry_run:
+                    exports["history"] = history_result.sqlite_path
+                self.log.emit(
+                    f"  {history_result.urls} URLs / {history_result.visits} visits "
+                    f"({len(history_result.failures)} failed)."
+                )
+
+            if not req.dry_run:
+                instructions_path = out_dir / "README.txt"
+                instructions_path.write_text(
+                    import_instructions(req.target, exports), encoding="utf-8"
+                )
+                self.log.emit(f"Instructions written to {instructions_path.name}")
+            else:
+                self.log.emit("Dry-run complete. No files were written.")
             self.finished.emit(True, str(out_dir), {k: str(v) for k, v in exports.items()})
 
         except Exception as exc:

@@ -105,6 +105,8 @@ class MainWindow(QMainWindow):
         self._run_page.open_pw_btn.clicked.connect(lambda: self._open_path(Path(self._last_exports.get("passwords", ""))))
         self._run_page.open_bm_btn.clicked.connect(lambda: self._open_path(Path(self._last_exports.get("bookmarks", ""))))
         self._run_page.open_ext_btn.clicked.connect(lambda: self._open_path(Path(self._last_exports.get("extensions", ""))))
+        self._run_page.open_cookies_btn.clicked.connect(lambda: self._reveal_path(self._last_exports.get("cookies", "")))
+        self._run_page.open_history_btn.clicked.connect(lambda: self._reveal_path(self._last_exports.get("history", "")))
         self._last_out_dir: str = ""
         self._last_exports: dict[str, str] = {}
 
@@ -225,6 +227,8 @@ class MainWindow(QMainWindow):
             self._ctx.password_count,
             self._ctx.bookmark_count,
             self._ctx.extension_count,
+            self._ctx.cookie_count,
+            self._ctx.history_count,
         )
         request = MigrationRequest(
             source=self._ctx.source,
@@ -233,7 +237,10 @@ class MainWindow(QMainWindow):
             do_passwords=self._ctx.do_passwords,
             do_bookmarks=self._ctx.do_bookmarks,
             do_extensions=self._ctx.do_extensions,
+            do_cookies=self._ctx.do_cookies,
+            do_history=self._ctx.do_history,
             extensions_online=self._ctx.extensions_online,
+            dry_run=self._ctx.dry_run,
         )
         self._run_page.reset()
         self._run_page.set_busy()
@@ -285,6 +292,22 @@ class MainWindow(QMainWindow):
                 subprocess.Popen(["xdg-open", str(path)])
         except OSError as exc:
             QMessageBox.warning(self, "FoxPort", f"Could not open {path}:\n{exc}")
+
+    def _reveal_path(self, raw_path: str) -> None:
+        """Open Explorer/Finder with the file selected, instead of launching it."""
+        if not raw_path:
+            return
+        path = Path(raw_path)
+        try:
+            if sys.platform == "win32":
+                subprocess.Popen(["explorer", "/select,", str(path)])
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", "-R", str(path)])
+            else:
+                # Most Linux file managers don't have a select primitive; open parent.
+                subprocess.Popen(["xdg-open", str(path.parent)])
+        except OSError as exc:
+            QMessageBox.warning(self, "FoxPort", f"Could not reveal {path}:\n{exc}")
 
     def _about(self) -> None:
         QMessageBox.about(

@@ -4,6 +4,60 @@ All notable changes to FoxPort are documented here. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/), versioning per
 [SemVer](https://semver.org/).
 
+## [0.3.0] — 2026-05-23
+
+Cookies + history + dry-run + App-Bound Encryption sidecar.
+
+### Added
+- **Cookies migration** (`migrate/cookies.py`) — decrypt all entries in
+  Chromium's `Network/Cookies` (or legacy `Cookies`) SQLite using the same
+  AES-GCM key as passwords, strip the 32-byte SHA-256 `HOST_KEY` prefix on
+  Chrome 130+ (`meta.value WHERE key='version' >= 24`), and write a fresh
+  Firefox v17-schema `cookies.sqlite` from scratch. Timestamps converted
+  from Chromium WebKit µs/1601 to Firefox µs/1970 (creationTime,
+  lastAccessed) or s/1970 (expiry). Default `schemeMap=2` for HTTPS,
+  domain-vs-host-only inferred from leading dot in `host_key`.
+- **History migration** (`migrate/history.py`) — walk Chromium's `History`
+  database (`urls` + `visits` tables) and write a fresh Firefox v77-schema
+  `places.sqlite` populating `moz_origins`, `moz_places`
+  (`frecency=-1`, `recalc_frecency=1`, scheme-tagged `url_hash` per
+  `toolkit/components/places/Helpers.cpp`), and `moz_historyvisits`. Chrome
+  PageTransition LSB mapped to Firefox `visit_type`. Bookmarks tree left
+  empty so the HTML import flow handles them.
+- **Dry-run mode** — A `dry_run` flag on `MigrationRequest` and a checkbox
+  on the Items step. All migrators count items and exercise decryption
+  without writing artifacts; output folder is suffixed `_dryrun`.
+- **App-Bound Encryption sidecar source** (`tools/abe_sidecar/`) — Tiny
+  Windows-only C++ EXE that calls per-browser `IElevator` COM interfaces
+  (Chrome/Brave/Edge IIDs hard-coded from xaitax research) to recover the
+  AES master key on Chrome 127+ / Brave 1.86+ profiles. CMakeLists.txt +
+  embedded `requireAdministrator` manifest + Python launcher
+  (`crypto/abe.py`) that locates the bundled `foxport_abe.exe`, invokes it
+  with UAC, parses the `KEY_HEX:<hex>\nOK\n` response.
+- `load_master_key()` now accepts `browser_display` and `try_abe` parameters
+  and automatically falls back to the ABE sidecar when the classic key is
+  absent. Surfaces `AbeSidecarMissingError` cleanly when the EXE hasn't been
+  built yet.
+- Two new Done-screen action buttons — "Reveal cookies.sqlite" /
+  "Reveal places.sqlite" (Explorer `/select,`).
+- Preview tree now shows cookies count and history `(URLs / visits)`.
+- `firefox.import_instructions` documents the "close Firefox, back up,
+  swap" flow for cookies.sqlite and places.sqlite.
+
+### Changed
+- `migrate_passwords`, `migrate_bookmarks`, `migrate_extensions` all accept
+  a `dry_run` kwarg. Existing callers stay binary-compatible.
+- `MigrationRequest` gained `do_cookies`, `do_history`, `dry_run` fields
+  (defaulting to off so existing automation isn't affected).
+- AMO User-Agent bumped to `FoxPort/0.3.0`.
+
+### Notes
+- `foxport_abe.exe` ships as source. The compiled + signed Windows binary
+  is on the v0.3.1 roadmap (release pipeline work, not a code issue).
+  FoxPort works fine without it for classic-key profiles; ABE-only
+  profiles will see an `AppBoundEncryptionError` with a clear "build
+  the sidecar" message.
+
 ## [0.2.0] — 2026-05-23
 
 Research-driven UX + matching rewrite. No source-browser format changes.

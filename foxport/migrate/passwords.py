@@ -91,8 +91,17 @@ def _decrypt_rows(
         yield row, plaintext
 
 
-def migrate_passwords(profile: ChromiumProfile, out_dir: Path) -> PasswordResult:
-    """Decrypt all logins in ``profile`` and write a Firefox-format CSV."""
+def migrate_passwords(
+    profile: ChromiumProfile,
+    out_dir: Path,
+    *,
+    dry_run: bool = False,
+) -> PasswordResult:
+    """Decrypt all logins in ``profile`` and write a Firefox-format CSV.
+
+    When ``dry_run=True``, counts decrypt successes and failures without
+    writing any CSV file to disk.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     csv_path = out_dir / "passwords.csv"
     failures: list[str] = []
@@ -100,9 +109,24 @@ def migrate_passwords(profile: ChromiumProfile, out_dir: Path) -> PasswordResult
     decrypted = 0
     skipped_empty = 0
 
-    key = load_master_key(profile.local_state)
+    key = load_master_key(profile.local_state, browser_display=profile.browser)
     rows = list(read_password_rows(profile))
     total = len(rows)
+
+    if dry_run:
+        for _row, plaintext in _decrypt_rows(rows, key, failures):
+            if plaintext:
+                decrypted += 1
+            else:
+                skipped_empty += 1
+        return PasswordResult(
+            csv_path=csv_path,
+            total=total,
+            decrypted=decrypted,
+            skipped_empty=skipped_empty,
+            failed=len(failures),
+            failures=failures,
+        )
 
     with csv_path.open("w", encoding="utf-8", newline="") as fh:
         writer = csv.writer(fh, quoting=csv.QUOTE_ALL)

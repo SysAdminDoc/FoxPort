@@ -22,6 +22,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+import sqlite3
+
 from foxport.browsers.chromium import (
     ExtensionInfo,
     read_bookmarks,
@@ -59,12 +61,17 @@ class MigrationContext:
         self.do_passwords: bool = True
         self.do_bookmarks: bool = True
         self.do_extensions: bool = True
+        self.do_cookies: bool = False
+        self.do_history: bool = False
         self.extensions_online: bool = True
+        self.dry_run: bool = False
         self.out_root: Path = Path.home() / "Documents" / "FoxPort"
         # Preview counts
         self.password_count: int = 0
         self.bookmark_count: int = 0
         self.extension_count: int = 0
+        self.cookie_count: int = 0
+        self.history_count: int = 0
         # ABE warning
         self.source_uses_abe: bool = False
         self.source_has_classic_key: bool = True
@@ -320,15 +327,29 @@ class ItemsPage(WizardPage):
             "Convert the entire bookmark tree to Netscape HTML for Library → Import Bookmarks from HTML.")
         self._extensions_row = self._make_row("Extensions",
             "Map each installed Chrome extension to its closest Firefox AMO equivalent and emit a one-click install page.")
+        self._cookies_row = self._make_row("Cookies",
+            "Decrypt all cookies and emit a fresh Firefox cookies.sqlite. Drop it into a closed Firefox profile.",
+            default_checked=False)
+        self._history_row = self._make_row("Browsing history",
+            "Convert the source URL+visit log to a fresh Firefox places.sqlite for swap-in.",
+            default_checked=False)
         card_layout.addWidget(self._passwords_row[0])
         card_layout.addWidget(self._bookmarks_row[0])
         card_layout.addWidget(self._extensions_row[0])
+        card_layout.addWidget(self._cookies_row[0])
+        card_layout.addWidget(self._history_row[0])
         self.add_content(card)
 
         # Online lookup checkbox
         self._online_cb = QCheckBox("Allow online AMO lookup for unknown extensions  (recommended)")
         self._online_cb.setChecked(True)
         self.add_content(self._online_cb)
+
+        # Dry-run checkbox
+        self._dry_cb = QCheckBox("Dry run — count items and test decryption, but do not write any files")
+        self._dry_cb.setChecked(False)
+        self._dry_cb.stateChanged.connect(self._sync)  # type: ignore[arg-type]
+        self.add_content(self._dry_cb)
 
         # Output folder picker
         out_card = QFrame()
@@ -348,13 +369,13 @@ class ItemsPage(WizardPage):
 
         self.add_stretch(1)
 
-    def _make_row(self, title: str, subtitle: str):
+    def _make_row(self, title: str, subtitle: str, *, default_checked: bool = True):
         row = QFrame()
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
         cb = QCheckBox()
-        cb.setChecked(True)
+        cb.setChecked(default_checked)
         cb.stateChanged.connect(self._sync)  # type: ignore[arg-type]
         layout.addWidget(cb)
         text_box = QVBoxLayout()
@@ -382,23 +403,34 @@ class ItemsPage(WizardPage):
         self._ctx.do_passwords = self._passwords_row[1].isChecked()
         self._ctx.do_bookmarks = self._bookmarks_row[1].isChecked()
         self._ctx.do_extensions = self._extensions_row[1].isChecked()
+        self._ctx.do_cookies = self._cookies_row[1].isChecked()
+        self._ctx.do_history = self._history_row[1].isChecked()
         self._ctx.extensions_online = self._online_cb.isChecked()
+        self._ctx.dry_run = self._dry_cb.isChecked()
         self.canAdvanceChanged.emit(self.can_advance())
 
-    def set_counts(self, passwords: int, bookmarks: int, extensions: int) -> None:
+    def set_counts(self, passwords: int, bookmarks: int, extensions: int,
+                   cookies: int = 0, history: int = 0) -> None:
         self._passwords_row[2].setText(f"{passwords:,}")
         self._bookmarks_row[2].setText(f"{bookmarks:,}")
         self._extensions_row[2].setText(f"{extensions:,}")
+        self._cookies_row[2].setText(f"{cookies:,}")
+        self._history_row[2].setText(f"{history:,}")
         if self._ctx.source_uses_abe and not self._ctx.source_has_classic_key:
             self._passwords_row[1].setChecked(False)
             self._passwords_row[1].setEnabled(False)
             self._passwords_row[1].setToolTip("Disabled — source profile uses App-Bound Encryption only.")
+            self._cookies_row[1].setChecked(False)
+            self._cookies_row[1].setEnabled(False)
+            self._cookies_row[1].setToolTip("Disabled — source profile uses App-Bound Encryption only.")
 
     def can_advance(self) -> bool:
         return any([
             self._passwords_row[1].isChecked(),
             self._bookmarks_row[1].isChecked(),
             self._extensions_row[1].isChecked(),
+            self._cookies_row[1].isChecked(),
+            self._history_row[1].isChecked(),
         ])
 
     def on_enter(self) -> None:
@@ -433,12 +465,16 @@ class PreviewPage(WizardPage):
         ctx.password_count = 0
         ctx.bookmark_count = 0
         ctx.extension_count = 0
+        ctx.cookie_count = 0
+        ctx.history_count = 0
 
         source_node = QTreeWidgetItem([f"Source: {ctx.source.label if ctx.source else '(manual)'}", ""])
         source_node.addChild(QTreeWidgetItem(
             ["Target", ctx.target.label if ctx.target else "(no target selected — files only)"]
         ))
         source_node.addChild(QTreeWidgetItem(["Output", str(ctx.out_root)]))
+        if ctx.dry_run:
+            source_node.addChild(QTreeWidgetItem(["Mode", "DRY RUN (nothing will be written)"]))
         self._tree.addTopLevelItem(source_node)
 
         if ctx.source:
@@ -468,17 +504,71 @@ class PreviewPage(WizardPage):
                     node.addChild(QTreeWidgetItem([f"   …+{len(extensions) - 10} more", ""]))
                 self._tree.addTopLevelItem(node)
                 node.setExpanded(True)
+            if ctx.do_cookies:
+                cookie_count = self._count_cookies(ctx.source)
+                ctx.cookie_count = cookie_count
+                node = QTreeWidgetItem([f"Cookies ({cookie_count:,})", "cookies.sqlite → swap into closed Firefox profile"])
+                self._tree.addTopLevelItem(node)
+            if ctx.do_history:
+                hist_urls, hist_visits = self._count_history(ctx.source)
+                ctx.history_count = hist_visits
+                node = QTreeWidgetItem(
+                    [f"History ({hist_urls:,} URLs / {hist_visits:,} visits)",
+                     "places.sqlite → swap into closed Firefox profile"],
+                )
+                self._tree.addTopLevelItem(node)
 
         source_node.setExpanded(True)
         notes: list[str] = []
         if ctx.source_uses_abe:
             notes.append(
-                "App-Bound Encryption detected on source — some newer passwords may fail to decrypt."
+                "App-Bound Encryption detected on source — some newer passwords/cookies may fail to decrypt."
             )
         if ctx.target and is_firefox_profile_locked(ctx.target):
             notes.append("Target Firefox profile is locked — close Firefox before importing.")
+        if ctx.do_cookies or ctx.do_history:
+            notes.append("cookies.sqlite / places.sqlite must be swapped into a CLOSED Firefox profile.")
         notes.append("The source browser will not be modified.")
         self._note.setText("  ·  ".join(notes))
+
+    def _count_cookies(self, profile: ChromiumProfile) -> int:
+        for path in (profile.profile_dir / "Network" / "Cookies", profile.profile_dir / "Cookies"):
+            if path.is_file():
+                try:
+                    import shutil, tempfile
+                    tmp = tempfile.mkdtemp(prefix="foxport_cookies_count_")
+                    dest = Path(tmp) / path.name
+                    shutil.copy2(path, dest)
+                    conn = sqlite3.connect(str(dest))
+                    try:
+                        row = conn.execute("SELECT COUNT(*) FROM cookies").fetchone()
+                        return int(row[0]) if row else 0
+                    finally:
+                        conn.close()
+                        shutil.rmtree(tmp, ignore_errors=True)
+                except (OSError, sqlite3.DatabaseError):
+                    return 0
+        return 0
+
+    def _count_history(self, profile: ChromiumProfile) -> tuple[int, int]:
+        path = profile.profile_dir / "History"
+        if not path.is_file():
+            return 0, 0
+        try:
+            import shutil, tempfile
+            tmp = tempfile.mkdtemp(prefix="foxport_history_count_")
+            dest = Path(tmp) / path.name
+            shutil.copy2(path, dest)
+            conn = sqlite3.connect(str(dest))
+            try:
+                urls = conn.execute("SELECT COUNT(*) FROM urls").fetchone()
+                visits = conn.execute("SELECT COUNT(*) FROM visits").fetchone()
+                return int(urls[0]) if urls else 0, int(visits[0]) if visits else 0
+            finally:
+                conn.close()
+                shutil.rmtree(tmp, ignore_errors=True)
+        except (OSError, sqlite3.DatabaseError):
+            return 0, 0
 
 
 # ----------------------------------------------------------- Step 5: Run
@@ -512,7 +602,10 @@ class RunPage(WizardPage):
         self.open_pw_btn = QPushButton("Open passwords.csv")
         self.open_bm_btn = QPushButton("Open bookmarks.html")
         self.open_ext_btn = QPushButton("Open extensions.html")
-        for btn in (self.open_out_btn, self.open_pw_btn, self.open_bm_btn, self.open_ext_btn):
+        self.open_cookies_btn = QPushButton("Reveal cookies.sqlite")
+        self.open_history_btn = QPushButton("Reveal places.sqlite")
+        for btn in (self.open_out_btn, self.open_pw_btn, self.open_bm_btn,
+                    self.open_ext_btn, self.open_cookies_btn, self.open_history_btn):
             actions_layout.addWidget(btn)
         actions_layout.addStretch(1)
         self._actions.setVisible(False)
@@ -553,3 +646,5 @@ class RunPage(WizardPage):
         self.open_pw_btn.setVisible("passwords" in exports)
         self.open_bm_btn.setVisible("bookmarks" in exports)
         self.open_ext_btn.setVisible("extensions" in exports)
+        self.open_cookies_btn.setVisible("cookies" in exports)
+        self.open_history_btn.setVisible("history" in exports)

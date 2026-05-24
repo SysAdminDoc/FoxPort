@@ -91,22 +91,48 @@ def inspect_local_state(local_state_path: Path) -> LocalStateInfo:
     )
 
 
-def load_master_key(local_state_path: Path) -> ChromiumKey:
-    """Extract and decrypt the AES master key from a Chromium ``Local State`` file."""
+def load_master_key(
+    local_state_path: Path,
+    *,
+    browser_display: str | None = None,
+    try_abe: bool = True,
+) -> ChromiumKey:
+    """Extract and decrypt the AES master key from a Chromium ``Local State`` file.
+
+    When the profile has only the App-Bound Encryption key (Chrome 127+) and
+    ``try_abe`` is set, FoxPort calls the bundled ``foxport_abe.exe`` sidecar
+    to recover the key. If the sidecar isn't bundled, an
+    :class:`AppBoundEncryptionError` is raised that the GUI can surface
+    cleanly without aborting the rest of the migration.
+    """
     info = inspect_local_state(local_state_path)
-    if not info.has_classic_key:
-        if info.has_app_bound_key:
-            raise AppBoundEncryptionError(
-                "this profile uses App-Bound Encryption only (Chrome 127+). "
-                "FoxPort v0.2 reads the classic DPAPI key; an ABE bypass is on the v0.3 roadmap. "
-                "Workaround: passwords saved before Chrome 127 may still decrypt via the classic key."
+    if info.has_classic_key:
+        wrapped = base64.b64decode(info.encrypted_key_b64 or "")
+        if not wrapped.startswith(b"DPAPI"):
+            raise DecryptionError("encrypted_key missing DPAPI prefix")
+        return ChromiumKey(key=_dpapi_unprotect(wrapped[5:]))
+    if info.has_app_bound_key and try_abe:
+        # Import lazily so non-Windows tests don't fail on the sidecar module.
+        from foxport.crypto.abe import (
+            AbeSidecarError,
+            AbeSidecarMissingError,
+            recover_app_bound_key,
+        )
+        try:
+            return recover_app_bound_key(
+                local_state_path,
+                browser_display=browser_display or "Google Chrome",
             )
-        raise DecryptionError(f"no os_crypt.encrypted_key in {local_state_path}")
-    wrapped = base64.b64decode(info.encrypted_key_b64 or "")
-    if not wrapped.startswith(b"DPAPI"):
-        raise DecryptionError("encrypted_key missing DPAPI prefix")
-    key = _dpapi_unprotect(wrapped[5:])
-    return ChromiumKey(key=key)
+        except AbeSidecarMissingError as exc:
+            raise AppBoundEncryptionError(str(exc)) from exc
+        except AbeSidecarError as exc:
+            raise AppBoundEncryptionError(f"ABE sidecar failed: {exc}") from exc
+    if info.has_app_bound_key:
+        raise AppBoundEncryptionError(
+            "this profile uses App-Bound Encryption only (Chrome 127+); "
+            "ABE recovery was skipped (try_abe=False)."
+        )
+    raise DecryptionError(f"no os_crypt.encrypted_key in {local_state_path}")
 
 
 def decrypt_value(blob: bytes, master: ChromiumKey) -> str:

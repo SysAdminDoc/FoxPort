@@ -85,8 +85,16 @@ def _emit_url(node: BookmarkNode, depth: int, buf: list[str], counter: list[int]
     counter[1] += 1
 
 
-def migrate_bookmarks(profile: ChromiumProfile, out_dir: Path) -> BookmarkResult:
-    """Walk ``profile``'s Bookmarks file and emit ``bookmarks.html``."""
+def migrate_bookmarks(
+    profile: ChromiumProfile,
+    out_dir: Path,
+    *,
+    dry_run: bool = False,
+) -> BookmarkResult:
+    """Walk ``profile``'s Bookmarks file and emit ``bookmarks.html``.
+
+    When ``dry_run=True``, returns the counts without writing the HTML file.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     html_path = out_dir / "bookmarks.html"
     roots = read_bookmarks(profile)
@@ -104,5 +112,6 @@ def migrate_bookmarks(profile: ChromiumProfile, out_dir: Path) -> BookmarkResult
         _emit_folder(root, 1, buf, counter, is_toolbar=is_toolbar)
     buf.append("</DL><p>")
 
-    html_path.write_text("\n".join(buf) + "\n", encoding="utf-8")
+    if not dry_run:
+        html_path.write_text("\n".join(buf) + "\n", encoding="utf-8")
     return BookmarkResult(html_path=html_path, folders=counter[0], urls=counter[1])

@@ -20,20 +20,28 @@ ideas from the bottom of the file as scope firms up.
 - [x] Deterministic password GUIDs for idempotent re-runs
 - [x] Richer extensions.html with permissions preview + stats
 
-## v0.3.0 — Cookies + history + ABE bypass
-- [ ] **Cookies migration** — decrypt with existing AES-GCM key, emit a fresh
+## v0.3.0 — Cookies + history + ABE bypass  ✅ shipped 2026-05-23
+- [x] **Cookies migration** — decrypt with existing AES-GCM key, emit a fresh
       `cookies.sqlite` from scratch (Firefox schema v17). Refuse to write if
       target is locked. Convert chromium µs/1601 → firefox µs/1970 + s/1970 for
       `expiry`. Default `originAttributes=""`, `schemeMap=2` for HTTPS.
-- [ ] **History migration** — `places.sqlite` direct write with `moz_origins` +
+- [x] **History migration** — `places.sqlite` direct write with `moz_origins` +
       `moz_places` (`frecency=-1`, `recalc_frecency=1`) + `moz_historyvisits`.
       `url_hash` populated via PlacesUtils-equivalent.
-- [ ] **App-Bound Encryption bypass** — ship a small C++/MSVC sidecar EXE that
-      performs the SYSTEM-DPAPI + user-DPAPI + IElevator2 dance for Chrome
-      127+/Brave. Bundle into the release artifact.
-- [ ] **Cookie HOST_KEY 32-byte SHA-256 prefix strip** for Chrome 130+
-      (detect via `Cookies.meta.version >= 24`).
-- [ ] **Dry-run mode** — show counts and decrypt-tests, no file writes.
+- [x] **App-Bound Encryption bypass** — `tools/abe_sidecar/foxport_abe.cpp`
+      ships as C++ source + CMakeLists + manifest; `crypto/abe.py` is the
+      Python launcher. `load_master_key()` calls into it automatically when
+      only the ABE key is present.
+- [x] **Cookie HOST_KEY 32-byte SHA-256 prefix strip** for Chrome 130+
+      (detected via `Cookies.meta.version >= 24`).
+- [x] **Dry-run mode** — show counts and decrypt-tests, no file writes.
+
+## v0.3.1 — ABE sidecar binary
+- [ ] Compile `foxport_abe.exe` with MSVC v143 in CI (GitHub Actions)
+- [ ] Authenticode-sign the binary in the release pipeline
+- [ ] Ship the signed EXE in the FoxPort release ZIP at `foxport/data/foxport_abe.exe`
+- [ ] Document `--browser` flag for additional vendors (Avast Secure Browser,
+      etc.) once their IElevator IIDs are confirmed
 
 ## v0.4.0 — Direct write mode
 - [ ] **Passwords via NSS** — link the target Firefox's `libnss3.dll` via

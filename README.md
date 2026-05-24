@@ -1,6 +1,6 @@
 # FoxPort
 
-[![version](https://img.shields.io/badge/version-0.2.0-f5c2e7?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-0.3.0-f5c2e7?style=flat-square)](CHANGELOG.md)
 [![license](https://img.shields.io/badge/license-MIT-89b4fa?style=flat-square)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows-cdd6f4?style=flat-square)](#)
 [![python](https://img.shields.io/badge/python-3.11%2B-a6e3a1?style=flat-square)](https://www.python.org/)
@@ -8,6 +8,27 @@
 **Port Chromium browsers to Firefox.** FoxPort scans your installed Chromium-family browsers (Chrome, Brave, Edge, Vivaldi, Opera, Arc, Thorium, Yandex, ...), decrypts your saved passwords, packages up your bookmarks, and maps your Chrome extensions to their Firefox equivalents on addons.mozilla.org — all in one click.
 
 The source browser is never modified. FoxPort writes Firefox-native import files into an output folder; you import them through the target browser's normal UI.
+
+## What's new in v0.3.0
+
+- **Cookies migration** — Decrypt all cookies with the AES-GCM key (including
+  the SHA-256 HOST_KEY prefix Chrome 130+ silently added) and emit a fresh
+  Firefox v17-schema `cookies.sqlite`. Swap into a closed Firefox profile.
+- **History migration** — Read Chromium `History` (URLs + visits) and write a
+  fresh Firefox v77-schema `places.sqlite` with `moz_origins`, `moz_places`
+  (`frecency=-1`, `recalc_frecency=1`, scheme-tagged `url_hash`), and
+  `moz_historyvisits`. Bookmarks tree left empty (HTML import flow handles
+  those).
+- **Dry-run mode** — A checkbox on the Items step runs detection + decryption
+  tests and produces no on-disk artifacts. Useful for ABE/credentialed
+  troubleshooting.
+- **App-Bound Encryption recovery** — `foxport_abe.exe` sidecar in
+  `tools/abe_sidecar/` calls the per-browser `IElevator` COM interface
+  (UAC-prompted) and returns the AES master key. Hooked into `load_master_key`
+  so passwords/cookies on Chrome 127+ / Brave 1.86+ profiles decrypt
+  automatically once the sidecar is built and dropped into `foxport/data/`.
+- **Two new action buttons on the Done screen** — Reveal cookies.sqlite /
+  places.sqlite in Explorer, since these aren't files you double-click.
 
 ## What's new in v0.2.0
 
@@ -25,9 +46,11 @@ The source browser is never modified. FoxPort writes Firefox-native import files
 
 | Item | Source | Destination format | How to import |
 | --- | --- | --- | --- |
-| **Passwords** | `Login Data` SQLite + DPAPI key | Firefox CSV (`url,username,password,...`) | `about:logins` → menu → Import from a File |
+| **Passwords** | `Login Data` SQLite + DPAPI key (+ ABE sidecar for Chrome 127+) | Firefox CSV (`url,username,password,...`) | `about:logins` → menu → Import from a File |
 | **Bookmarks** | `Bookmarks` JSON | Netscape HTML | Library (`Ctrl+Shift+O`) → Import Bookmarks from HTML |
 | **Extensions** | Profile `Extensions/<id>/<ver>/manifest.json` | HTML page of AMO install links | Open the HTML in Firefox, click each link |
+| **Cookies** | `Network/Cookies` SQLite + DPAPI key | Firefox `cookies.sqlite` (v17) | Close Firefox, back up existing, drop in |
+| **History** | `History` SQLite (`urls` + `visits`) | Firefox `places.sqlite` (v77) | Close Firefox, back up existing, drop in |
 
 ---
 

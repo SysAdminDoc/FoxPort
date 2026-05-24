@@ -62,6 +62,24 @@ def import_instructions(profile: FirefoxProfile | None, exports: dict[str, Path]
             "  Items marked NO MATCH have no known Firefox equivalent on AMO.",
             "",
         ])
+    if "cookies" in exports:
+        lines.extend([
+            "Cookies (advanced):",
+            f"  File: {exports['cookies']}",
+            "  CLOSE Firefox completely, back up the existing cookies.sqlite in your",
+            "  profile folder, then copy this file in its place. Delete cookies.sqlite-wal",
+            "  and cookies.sqlite-shm if present.",
+            "",
+        ])
+    if "history" in exports:
+        lines.extend([
+            "Browsing history (advanced):",
+            f"  File: {exports['history']}",
+            "  CLOSE Firefox completely, back up the existing places.sqlite in your",
+            "  profile folder, then copy this file in its place. Delete favicons.sqlite",
+            "  so Firefox rebuilds it from the new history. Bookmarks remain unaffected.",
+            "",
+        ])
     lines.append("Keep this folder until you've verified the import — the source")
     lines.append("browser was NOT modified.")
     return "\n".join(lines)

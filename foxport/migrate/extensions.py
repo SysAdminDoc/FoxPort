@@ -39,7 +39,7 @@ _AMO_BASE = "https://addons.mozilla.org/api/v5"
 _AMO_SEARCH = f"{_AMO_BASE}/addons/search/"
 _AMO_DETAIL = f"{_AMO_BASE}/addons/addon"
 _NAME_NORMALIZE = re.compile(r"[^a-z0-9]+")
-_USER_AGENT = "FoxPort/0.2.0 (+https://github.com/SysAdminDoc/FoxPort)"
+_USER_AGENT = "FoxPort/0.3.0 (+https://github.com/SysAdminDoc/FoxPort)"
 
 
 def load_curated_map() -> dict[str, str]:
@@ -393,20 +393,26 @@ def migrate_extensions(
     *,
     online: bool = True,
     already_installed_guids: set[str] | None = None,
+    dry_run: bool = False,
 ) -> ExtensionResult:
-    """Enumerate ``profile``'s extensions and emit ``extensions.html`` + ``.json``."""
+    """Enumerate ``profile``'s extensions and emit ``extensions.html`` + ``.json``.
+
+    Dry-run skips the network-fanout AMO calls (returns curated/no-match only)
+    and writes nothing to disk.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     extensions = read_extensions(profile)
     matches = match_extensions(
         extensions,
-        online=online,
+        online=online and not dry_run,
         already_installed_guids=already_installed_guids,
     )
 
     html_path = out_dir / "extensions.html"
-    html_path.write_text(_build_html(matches, profile.label), encoding="utf-8")
-
     json_path = out_dir / "extensions.json"
+    if dry_run:
+        return ExtensionResult(html_path=html_path, json_path=json_path, matches=matches)
+    html_path.write_text(_build_html(matches, profile.label), encoding="utf-8")
     json_path.write_text(json.dumps([
         {
             "id": m.source.extension_id,
