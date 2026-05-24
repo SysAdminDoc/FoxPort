@@ -1,5 +1,9 @@
 """Tests for the .fxport snapshot bundle (plain + encrypted)."""
 
+import io
+import json
+import zipfile
+
 import pytest
 
 from foxport.snapshot import create_snapshot, restore_snapshot
@@ -68,3 +72,85 @@ def test_wrong_passphrase_fails(tmp_path):
 
     with pytest.raises(Exception):
         restore_snapshot(bundle, tmp_path / "restored2", passphrase="wrong")
+
+
+def _craft_bundle(tmp_path, entries: list[tuple[str, bytes]],
+                  manifest_files: list[dict] | None = None):
+    """Build a hand-rolled plain .fxport bundle with arbitrary entries +
+    manifest, so we can test the hardening checks against tampering."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for name, data in entries:
+            zf.writestr(name, data)
+        files = manifest_files if manifest_files is not None else [
+            {"path": name, "size": len(data), "sha256": ""}
+            for name, data in entries if name != "manifest.json"
+        ]
+        zf.writestr("manifest.json", json.dumps({
+            "foxport_version": "test",
+            "created_iso": "2026-01-01T00:00:00+00:00",
+            "source_label": "src",
+            "target_label": "dst",
+            "encrypted": False,
+            "files": files,
+        }))
+    bundle = tmp_path / "crafted.fxport"
+    bundle.write_bytes(buf.getvalue())
+    return bundle
+
+
+def test_restore_rejects_path_traversal_via_parent(tmp_path):
+    bundle = _craft_bundle(tmp_path, [("../escape.txt", b"x")])
+    with pytest.raises(ValueError, match="suspicious path"):
+        restore_snapshot(bundle, tmp_path / "out")
+
+
+def test_restore_rejects_absolute_paths(tmp_path):
+    # POSIX absolute path. On Windows this isn't strictly is_absolute(),
+    # but the resolved-target/relative_to safety net still rejects it.
+    bundle = _craft_bundle(tmp_path, [("/etc/passwd", b"x")])
+    with pytest.raises(ValueError, match="suspicious path|outside out_dir"):
+        restore_snapshot(bundle, tmp_path / "out")
+
+
+def test_restore_verifies_sha256(tmp_path):
+    # Manifest claims a digest the file content doesn't actually match.
+    bundle = _craft_bundle(
+        tmp_path,
+        [("good.txt", b"real content")],
+        manifest_files=[{
+            "path": "good.txt",
+            "size": 12,
+            "sha256": "deadbeef" + "0" * 56,  # 64 chars, definitely wrong
+        }],
+    )
+    with pytest.raises(ValueError, match="integrity check failed"):
+        restore_snapshot(bundle, tmp_path / "out")
+
+
+def test_restore_ignores_unknown_manifest_keys(tmp_path):
+    # An older or tampered bundle could carry extra top-level keys; we
+    # should silently drop them rather than crash with TypeError.
+    src = tmp_path / "src"
+    src.mkdir()
+    _populate(src)
+    bundle = tmp_path / "out.fxport"
+    create_snapshot(src, bundle, source_label="x", target_label="y")
+
+    # Tamper: re-pack with an extra manifest key.
+    blob = bundle.read_bytes()
+    with zipfile.ZipFile(io.BytesIO(blob)) as zf:
+        files = list(zf.namelist())
+        contents = {n: zf.read(n) for n in files}
+    manifest = json.loads(contents["manifest.json"])
+    manifest["future_field"] = "ignore me"
+    contents["manifest.json"] = json.dumps(manifest).encode("utf-8")
+    out_buf = io.BytesIO()
+    with zipfile.ZipFile(out_buf, "w") as zf:
+        for name, data in contents.items():
+            zf.writestr(name, data)
+    bundle.write_bytes(out_buf.getvalue())
+
+    # Should restore cleanly (extra key silently dropped).
+    manifest_obj = restore_snapshot(bundle, tmp_path / "restored3")
+    assert manifest_obj.source_label == "x"

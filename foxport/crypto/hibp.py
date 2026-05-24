@@ -25,9 +25,11 @@ from typing import Iterable
 
 import requests
 
+from foxport import __version__
+
 
 _HIBP_RANGE = "https://api.pwnedpasswords.com/range"
-_USER_AGENT = "FoxPort/1.2 (+https://github.com/SysAdminDoc/FoxPort)"
+_USER_AGENT = f"FoxPort/{__version__} (+https://github.com/SysAdminDoc/FoxPort)"
 
 
 @dataclass(frozen=True)

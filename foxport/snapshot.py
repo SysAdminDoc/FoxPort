@@ -196,18 +196,40 @@ def restore_snapshot(
         inner = blob
 
     out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir_resolved = out_dir.resolve()
     buf = io.BytesIO(inner)
     with zipfile.ZipFile(buf) as zf:
         manifest_data = json.loads(zf.read("manifest.json").decode("utf-8"))
         for entry in manifest_data.get("files", []):
             rel = entry["path"]
-            # Slash normalization (Windows-emitted ZIPs sometimes carry
-            # backslashes); zipfile already handles this, but make the
-            # output path safe.
-            target = (out_dir / rel).resolve()
-            if not str(target).startswith(str(out_dir.resolve())):
-                raise ValueError(f"refusing to extract outside out_dir: {rel}")
+            # Reject absolute paths, drive letters, and any "..": Path / parts
+            # would happily walk above out_dir. relative_to() is the only
+            # check that's prefix-safe (startswith("/safe") matches "/safe-evil").
+            rel_path = Path(rel)
+            if rel_path.is_absolute() or any(part == ".." for part in rel_path.parts):
+                raise ValueError(f"refusing to extract suspicious path: {rel}")
+            target = (out_dir_resolved / rel_path).resolve()
+            try:
+                target.relative_to(out_dir_resolved)
+            except ValueError as exc:
+                raise ValueError(
+                    f"refusing to extract outside out_dir: {rel}"
+                ) from exc
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(zf.read(rel))
-    manifest = SnapshotManifest(**manifest_data)
+            payload = zf.read(rel)
+            expected = entry.get("sha256")
+            if expected:
+                actual = sha256(payload).hexdigest()
+                if actual != expected:
+                    raise ValueError(
+                        f"snapshot integrity check failed for {rel}: "
+                        f"manifest says {expected[:12]}…, archive has {actual[:12]}…"
+                    )
+            target.write_bytes(payload)
+    # SnapshotManifest is a fixed-shape dataclass; drop unknown keys defensively
+    # rather than letting a tampered manifest blow up the call with TypeError.
+    allowed = {"foxport_version", "created_iso", "source_label",
+               "target_label", "files", "encrypted"}
+    filtered = {k: v for k, v in manifest_data.items() if k in allowed}
+    manifest = SnapshotManifest(**filtered)
     return manifest

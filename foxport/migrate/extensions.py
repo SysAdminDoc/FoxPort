@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from html import escape
 from pathlib import Path
 from typing import Iterable, Sequence
+from urllib.parse import quote
 
 import requests
 
@@ -154,7 +155,10 @@ def _amo_get(session: requests.Session, url: str, params: dict | None = None) ->
 
 
 def _amo_detail(session: requests.Session, slug_or_guid: str) -> dict | None:
-    return _amo_get(session, f"{_AMO_DETAIL}/{slug_or_guid}/")
+    # Extension manifests can put arbitrary strings in
+    # browser_specific_settings.gecko.id; encode aggressively (safe="") so
+    # a slug like "../addons/foo" can't escape the /addons/addon/ path.
+    return _amo_get(session, f"{_AMO_DETAIL}/{quote(slug_or_guid, safe='')}/")
 
 
 def _amo_search(session: requests.Session, query: str) -> list[dict]:
