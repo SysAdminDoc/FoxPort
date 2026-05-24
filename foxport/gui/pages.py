@@ -65,6 +65,7 @@ class MigrationContext:
         self.do_history: bool = False
         self.extensions_online: bool = True
         self.dry_run: bool = False
+        self.direct_write_passwords: bool = False
         self.out_root: Path = Path.home() / "Documents" / "FoxPort"
         # Preview counts
         self.password_count: int = 0
@@ -75,6 +76,9 @@ class MigrationContext:
         # ABE warning
         self.source_uses_abe: bool = False
         self.source_has_classic_key: bool = True
+        # Filters
+        self.password_include_keys: set[str] | None = None
+        self.bookmark_excluded_paths: set[tuple[str, ...]] = set()
 
 
 def _count_bookmarks(roots) -> int:
@@ -322,9 +326,11 @@ class ItemsPage(WizardPage):
         card_layout.setContentsMargins(20, 18, 20, 18)
         card_layout.setSpacing(14)
         self._passwords_row = self._make_row("Passwords",
-            "Decrypt every saved login with DPAPI and write a CSV your target browser imports via about:logins.")
+            "Decrypt every saved login with DPAPI and write a CSV your target browser imports via about:logins.",
+            customize_callback=self._customize_passwords)
         self._bookmarks_row = self._make_row("Bookmarks",
-            "Convert the entire bookmark tree to Netscape HTML for Library → Import Bookmarks from HTML.")
+            "Convert the entire bookmark tree to Netscape HTML for Library → Import Bookmarks from HTML.",
+            customize_callback=self._customize_bookmarks)
         self._extensions_row = self._make_row("Extensions",
             "Map each installed Chrome extension to its closest Firefox AMO equivalent and emit a one-click install page.")
         self._cookies_row = self._make_row("Cookies",
@@ -344,6 +350,14 @@ class ItemsPage(WizardPage):
         self._online_cb = QCheckBox("Allow online AMO lookup for unknown extensions  (recommended)")
         self._online_cb.setChecked(True)
         self.add_content(self._online_cb)
+
+        # Direct-write password checkbox (NSS)
+        self._direct_cb = QCheckBox(
+            "Direct-write passwords into the target profile (close Firefox first; uses target's NSS)"
+        )
+        self._direct_cb.setChecked(False)
+        self._direct_cb.stateChanged.connect(self._sync)  # type: ignore[arg-type]
+        self.add_content(self._direct_cb)
 
         # Dry-run checkbox
         self._dry_cb = QCheckBox("Dry run — count items and test decryption, but do not write any files")
@@ -369,7 +383,9 @@ class ItemsPage(WizardPage):
 
         self.add_stretch(1)
 
-    def _make_row(self, title: str, subtitle: str, *, default_checked: bool = True):
+    def _make_row(self, title: str, subtitle: str, *,
+                   default_checked: bool = True,
+                   customize_callback=None):
         row = QFrame()
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -391,6 +407,11 @@ class ItemsPage(WizardPage):
         layout.addLayout(text_box, 1)
         badge = CountBadge("—")
         layout.addWidget(badge)
+        if customize_callback is not None:
+            customize_btn = QPushButton("Customize…")
+            customize_btn.setFlat(False)
+            customize_btn.clicked.connect(customize_callback)  # type: ignore[arg-type]
+            layout.addWidget(customize_btn)
         return row, cb, badge
 
     def _pick_dir(self) -> None:
@@ -407,6 +428,7 @@ class ItemsPage(WizardPage):
         self._ctx.do_history = self._history_row[1].isChecked()
         self._ctx.extensions_online = self._online_cb.isChecked()
         self._ctx.dry_run = self._dry_cb.isChecked()
+        self._ctx.direct_write_passwords = self._direct_cb.isChecked()
         self.canAdvanceChanged.emit(self.can_advance())
 
     def set_counts(self, passwords: int, bookmarks: int, extensions: int,
@@ -435,6 +457,30 @@ class ItemsPage(WizardPage):
 
     def on_enter(self) -> None:
         self._sync()
+
+    def _customize_passwords(self) -> None:
+        if not self._ctx.source:
+            return
+        from foxport.gui.dialogs import PasswordPreviewDialog
+        dlg = PasswordPreviewDialog(
+            self._ctx.source,
+            selected_keys=self._ctx.password_include_keys,
+            parent=self,
+        )
+        if dlg.exec():
+            self._ctx.password_include_keys = dlg.selected_keys()
+
+    def _customize_bookmarks(self) -> None:
+        if not self._ctx.source:
+            return
+        from foxport.gui.dialogs import BookmarkFilterDialog
+        dlg = BookmarkFilterDialog(
+            self._ctx.source,
+            excluded=self._ctx.bookmark_excluded_paths,
+            parent=self,
+        )
+        if dlg.exec():
+            self._ctx.bookmark_excluded_paths = dlg.excluded_paths()
 
 
 # ----------------------------------------------------------- Step 4: Preview

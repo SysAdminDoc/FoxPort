@@ -20,7 +20,7 @@ import csv
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 # Stable namespace UUID for FoxPort-generated login GUIDs. Deterministic per
 # (origin, username) so a second migration run produces the same GUID and
@@ -91,16 +91,22 @@ def _decrypt_rows(
         yield row, plaintext
 
 
+PasswordPredicate = Callable[[PasswordRow], bool]
+
+
 def migrate_passwords(
     profile: ChromiumProfile,
     out_dir: Path,
     *,
     dry_run: bool = False,
+    row_filter: PasswordPredicate | None = None,
 ) -> PasswordResult:
     """Decrypt all logins in ``profile`` and write a Firefox-format CSV.
 
     When ``dry_run=True``, counts decrypt successes and failures without
-    writing any CSV file to disk.
+    writing any CSV file to disk. ``row_filter`` is an optional predicate
+    over each :class:`PasswordRow` (called before decryption) — return
+    False to skip that row entirely.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     csv_path = out_dir / "passwords.csv"
@@ -110,7 +116,8 @@ def migrate_passwords(
     skipped_empty = 0
 
     key = load_master_key(profile.local_state, browser_display=profile.browser)
-    rows = list(read_password_rows(profile))
+    raw_rows = list(read_password_rows(profile))
+    rows = [r for r in raw_rows if (row_filter is None or row_filter(r))]
     total = len(rows)
 
     if dry_run:

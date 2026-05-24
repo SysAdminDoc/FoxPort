@@ -43,15 +43,25 @@ ideas from the bottom of the file as scope firms up.
 - [ ] Document `--browser` flag for additional vendors (Avast Secure Browser,
       etc.) once their IElevator IIDs are confirmed
 
-## v0.4.0 — Direct write mode
-- [ ] **Passwords via NSS** — link the target Firefox's `libnss3.dll` via
+## v0.4.0 — Direct write mode  ✅ shipped 2026-05-23
+- [x] **Passwords via NSS** — link the target Firefox's `libnss3.dll` via
       ctypes; emit encrypted entries straight into `logins.json` (+ matching
       `logins-backup.json`); compute correct `id`/`guid`/`encType=1`.
-- [ ] **Conflict resolution UI** — per-item skip/merge/overwrite for duplicates.
-- [ ] **CLI mode** (`python -m foxport --source "Brave/Default" --target
-      "Firefox/default-release" --all --dry-run`).
-- [ ] **Per-folder bookmark filter** — skip / rename folders before export.
-- [ ] **Password search/filter** in the preview pane.
+- [x] **Conflict resolution** — deterministic GUIDs skip existing entries
+      by default. Per-item skip/merge/overwrite UI deferred to v0.4.1 (the
+      "skip by GUID" default solves the 95% case).
+- [x] **CLI mode** (`python -m foxport.cli {list,migrate}` with
+      `--source --target --items --all --dry-run --out --no-online`).
+- [x] **Per-folder bookmark filter** — `BookmarkFilterDialog` opens from
+      the Items step Customize button.
+- [x] **Password preview/filter** — `PasswordPreviewDialog` shows
+      decrypted rows with search + per-row checkboxes.
+
+## v0.4.1 — Direct-write polish
+- [ ] Master-password prompt in the GUI when target has one set
+- [ ] Per-item conflict resolution UI (skip / merge / overwrite per duplicate)
+- [ ] Cookies direct-write via NSS (use OPgp-equivalent path for cookies)
+- [ ] History direct-write to a live (closed) profile's places.sqlite
 
 ## v0.5.0 — Cross-platform
 - [ ] macOS Chromium support — Keychain unwrap of the AES key

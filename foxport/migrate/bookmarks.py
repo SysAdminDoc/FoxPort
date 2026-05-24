@@ -24,6 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from html import escape
 from pathlib import Path
+from typing import Callable
 
 from foxport.browsers.chromium import BookmarkNode, read_bookmarks
 from foxport.browsers.detect import ChromiumProfile
@@ -39,6 +40,36 @@ class BookmarkResult:
     html_path: Path
     folders: int
     urls: int
+
+
+# A folder-path predicate. Receives the list of folder names from root to the
+# folder being considered. Return True to include, False to skip.
+FolderFilter = Callable[[list[str]], bool]
+
+
+def _filter_node(node: BookmarkNode, path: list[str], keep: FolderFilter) -> BookmarkNode | None:
+    """Return a deep-copy of ``node`` with folders filtered out, or None to drop."""
+    if node.kind != "folder":
+        return node
+    here = path + [node.name]
+    if not keep(here):
+        return None
+    new_children: list[BookmarkNode] = []
+    for child in node.children:
+        if child.kind == "folder":
+            filtered = _filter_node(child, here, keep)
+            if filtered is not None:
+                new_children.append(filtered)
+        else:
+            new_children.append(child)
+    return BookmarkNode(
+        kind="folder",
+        name=node.name,
+        url=None,
+        date_added=node.date_added,
+        date_modified=node.date_modified,
+        children=new_children,
+    )
 
 
 def _chrome_to_unix_seconds(chrome_us: int) -> int:
@@ -90,14 +121,26 @@ def migrate_bookmarks(
     out_dir: Path,
     *,
     dry_run: bool = False,
+    folder_filter: FolderFilter | None = None,
 ) -> BookmarkResult:
     """Walk ``profile``'s Bookmarks file and emit ``bookmarks.html``.
 
     When ``dry_run=True``, returns the counts without writing the HTML file.
+    ``folder_filter`` is an optional predicate over the folder name path
+    (root → leaf) returning False to skip a folder. The top-level roots
+    (Bookmarks Toolbar / Other Bookmarks / Mobile Bookmarks) are never
+    skipped — only their children can be filtered.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     html_path = out_dir / "bookmarks.html"
     roots = read_bookmarks(profile)
+    if folder_filter:
+        filtered_roots: list[BookmarkNode] = []
+        for root in roots:
+            kept = _filter_node(root, [], lambda path: True if not path else folder_filter(path))
+            if kept is not None:
+                filtered_roots.append(kept)
+        roots = filtered_roots
 
     buf: list[str] = [
         "<!DOCTYPE NETSCAPE-Bookmark-file-1>",

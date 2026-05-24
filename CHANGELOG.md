@@ -4,6 +4,49 @@ All notable changes to FoxPort are documented here. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/), versioning per
 [SemVer](https://semver.org/).
 
+## [0.4.0] — 2026-05-23
+
+CLI mode, per-row filtering, and NSS direct-write password import.
+
+### Added
+- **CLI** (`foxport/cli.py`) — `python -m foxport.cli {list,migrate}` with
+  `--source / --target / --items / --all / --dry-run / --out / --no-online`.
+  Profile names support substring matching (`brave/default` finds
+  `Brave — Default`).
+- **Per-folder bookmark filter** (`migrate/bookmarks.py:FolderFilter`) — A
+  `folder_filter` predicate callable trims branches before HTML emission.
+  Surfaced in the GUI as a "Customize…" button on the Items step that opens
+  a `BookmarkFilterDialog` with a tickable tree of folders.
+- **Per-row password filter** (`migrate/passwords.py:PasswordPredicate`) —
+  A `row_filter` predicate trims rows before encryption. Surfaced in the
+  GUI as a "Customize…" button that opens a `PasswordPreviewDialog` showing
+  a searchable, plaintext table of all logins with per-row checkboxes.
+- **NSS direct-write** (`crypto/nss.py` + `migrate/nss_passwords.py`) —
+  Loads target Firefox install's `nss3.dll` (search order:
+  `%ProgramFiles%\Mozilla Firefox\`, LibreWolf, Waterfox, Floorp, Mullvad,
+  Zen, or `FOXPORT_NSS_PATH`); calls `PK11SDR_Encrypt` per login and writes
+  directly into `logins.json` + `logins-backup.json`. Backup of any
+  pre-existing `logins.json` lands at `logins.foxport-backup-<mtime>.json`.
+  Refuses to run when `parent.lock` is present. Opt-in via Items-step
+  checkbox.
+- Conflict-safe direct write: existing entries matching FoxPort's
+  deterministic GUID (`uuid5(NS, origin+username)`) are skipped.
+- New `MigrationRequest` fields: `password_include_keys`,
+  `bookmark_excluded_paths`, `direct_write_passwords`.
+- New `MigrationContext` fields mirror the above plus runtime flags.
+
+### Changed
+- AMO User-Agent bumped to `FoxPort/0.4.0`.
+- `migrate_passwords` accepts an optional `row_filter`.
+- `migrate_bookmarks` accepts an optional `folder_filter`.
+
+### Notes
+- NSS direct-write fails fast with a clear error if a master password is
+  set on the target — pass `master_password=` to `migrate_passwords_via_nss`
+  or remove it before importing.
+- NSS direct-write is **always paired** with a CSV export to the output
+  folder so you have a safety net if `logins.json` ends up unreadable.
+
 ## [0.3.0] — 2026-05-23
 
 Cookies + history + dry-run + App-Bound Encryption sidecar.

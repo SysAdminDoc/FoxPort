@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
@@ -20,6 +20,10 @@ from foxport.migrate.bookmarks import migrate_bookmarks
 from foxport.migrate.cookies import migrate_cookies
 from foxport.migrate.extensions import migrate_extensions
 from foxport.migrate.history import migrate_history
+from foxport.migrate.nss_passwords import (
+    ProfileLockedError,
+    migrate_passwords_via_nss,
+)
 from foxport.migrate.passwords import migrate_passwords
 
 
@@ -37,6 +41,9 @@ class MigrationRequest:
     do_history: bool = False
     extensions_online: bool = True
     dry_run: bool = False
+    password_include_keys: set[str] | None = None
+    bookmark_excluded_paths: set[tuple[str, ...]] = field(default_factory=set)
+    direct_write_passwords: bool = False
 
 
 class DetectWorker(QObject):
@@ -95,9 +102,37 @@ class MigrationWorker(QObject):
             if req.do_passwords:
                 current += 1
                 self.step.emit(current, steps)
-                self.log.emit("Decrypting passwords...")
+                if req.password_include_keys is not None:
+                    self.log.emit(
+                        f"Decrypting passwords (filtered to {len(req.password_include_keys)} selected rows)..."
+                    )
+                else:
+                    self.log.emit("Decrypting passwords...")
+                row_filter = None
+                if req.password_include_keys is not None:
+                    keep = req.password_include_keys
+                    row_filter = lambda r: f"{r.origin_url}\x00{r.username}" in keep  # noqa: E731
+
+                if req.direct_write_passwords and req.target and not req.dry_run:
+                    self.log.emit("  Direct-write mode: encrypting via target profile's NSS...")
+                    try:
+                        nss_result = migrate_passwords_via_nss(req.source, req.target)
+                    except ProfileLockedError as exc:
+                        self.log.emit(f"  Direct-write aborted: {exc}")
+                    except Exception as exc:  # noqa: BLE001
+                        self.log.emit(f"  Direct-write failed: {exc} — falling back to CSV.")
+                    else:
+                        self.log.emit(
+                            f"  Wrote {nss_result.written} new login(s) into {nss_result.target_logins_json}; "
+                            f"{nss_result.skipped_existing} already present, {nss_result.failed} failed."
+                        )
+                        if nss_result.backup_file.exists():
+                            self.log.emit(f"  Previous logins.json backed up to {nss_result.backup_file.name}")
+                        # Also emit CSV alongside for safety/audit.
                 try:
-                    result = migrate_passwords(req.source, out_dir, dry_run=req.dry_run)
+                    result = migrate_passwords(
+                        req.source, out_dir, dry_run=req.dry_run, row_filter=row_filter,
+                    )
                 except DecryptionError as exc:
                     self.log.emit(f"  Password decryption failed: {exc}")
                 else:
@@ -116,8 +151,25 @@ class MigrationWorker(QObject):
             if req.do_bookmarks:
                 current += 1
                 self.step.emit(current, steps)
-                self.log.emit("Converting bookmarks...")
-                bookmark_result = migrate_bookmarks(req.source, out_dir, dry_run=req.dry_run)
+                if req.bookmark_excluded_paths:
+                    self.log.emit(
+                        f"Converting bookmarks (skipping {len(req.bookmark_excluded_paths)} folder(s))..."
+                    )
+                else:
+                    self.log.emit("Converting bookmarks...")
+                excluded = req.bookmark_excluded_paths
+                folder_filter = None
+                if excluded:
+                    def folder_filter(path: list[str]) -> bool:
+                        t = tuple(path)
+                        # Skip the node itself and anything under any excluded ancestor.
+                        for i in range(1, len(t) + 1):
+                            if t[:i] in excluded:
+                                return False
+                        return True
+                bookmark_result = migrate_bookmarks(
+                    req.source, out_dir, dry_run=req.dry_run, folder_filter=folder_filter,
+                )
                 if not req.dry_run:
                     exports["bookmarks"] = bookmark_result.html_path
                 self.log.emit(

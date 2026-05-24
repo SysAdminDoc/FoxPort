@@ -241,6 +241,9 @@ class MainWindow(QMainWindow):
             do_history=self._ctx.do_history,
             extensions_online=self._ctx.extensions_online,
             dry_run=self._ctx.dry_run,
+            password_include_keys=self._ctx.password_include_keys,
+            bookmark_excluded_paths=set(self._ctx.bookmark_excluded_paths),
+            direct_write_passwords=self._ctx.direct_write_passwords,
         )
         self._run_page.reset()
         self._run_page.set_busy()
