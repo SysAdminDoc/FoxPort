@@ -931,6 +931,17 @@ class RunPage(WizardPage):
             parent,
         )
         self._ctx = ctx
+        # Persistent dry-run banner — visible the whole time the user is on
+        # the Run page in dry-run mode, so they can't mistake the "Done"
+        # state for a real migration. Hidden by default; toggled on_enter().
+        self._dry_banner = Banner(
+            "DRY RUN — counts and decrypt-tests only. No files will be "
+            "written. Uncheck dry-run on the Items step to perform a real "
+            "migration.",
+            variant="warn",
+        )
+        self._dry_banner.setVisible(False)
+        self.add_content(self._dry_banner)
         self._progress = QProgressBar()
         self._progress.setRange(0, 1)
         self._progress.setFormat("Ready")
@@ -959,6 +970,9 @@ class RunPage(WizardPage):
         self._actions.setVisible(False)
         self.add_content(self._actions)
 
+    def on_enter(self) -> None:
+        self._dry_banner.setVisible(bool(self._ctx.dry_run))
+
     def append_log(self, text: str) -> None:
         self._log.appendPlainText(text)
 
@@ -968,6 +982,10 @@ class RunPage(WizardPage):
         self._progress.setValue(0)
         self._progress.setFormat("Ready")
         self._actions.setVisible(False)
+        # Re-sync the dry-run banner in case the user changed the setting
+        # between runs without leaving the Run page (rare but possible via
+        # the Back → Items → Forward path).
+        self._dry_banner.setVisible(bool(self._ctx.dry_run))
 
     def set_busy(self) -> None:
         self._progress.setRange(0, 0)

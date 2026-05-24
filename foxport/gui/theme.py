@@ -114,6 +114,24 @@ QFrame#Tile[dropTarget="true"] {{
     border: 2px dashed #b4befe;
     background-color: {SURFACE0};
 }}
+QFrame#Tile:focus {{
+    /* Keyboard-only affordance — visible focus ring so Tab navigation
+       isn't invisible. Sits inside the existing border instead of growing
+       the box (no layout shift). */
+    outline: none;
+    border: 2px solid #b4befe;
+}}
+QFrame#Tile[selected="true"]:focus {{
+    border: 2px solid {ACCENT};
+}}
+QCheckBox:focus {{
+    outline: 1px dashed {ACCENT2};
+    outline-offset: 2px;
+}}
+QPushButton:focus {{
+    outline: 1px dashed {ACCENT2};
+    outline-offset: 2px;
+}}
 QLabel#StepRailItem {{
     color: {OVERLAY0};
     font-size: 13px;
