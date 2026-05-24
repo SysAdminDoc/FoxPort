@@ -7,6 +7,55 @@ ideas from the bottom of the file as scope firms up.
 > `RESEARCH_FEATURE_PLAN.md` is the most recent research output. The
 > `v1.2.0` section below is the promoted action list from that file.
 
+## v1.2.1 — Extreme hardening pass  ✅ shipped 2026-05-24
+
+Audit-driven follow-up to v1.2.0. Five batches of fixes; no new
+user-facing features.
+
+### Correctness (data-loss + accounting)
+- [x] **nss_passwords: refuse to overwrite unreadable `logins.json`** —
+      new `LoginsCorruptError` instead of silently writing an empty store
+      on top of real entries.
+- [x] **HIBP scan no longer redecrypts** — both CSV writer and HIBP scan
+      consume the same in-memory list.
+- [x] **`total == decrypted + skipped_empty + failed`** invariant restored.
+- [x] **`backup_path: Path | None`** across NSS direct-write paths — no
+      more fake `.no-backup-needed` sentinel leaking into log lines.
+- [x] **`favicons_deleted` → `favicons_backup_path`** rename in
+      nss_history (the file is moved aside, not deleted).
+- [x] **search_engines `_copy_for_read` pulls WAL/SHM siblings** so
+      recently-added engines aren't dropped from the snapshot.
+
+### Resource safety + thread safety
+- [x] **Preview-page count helpers** consolidated behind a
+      `_safe_sqlite_count()` that can't leak tempdirs on early failure.
+- [x] **MainWindow.closeEvent** blocks Alt-F4 during a live migration
+      with a confirm prompt + bounded thread wait (prevents half-imported
+      `logins.json` / `places.sqlite` from a window-close mid-write).
+
+### Security hardening
+- [x] **snapshot path-traversal**: reject absolute paths + `..` segments
+      up front, switch the prefix-string check to `Path.relative_to()`,
+      verify per-file SHA-256 against manifest digest on restore.
+- [x] **snapshot forward-compat**: drop unknown manifest keys defensively
+      instead of TypeError'ing the dataclass constructor.
+- [x] **AMO URL injection**: URL-quote `gecko_id` in `_amo_detail` so a
+      malicious extension manifest can't inject path/query traversal.
+- [x] **HIBP UA**: now reflects `foxport.__version__` instead of a
+      frozen string.
+
+### UX + accessibility
+- [x] **Keyboard `:focus` indicators** on `Tile`, `QCheckBox`,
+      `QPushButton`. Tab navigation was invisible before.
+- [x] **Persistent dry-run banner** on the Run page when
+      `ctx.dry_run` is set.
+
+### Test coverage (69 → 89)
+- [x] `_decrypt_all` invariant tests (passwords)
+- [x] `LoginsCorruptError` regression coverage (nss_passwords)
+- [x] End-to-end autofill v5 schema test (formhistory)
+- [x] Snapshot path-traversal + sha256 + unknown-key regression tests
+
 ## v1.2.0 — Research-driven correctness + trust  ✅ shipped 2026-05-23
 
 ### P0 (correctness — three bugs verified live in v1.1.0)

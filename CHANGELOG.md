@@ -4,6 +4,91 @@ All notable changes to FoxPort are documented here. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/), versioning per
 [SemVer](https://semver.org/).
 
+## [1.2.1] — 2026-05-24
+
+Extreme hardening pass — five batches of audit fixes across correctness,
+resource safety, security, UX, and test coverage. No new user-facing
+features; everything below is a quality / safety improvement on the
+v1.2.0 surface area. **89 tests pass** (up from 69).
+
+### Fixed (data-loss + correctness)
+- `migrate/nss_passwords.py` — **stop silently overwriting unreadable
+  `logins.json`.** The pre-audit code returned an empty store on any
+  parse/IO failure, which then caused the migrator to clobber the
+  user's real entries with an empty array on the first re-run. New
+  `LoginsCorruptError` propagates so the caller aborts instead.
+- `migrate/passwords.py` — HIBP scan no longer re-decrypts every row.
+  Both the CSV writer and the HIBP scan now consume the same
+  in-memory `(PasswordRow, plaintext)` list. Empty-blob and
+  empty-plaintext rows count toward `skipped_empty` so
+  `total == decrypted + skipped_empty + failed` holds. Broad-except
+  guard on the cryptography call site (wrong-length keys raise
+  `ValueError`, not `DecryptionError`) keeps one bad row from
+  aborting the batch.
+- `migrate/nss_passwords|nss_cookies|nss_history` — `backup_path`
+  becomes `Path | None` so callers can distinguish "no previous
+  file" from a real backup. Removes the fake `.no-backup-needed`
+  sentinel path that leaked into user-facing log lines.
+- `migrate/nss_history.py` — rename the misleading
+  `favicons_deleted: bool` field to `favicons_backup_path: Path |
+  None`; the file is moved aside to a timestamped backup, not
+  deleted (the old name lied about the behavior).
+- `migrate/search_engines.py` — `_copy_for_read` now pulls the
+  `-wal` / `-shm` siblings; recently-added engines were being
+  dropped from the read snapshot because the WAL hadn't been
+  checkpointed yet.
+
+### Fixed (resource safety + thread safety)
+- `gui/pages.py` — consolidate Preview's per-DB count helpers behind
+  a single `_safe_sqlite_count()` that copies the DB + WAL/SHM
+  siblings, runs the queries, and always tears the tempdir down —
+  even when `mkdtemp` / `copy2` / `connect` raise in between (the
+  per-helper try/except left tempdirs leaked on early failure).
+- `gui/main_window.py` — new `closeEvent()` blocks Alt-F4 during a
+  live migration with a confirm prompt + bounded thread wait.
+  Direct-write paths can leave a half-imported `logins.json` /
+  `places.sqlite` if the worker is killed between the backup and
+  the atomic replace.
+
+### Security
+- `snapshot.restore_snapshot()` — reject absolute paths and `..`
+  segments in manifest entries up front. Replace the prefix-string
+  check (which falsely accepted `/safe-evil/x` against `/safe`)
+  with `Path.relative_to()`. Verify each file's manifest SHA-256
+  digest before writing. Drop unknown manifest keys defensively so
+  a tampered or forward-compatible bundle doesn't TypeError the
+  `SnapshotManifest()` constructor.
+- `migrate/extensions._amo_detail` — URL-quote the `gecko_id` path
+  segment (`safe=""`) so an attacker-controlled extension manifest
+  can't inject path or query traversal into the AMO URL.
+- `crypto/hibp` — User-Agent now reflects the live
+  `foxport.__version__` instead of a frozen `"1.2"` string.
+
+### UX / Accessibility
+- `gui/theme.py` — visible keyboard `:focus` indicators for `Tile`,
+  `QCheckBox`, `QPushButton`. Tiles had `StrongFocus` but no visual
+  focus state, so Tab navigation was effectively invisible.
+- `gui/pages.py:RunPage` — persistent dry-run banner at the top of
+  the Run page whenever `ctx.dry_run` is set. The Preview step
+  showed DRY RUN in the summary tree, but the Run page used to look
+  identical for real and dry-run executions until users noticed
+  "No files were written" buried in the log.
+
+### Tests (69 → 89)
+- `test_passwords` — pin the `_decrypt_all` invariants
+  (`total == decrypted + skipped_empty + failed`, isolated failure
+  handling, unexpected-exception fallback path).
+- `test_nss_passwords` — pin the LoginsCorruptError data-loss fix
+  for corrupt JSON, missing `logins` key, and non-object roots.
+- `test_autofill` — end-to-end Chrome `Web Data.autofill` →
+  `formhistory.sqlite` test that asserts the Firefox v5 schema
+  (presence of `moz_sources` + `moz_history_to_sources`,
+  `PRAGMA user_version = 5`). A v4-looking output triggers
+  Firefox's first-launch auto-migration and corrupts the DB.
+- `test_snapshot` — 4 new regression tests covering the path-
+  traversal rejection (absolute, `..`, prefix-bypass), sha256
+  integrity verification, and the forward-compat unknown-key drop.
+
 ## [1.2.0] — 2026-05-23
 
 Research-driven correctness + trust pass. Acts on every P0 and most P1/P2
