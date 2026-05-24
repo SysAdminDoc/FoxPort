@@ -333,7 +333,10 @@ def _build_html(matches: list[ExtensionMatch], source_label: str) -> str:
     matched = sum(1 for m in matches if m.amo_slug)
     already = sum(1 for m in matches if m.already_installed)
     no_match = sum(1 for m in matches if not m.amo_slug)
-    rows: list[str] = []
+    # Already-installed rows go into a separate <details> block so a
+    # one-click install pass doesn't re-tap them.
+    primary_rows: list[str] = []
+    already_rows: list[str] = []
     for m in matches:
         installed_cls = " row-installed" if m.already_installed else ""
         name_cls = " installed" if m.already_installed else ""
@@ -356,7 +359,7 @@ def _build_html(matches: list[ExtensionMatch], source_label: str) -> str:
             if len(m.amo_permissions) > 6:
                 sample += f", +{len(m.amo_permissions) - 6} more"
             perms_preview = f'<div class="perm-list">Will request: {escape(sample)}</div>'
-        rows.append(
+        row_html = (
             f'<tr class="row-installed-tag{installed_cls}">'
             f'<td><span class="{name_cls.strip()}">{escape(m.source.name)}</span><br>'
             f'<code>{escape(m.source.extension_id)}</code> &middot; v{escape(m.source.version)}</td>'
@@ -364,15 +367,38 @@ def _build_html(matches: list[ExtensionMatch], source_label: str) -> str:
             f'<td><span class="tag {escape(m.confidence)}">{escape(m.confidence)}</span></td>'
             f'</tr>'
         )
+        if m.already_installed:
+            already_rows.append(row_html)
+        else:
+            primary_rows.append(row_html)
+    already_block = ""
+    if already_rows:
+        already_block = f"""
+<details>
+ <summary>+{already} already installed in target (click to expand)</summary>
+ <table>
+  <thead><tr><th>Source extension</th><th>Firefox equivalent</th><th>Match</th></tr></thead>
+  <tbody>
+  {''.join(already_rows)}
+  </tbody>
+ </table>
+</details>
+"""
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <title>FoxPort — Extensions to install</title>
-<style>{_CSS}</style></head>
+<style>{_CSS}
+ details {{ margin-top: 18px; }}
+ details summary {{ cursor: pointer; padding: 8px 14px; background: #181825;
+                    border: 1px solid #313244; border-radius: 6px; color: #a6adc8; }}
+ details summary:hover {{ color: #cdd6f4; }}
+ details table {{ margin-top: 8px; }}
+</style></head>
 <body>
 <h1>Extensions to install in Firefox</h1>
 <p class="sub">Source: {escape(source_label)}. Open this page in your Firefox-family browser and click each Install link.</p>
 <div class="summary">
- <div class="stat"><div class="n">{matched}</div><div class="l">Matched</div></div>
+ <div class="stat"><div class="n">{matched - already}</div><div class="l">To install</div></div>
  <div class="stat"><div class="n">{already}</div><div class="l">Already installed</div></div>
  <div class="stat"><div class="n">{no_match}</div><div class="l">No AMO match</div></div>
  <div class="stat"><div class="n">{len(matches)}</div><div class="l">Total</div></div>
@@ -380,9 +406,10 @@ def _build_html(matches: list[ExtensionMatch], source_label: str) -> str:
 <table>
  <thead><tr><th>Source extension</th><th>Firefox equivalent</th><th>Match</th></tr></thead>
  <tbody>
- {''.join(rows)}
+ {''.join(primary_rows)}
  </tbody>
 </table>
+{already_block}
 </body></html>
 """
 

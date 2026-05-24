@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from foxport.browsers.chromium import is_browser_internal_url
 from foxport.browsers.detect import ChromiumProfile
 
 _CHROME_TO_UNIX_MICROS = 11_644_473_600_000_000
@@ -283,6 +284,7 @@ def migrate_history(
     out_dir: Path,
     *,
     dry_run: bool = False,
+    include_internal: bool = False,
 ) -> HistoryResult:
     """Write a fresh ``places.sqlite`` to ``out_dir`` populated with the
     source profile's URLs and visits. Bookmarks are left empty (the
@@ -298,6 +300,9 @@ def migrate_history(
 
     if dry_run:
         for url_row, visit_rows in _iter_chromium_history(profile):
+            _id, url, *_ = url_row
+            if not url or (not include_internal and is_browser_internal_url(url)):
+                continue
             url_count += 1
             visit_count += len(visit_rows)
         return HistoryResult(
@@ -344,6 +349,8 @@ def migrate_history(
                 (_chrome_url_id, url, title, visit_count_src, typed_count,
                  last_visit_time, hidden) = url_row
                 if not url:
+                    continue
+                if not include_internal and is_browser_internal_url(url):
                     continue
                 try:
                     origin_id = origin_id_for(url)

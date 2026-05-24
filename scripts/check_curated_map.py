@@ -72,6 +72,8 @@ def main() -> int:
                         help="Write per-entry audit report as JSON to this path")
     parser.add_argument("--stale-months", type=int, default=24,
                         help="Flag entries with last_updated older than this many months (default 24)")
+    parser.add_argument("--strict-stale", action="store_true",
+                        help="Exit non-zero if any entry is stale (default: stale is informational)")
     parser.add_argument("--sleep", type=float, default=0.5,
                         help="Seconds between AMO requests to avoid rate limiting (default 0.5)")
     args = parser.parse_args()
@@ -122,7 +124,11 @@ def main() -> int:
 
     print()
     print(f"Summary: {len(flat)} total, {len(broken)} broken/disabled, {len(stale)} stale (>{args.stale_months} months)")
-    return 1 if broken else 0
+    if broken:
+        return 1
+    if stale and args.strict_stale:
+        return 2
+    return 0
 
 
 if __name__ == "__main__":

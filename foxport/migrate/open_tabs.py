@@ -29,6 +29,7 @@ import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from foxport.browsers.chromium import is_browser_internal_url
 from foxport.browsers.detect import ChromiumProfile, FirefoxProfile
 
 
@@ -89,6 +90,10 @@ def _extract_urls(session_bytes: bytes) -> list[str]:
         if not url.startswith(("http://", "https://", "file://")):
             continue
         if len(url) < 8:
+            continue
+        # `file://` is allowed (user docs / local PDFs); `chrome://` is not
+        # — Firefox can't navigate to it.
+        if is_browser_internal_url(url):
             continue
         seen.setdefault(url, None)
     return list(seen)

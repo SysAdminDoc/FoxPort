@@ -59,6 +59,7 @@ def _chrome_micros_to_unix_seconds(chrome_us: int) -> int:
 # Firefox cookies.sqlite schema (version 17). Faithful to mozilla-central's
 # CookiePersistentStorage.cpp -- additional columns can land in future Firefox
 # versions but new columns get sensible defaults so older schemas open cleanly.
+# `updateTime` was added in the v17 schema bump; we keep it nullable on insert.
 _FIREFOX_COOKIES_SCHEMA = """
 CREATE TABLE moz_cookies (
     id INTEGER PRIMARY KEY,
@@ -77,6 +78,7 @@ CREATE TABLE moz_cookies (
     rawSameSite INTEGER DEFAULT 0,
     schemeMap INTEGER DEFAULT 0,
     isPartitionedAttributeSet INTEGER DEFAULT 0,
+    updateTime INTEGER,
     CONSTRAINT moz_uniqueid UNIQUE (name, host, path, originAttributes)
 );
 CREATE INDEX moz_basedomain ON moz_cookies (host);
@@ -256,8 +258,8 @@ def migrate_cookies(
                         "(originAttributes, name, value, host, path, expiry, "
                         " lastAccessed, creationTime, isSecure, isHttpOnly, "
                         " inBrowserElement, sameSite, rawSameSite, schemeMap, "
-                        " isPartitionedAttributeSet) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 0)",
+                        " isPartitionedAttributeSet, updateTime) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 0, ?)",
                         (
                             "",
                             row["name"],
@@ -272,6 +274,7 @@ def migrate_cookies(
                             row["sameSite"],
                             row["sameSite"],
                             row["schemeMap"],
+                            row["creationTime"],  # updateTime ≈ creationTime at import
                         ),
                     )
                     decrypted += 1

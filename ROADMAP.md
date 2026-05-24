@@ -3,6 +3,59 @@
 Items here are concrete units of work. Check them off as shipped; promote rough
 ideas from the bottom of the file as scope firms up.
 
+> **Read this first if you're picking up where the last session left off:**
+> `RESEARCH_FEATURE_PLAN.md` is the most recent research output. The
+> `v1.2.0` section below is the promoted action list from that file.
+
+## v1.2.0 — Research-driven correctness + trust
+
+### P0 (correctness — three bugs verified live in v1.1.0)
+- [ ] **places.sqlite v77 → v86 + correct `url_hash`** — port `mfbt::HashString` to Python; drop MD5/fabricated-scheme-table; add v78–v86 columns. Risk: Firefox `replaceDatabaseOnStartup` on import.
+- [ ] **`open_tabs` SNSS Pickle parser** — live run returns 0 URLs from real 2754-byte Chrome session. Replace regex with real parser; also read `Tabs/Tabs_*` files.
+- [ ] **Add `tests/` suite** — pytest config, fixtures, round-trip tests for every migrator. CI workflow runs `pytest`.
+
+### P1 (schema gaps + UX trust)
+- [ ] **`cookies.sqlite` add `updateTime`** column (v17 spec compliance)
+- [ ] **`bookmarks.html` toolbar** — stop relying on `PERSONAL_TOOLBAR_FOLDER`; document or implement post-import move
+- [ ] **Filter `chrome://`, `chrome-extension://`, `edge://`, `brave://`, `about:`** URLs from bookmark + history + tab exports by default
+- [ ] **`diff` CLI refuses ambiguous profile matches** — multiple substring hits print list and exit 2
+- [ ] **Wire drag-and-drop "Manual source" tile** — currently dead code
+- [ ] **`favicons.sqlite` backup, not delete** in history direct-write
+- [ ] **HIBP scan during password migration** — opt-in; produces `compromised-passwords.txt`
+
+### P2 (polish + small features)
+- [ ] **Password preview dialog masks values by default** (per-row eye icon)
+- [ ] **Hide already-installed extensions** in `extensions.html` by default
+- [ ] **Settings page** — output dir, mask-passwords, online-AMO, dry-run default, telemetry opt-in
+- [ ] **Master-password retry loop** (up to 3 attempts)
+- [ ] **NSSSession.decrypt method** in `crypto/nss.py` (currently bound inline in `firefox_read.py`)
+- [ ] **`formhistory.sqlite` v4 → v5** with `moz_sources` + `moz_history_to_sources`
+- [ ] **Reverse-direction matcher coverage** (13 → 60+ AMO_GUID_TO_CHROME entries) via harvester script
+- [ ] **History time-range filter dialog** (last N days + custom range)
+- [ ] **Path-traversal hardening** on `make_export_dir`
+- [ ] **Curated map placeholder cleanup** — remove `"{446900e4-…}": ""` and audit fabricated entries
+- [ ] **`check_curated_map.py --strict-stale` flag** — fail CI on entries older than N months
+
+### P3 (distribution + observability)
+- [ ] First-run dialog with opt-in for Glean + Sentry
+- [ ] Glean telemetry (categories, durations, error counts; no URLs)
+- [ ] Sentry crash reporting (opt-in)
+- [ ] Auto-update via WinSparkle / Sparkle
+- [ ] Run the release workflow end-to-end + publish the first signed binary
+- [ ] Raster logo + Windows EXE icon
+- [ ] Monthly curated-map auditor scheduled workflow
+- [ ] Per-page screen-reader / keyboard navigation pass
+- [ ] Docs: `docs/architecture.md`, `docs/file-formats.md`, `docs/troubleshooting.md`
+
+### Larger bets (Phase 4+)
+- [ ] **FIDO CXF v1.0 passkey export** — Chrome `Web Data.webauthn_credentials` → CXF JSON
+- [ ] **Downloads migration** — Chrome `History.downloads` → Firefox `moz_annos`
+- [ ] **Browser snapshot `.fxport` bundle** + `restore` CLI subcommand
+- [ ] **Pocket / Pinboard / OPML bookmark input** via the manual-source tile
+- [ ] **Brave / Vivaldi / Edge as reverse target** (parameterize the Chromium write path)
+
+
+
 ## v0.2.0 — Wizard UI + smarter matching  ✅ shipped 2026-05-23
 - [x] Five-step QStackedWidget wizard (Source → Target → Items → Preview → Run)
 - [x] Left-rail step indicator with active/completed/future states
@@ -69,10 +122,8 @@ ideas from the bottom of the file as scope firms up.
 - [x] macOS Firefox profile detection (`~/Library/Application Support/Firefox`)
 - [x] Linux Firefox profile detection (`~/.mozilla/firefox` + per-vendor dotfiles)
 
-## v0.6.0 — Additional data types  ✅ shipped 2026-05-23 (open tabs deferred)
-- [ ] **Open tabs** — Chromium session storage → Firefox `recovery.jsonlz4`
-      (`mozLz40\0` magic + lz4-block-compressed JSON; Firefox must be
-      closed). Deferred — needs an SNSS protobuf-ish parser.
+## v0.6.0 — Additional data types  ✅ shipped 2026-05-23
+- [x] **Open tabs** — see v0.6.1 (URL scanner) and v1.2.0 (Pickle parser fix).
 - [x] **Form autofill** — Chromium `Web Data.autofill` → Firefox
       `formhistory.sqlite/moz_formhistory`.
 - [x] **Saved cards (CSV-only)** — Chromium `Web Data` cards table; Firefox

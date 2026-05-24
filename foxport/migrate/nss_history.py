@@ -51,12 +51,18 @@ def write_history_into_target(
                 sibling.unlink()
     shutil.copy2(history_result.sqlite_path, target_path)
 
+    # Move favicons.sqlite to a timestamped backup rather than deleting it.
+    # Firefox rebuilds favicons from history on next launch, so the live file
+    # has to be out of the way — but the user's accumulated favicon icons are
+    # months/years of work and shouldn't be unrecoverable on a "regret" path.
     favicons = target.profile_dir / "favicons.sqlite"
     favicons_deleted = False
     if favicons.exists():
         try:
-            favicons.unlink()
-            favicons_deleted = True
+            mtime = int(favicons.stat().st_mtime)
+            favicons_backup = favicons.with_name(f"favicons.foxport-backup-{mtime}.sqlite")
+            favicons.rename(favicons_backup)
+            favicons_deleted = True  # field name kept for backward-compat; semantics now "moved aside"
         except OSError:
             favicons_deleted = False
 

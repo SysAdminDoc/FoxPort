@@ -60,18 +60,40 @@ ALL_ITEMS = (
 REVERSE_ITEMS = ("passwords", "bookmarks", "extensions")
 
 
+class AmbiguousProfileMatch(SystemExit):
+    """Raised when a CLI ``--source``/``--target`` substring matches >1 profile.
+
+    We exit non-zero rather than silently picking one — silent wrong-profile
+    selection produced the diff-CLI bug logged in RESEARCH_FEATURE_PLAN.md.
+    """
+
+    def __init__(self, spec: str, matches: list[str]) -> None:
+        msg = (
+            f"error: '{spec}' matched {len(matches)} profiles — please be more specific:\n"
+            + "\n".join(f"  {m}" for m in matches)
+        )
+        print(msg, file=sys.stderr)
+        super().__init__(2)
+
+
 def _find_chromium(spec: str, profiles: list[ChromiumProfile]) -> ChromiumProfile | None:
     spec_lower = spec.lower()
-    # Exact "Browser/Profile" match first.
+    # 1. Exact "Browser/Profile" or full label match wins outright.
     for p in profiles:
         if f"{p.browser}/{p.profile_name}".lower() == spec_lower:
             return p
         if p.label.lower() == spec_lower:
             return p
-    # Substring match second.
-    for p in profiles:
-        if spec_lower in f"{p.browser}/{p.profile_name}".lower() or spec_lower in p.label.lower():
-            return p
+    # 2. Substring match must be UNIQUE — refuse ambiguous matches loudly.
+    substring_hits = [
+        p for p in profiles
+        if spec_lower in f"{p.browser}/{p.profile_name}".lower()
+        or spec_lower in p.label.lower()
+    ]
+    if len(substring_hits) > 1:
+        raise AmbiguousProfileMatch(spec, [f"{p.browser}/{p.profile_name}" for p in substring_hits])
+    if len(substring_hits) == 1:
+        return substring_hits[0]
     return None
 
 
@@ -82,9 +104,15 @@ def _find_firefox(spec: str, profiles: list[FirefoxProfile]) -> FirefoxProfile |
             return p
         if p.label.lower() == spec_lower:
             return p
-    for p in profiles:
-        if spec_lower in f"{p.browser}/{p.profile_name}".lower() or spec_lower in p.label.lower():
-            return p
+    substring_hits = [
+        p for p in profiles
+        if spec_lower in f"{p.browser}/{p.profile_name}".lower()
+        or spec_lower in p.label.lower()
+    ]
+    if len(substring_hits) > 1:
+        raise AmbiguousProfileMatch(spec, [f"{p.browser}/{p.profile_name}" for p in substring_hits])
+    if len(substring_hits) == 1:
+        return substring_hits[0]
     return None
 
 

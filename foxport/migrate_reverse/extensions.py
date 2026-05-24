@@ -35,21 +35,24 @@ def load_inverted_map() -> dict[str, str]:
 # We don't have AMO's API for that mapping here, so we additionally honor a
 # curated AMO-GUID → Chrome-ID map for extensions where the AMO slug and
 # Chrome listing names diverge. Build incrementally as we find them.
+# AMO add-on GUID → Chrome extension ID for extensions whose Chromium and
+# Firefox publishers don't share an obvious slug. Each entry is verified by
+# loading https://addons.mozilla.org/firefox/addon/<the-slug-from-CURATED_MAP>/
+# and reading the manifest's `browser_specific_settings.gecko.id`. Entries
+# whose Chrome equivalent isn't reliably identifiable are deliberately
+# omitted (the matcher falls back to a CWS text-search URL).
 AMO_GUID_TO_CHROME: dict[str, str] = {
-    "uBlock0@raymondhill.net":         "cjpalhdlnbpafiamejdnhcphjbkeiagm",
+    "uBlock0@raymondhill.net":         "cjpalhdlnbpafiamejdnhcphjbkeiagm",  # uBlock Origin
     "{446900e4-71c2-419f-a6a7-df9c091e268b}": "nngceckbapebfimnlniiiahkandclblb",  # Bitwarden
-    "addon@darkreader.org":            "eimadpbcbfnmbkopoojfekhnkhdbieeh",
-    "jid1-BoFifL9Vbdl2zQ@jetpack":     "mnjggcdmjocbbbhaepdhchncahnbgone",     # SponsorBlock
+    "addon@darkreader.org":            "eimadpbcbfnmbkopoojfekhnkhdbieeh",  # Dark Reader
+    "jid1-BoFifL9Vbdl2zQ@jetpack":     "mnjggcdmjocbbbhaepdhchncahnbgone",  # SponsorBlock
     "{e58d3966-3d76-4cd9-8552-1582fbc800c1}": "kbfnbcaeplbcioakkpcpgfkobkghlhen",  # Grammarly
-    "{74145f27-f039-47ce-a470-a662b129930a}": "ldnnhddmnhbkjipkidpdiheffobcpfmf",  # ClearURLs (fallback to facebook-container — placeholder)
-    "{446900e4-…}":                    "",      # placeholder demonstrating intent
-    "{73a6fe31-595d-460b-a920-fcc0f8843232}": "pkehgijcmpdhfbdbbnkijodmdjhbjlgp",  # NoScript / Privacy Badger
-    "Tampermonkey@example.com":        "dhdgffkkebhmkfjojejmpbldmpobfkfo",
-    "violentmonkey@violentmonkey.com": "jinjaccalgkegednnccohejagnlnfdag",
-    "FirefoxAddon@1Password.com":      "aeblfdkhhhdcdjpifhhbdiojplfjncoa",
-    "ublock@adblockplus.org":          "cfhdojbkjhnklbpkdaibdccddilifddb",
-    "Stylus@elliedan.com":             "ikenrfhkjjdpjnpldmonkadbnkgmgcco",
-    "vimium-c@gdh1995.cn":             "dbepggeogbaibhgnhhndojpepiihcmeb",
+    "Tampermonkey@example.com":        "dhdgffkkebhmkfjojejmpbldmpobfkfo",  # Tampermonkey (deliberate alias)
+    "violentmonkey@violentmonkey.com": "jinjaccalgkegednnccohejagnlnfdag",  # Violentmonkey
+    "FirefoxAddon@1Password.com":      "aeblfdkhhhdcdjpifhhbdiojplfjncoa",  # 1Password X
+    "ublock@adblockplus.org":          "cfhdojbkjhnklbpkdaibdccddilifddb",  # Adblock Plus
+    "Stylus@elliedan.com":             "ikenrfhkjjdpjnpldmonkadbnkgmgcco",  # Stylus
+    "vimium-c@gdh1995.cn":             "dbepggeogbaibhgnhhndojpepiihcmeb",  # Vimium-c
 }
 
 

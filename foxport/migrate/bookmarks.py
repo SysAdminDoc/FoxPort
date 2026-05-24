@@ -26,7 +26,11 @@ from html import escape
 from pathlib import Path
 from typing import Callable
 
-from foxport.browsers.chromium import BookmarkNode, read_bookmarks
+from foxport.browsers.chromium import (
+    BookmarkNode,
+    is_browser_internal_url,
+    read_bookmarks,
+)
 from foxport.browsers.detect import ChromiumProfile
 
 
@@ -40,6 +44,7 @@ class BookmarkResult:
     html_path: Path
     folders: int
     urls: int
+    filtered_internal: int = 0     # URLs skipped because of chrome://, etc.
 
 
 # A folder-path predicate. Receives the list of folder names from root to the
@@ -86,6 +91,7 @@ def _emit_folder(
     counter: list[int],
     *,
     is_toolbar: bool = False,
+    include_internal: bool = False,
 ) -> None:
     pad = "    " * depth
     add_date = _chrome_to_unix_seconds(node.date_added)
@@ -99,14 +105,25 @@ def _emit_folder(
     counter[0] += 1
     for child in node.children:
         if child.kind == "folder":
-            _emit_folder(child, depth + 1, buf, counter)
+            _emit_folder(child, depth + 1, buf, counter, include_internal=include_internal)
         else:
-            _emit_url(child, depth + 1, buf, counter)
+            _emit_url(child, depth + 1, buf, counter, include_internal=include_internal)
     buf.append(f"{pad}</DL><p>")
 
 
-def _emit_url(node: BookmarkNode, depth: int, buf: list[str], counter: list[int]) -> None:
+def _emit_url(
+    node: BookmarkNode,
+    depth: int,
+    buf: list[str],
+    counter: list[int],
+    *,
+    include_internal: bool = False,
+) -> None:
     if not node.url:
+        return
+    # Browser-specific schemes (chrome://, edge://, ...) don't load in Firefox.
+    if not include_internal and is_browser_internal_url(node.url):
+        counter[2] += 1
         return
     pad = "    " * depth
     add_date = _chrome_to_unix_seconds(node.date_added)
@@ -122,6 +139,7 @@ def migrate_bookmarks(
     *,
     dry_run: bool = False,
     folder_filter: FolderFilter | None = None,
+    include_internal: bool = False,
 ) -> BookmarkResult:
     """Walk ``profile``'s Bookmarks file and emit ``bookmarks.html``.
 
@@ -130,6 +148,10 @@ def migrate_bookmarks(
     (root → leaf) returning False to skip a folder. The top-level roots
     (Bookmarks Toolbar / Other Bookmarks / Mobile Bookmarks) are never
     skipped — only their children can be filtered.
+
+    ``include_internal`` defaults to False — browser-specific scheme URLs
+    (``chrome://``, ``edge://``, etc.) are skipped because they don't load
+    in Firefox.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     html_path = out_dir / "bookmarks.html"
@@ -149,12 +171,17 @@ def migrate_bookmarks(
         "<H1>Bookmarks</H1>",
         "<DL><p>",
     ]
-    counter = [0, 0]  # [folders, urls]
+    counter = [0, 0, 0]  # [folders, urls, filtered_internal]
     for root in roots:
         is_toolbar = root.name == "Bookmarks Toolbar"
-        _emit_folder(root, 1, buf, counter, is_toolbar=is_toolbar)
+        _emit_folder(root, 1, buf, counter, is_toolbar=is_toolbar, include_internal=include_internal)
     buf.append("</DL><p>")
 
     if not dry_run:
         html_path.write_text("\n".join(buf) + "\n", encoding="utf-8")
-    return BookmarkResult(html_path=html_path, folders=counter[0], urls=counter[1])
+    return BookmarkResult(
+        html_path=html_path,
+        folders=counter[0],
+        urls=counter[1],
+        filtered_internal=counter[2],
+    )

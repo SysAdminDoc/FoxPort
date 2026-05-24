@@ -79,12 +79,20 @@ class PasswordPreviewDialog(QDialog):
 
         header = QLabel(
             "Tick the rows to include in the export. Use the filter to search "
-            "by URL or username. Passwords are shown in plaintext below — close "
-            "this dialog before walking away."
+            "by URL or username. Passwords are masked by default — click the "
+            "eye in each row to reveal."
         )
         header.setWordWrap(True)
         header.setStyleSheet("color: #a6adc8;")
         layout.addWidget(header)
+
+        mask_row = QHBoxLayout()
+        mask_row.addStretch(1)
+        self._show_all_btn = QPushButton("Show all passwords")
+        self._show_all_btn.setCheckable(True)
+        self._show_all_btn.toggled.connect(self._toggle_show_all)  # type: ignore[arg-type]
+        mask_row.addWidget(self._show_all_btn)
+        layout.addLayout(mask_row)
 
         filter_row = QHBoxLayout()
         filter_row.setSpacing(8)
@@ -101,8 +109,10 @@ class PasswordPreviewDialog(QDialog):
         filter_row.addWidget(self._none_btn)
         layout.addLayout(filter_row)
 
+        self._plaintext: dict[int, str] = {}
+        self._show_all = False
         self._table = QTableWidget(0, 4)
-        self._table.setHorizontalHeaderLabels(["Include", "URL", "Username", "Password (visible)"])
+        self._table.setHorizontalHeaderLabels(["Include", "URL", "Username", "Password"])
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -131,6 +141,24 @@ class PasswordPreviewDialog(QDialog):
     @staticmethod
     def _key_for(row: PasswordRow) -> str:
         return f"{row.origin_url}\x00{row.username}"
+
+    @staticmethod
+    def _mask(plaintext: str) -> str:
+        if not plaintext:
+            return ""
+        # Show first/last char so the user can sanity-check; mask the rest.
+        if len(plaintext) <= 2:
+            return "•" * len(plaintext)
+        return plaintext[0] + "•" * (len(plaintext) - 2) + plaintext[-1]
+
+    def _toggle_show_all(self, checked: bool) -> None:
+        self._show_all = checked
+        self._show_all_btn.setText("Hide passwords" if checked else "Show all passwords")
+        for r_idx, plain in self._plaintext.items():
+            item = self._table.item(r_idx, 3)
+            if item is None:
+                continue
+            item.setText(plain if checked else self._mask(plain))
 
     def _populate(self, profile: ChromiumProfile) -> None:
         try:
@@ -162,7 +190,8 @@ class PasswordPreviewDialog(QDialog):
             self._table.setCellWidget(r_idx, 0, cb)
             self._table.setItem(r_idx, 1, QTableWidgetItem(row.origin_url))
             self._table.setItem(r_idx, 2, QTableWidgetItem(row.username))
-            self._table.setItem(r_idx, 3, QTableWidgetItem(plaintext))
+            self._plaintext[r_idx] = plaintext
+            self._table.setItem(r_idx, 3, QTableWidgetItem(self._mask(plaintext)))
             self._row_visible.append(True)
             if r_idx % 200 == 0:
                 QApplication.processEvents()

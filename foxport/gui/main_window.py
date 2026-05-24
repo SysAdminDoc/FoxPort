@@ -225,21 +225,34 @@ class MainWindow(QMainWindow):
         if self._migrate_thread is not None:
             return
         # Reverse mode: source is a Firefox profile — prompt for master password
-        # if NSS will need one. We probe by attempting a no-op NSS open.
+        # if NSS will need one. We probe by attempting a no-op NSS open and
+        # allow up to 3 retries on wrong passwords (mistypes are common).
         if self._ctx.direction == "reverse":
             from foxport.crypto.nss import open_session, NSSError
-            try:
-                sess = open_session(self._ctx.source, master_password=self._ctx.master_password)
-                sess.close()
-            except NSSError as exc:
-                if "master password" in str(exc).lower():
-                    from foxport.gui.dialogs import prompt_master_password
-                    pw = prompt_master_password(self, self._ctx.source.label)
+            from foxport.gui.dialogs import prompt_master_password
+            for attempt in range(3):
+                try:
+                    sess = open_session(self._ctx.source, master_password=self._ctx.master_password)
+                    sess.close()
+                    break
+                except NSSError as exc:
+                    if "master password" not in str(exc).lower():
+                        raise
+                    suffix = "" if attempt == 0 else f" (attempt {attempt + 1} of 3)"
+                    pw = prompt_master_password(self, self._ctx.source.label + suffix)
                     if pw is None:
-                        QMessageBox.information(self, "FoxPort",
-                                                "Migration cancelled — master password required.")
+                        QMessageBox.information(
+                            self, "FoxPort",
+                            "Migration cancelled — master password required.",
+                        )
                         return
                     self._ctx.master_password = pw
+            else:
+                QMessageBox.critical(
+                    self, "FoxPort",
+                    "Master password rejected 3 times — migration cancelled.",
+                )
+                return
         # Push counts into Items page so the user sees them on back-nav too.
         self._items_page.set_counts(
             self._ctx.password_count,

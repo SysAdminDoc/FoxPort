@@ -15,6 +15,35 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
 
+
+# Schemes that exist only inside one browser family. Migrating these to a
+# different browser produces broken links — `chrome://gpu/` is not
+# navigable from Firefox, etc. The bookmark / history / open-tabs migrators
+# default to filtering these unless the user explicitly opts in.
+BROWSER_INTERNAL_SCHEMES = (
+    "chrome://",
+    "chrome-extension://",
+    "chrome-search://",
+    "chrome-untrusted://",
+    "chrome-devtools://",
+    "devtools://",
+    "edge://",
+    "brave://",
+    "opera://",
+    "vivaldi://",
+    "yandex://",
+    "arc://",
+    "about:",
+)
+
+
+def is_browser_internal_url(url: str) -> bool:
+    """True if ``url`` uses a browser-specific scheme that won't load in Firefox."""
+    if not url:
+        return False
+    lowered = url.lower()
+    return any(lowered.startswith(prefix) for prefix in BROWSER_INTERNAL_SCHEMES)
+
 from foxport.browsers.detect import ChromiumProfile
 
 
