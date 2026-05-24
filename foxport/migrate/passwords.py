@@ -22,6 +22,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+# Stable namespace UUID for FoxPort-generated login GUIDs. Deterministic per
+# (origin, username) so a second migration run produces the same GUID and
+# Firefox's CSV import deduplicates instead of inserting duplicates.
+_FOXPORT_LOGIN_NAMESPACE = uuid.UUID("8a8f3f4c-6a4b-4cab-9a26-1d9e1ce4d3a1")
+
 from foxport.browsers.chromium import PasswordRow, read_password_rows
 from foxport.browsers.detect import ChromiumProfile
 from foxport.crypto.dpapi import (
@@ -107,13 +112,17 @@ def migrate_passwords(profile: ChromiumProfile, out_dir: Path) -> PasswordResult
                 skipped_empty += 1
                 continue
             decrypted += 1
+            stable_guid = uuid.uuid5(
+                _FOXPORT_LOGIN_NAMESPACE,
+                f"{row.origin_url}\x00{row.username}",
+            )
             writer.writerow([
                 row.origin_url,
                 row.username,
                 plaintext,
                 "",
                 row.action_url or "",
-                "{" + str(uuid.uuid4()) + "}",
+                "{" + str(stable_guid) + "}",
                 _chrome_micros_to_firefox_millis(row.date_created),
                 _chrome_micros_to_firefox_millis(row.date_last_used),
                 _chrome_micros_to_firefox_millis(row.date_password_modified),

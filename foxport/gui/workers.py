@@ -12,6 +12,7 @@ from foxport.browsers.detect import (
     FirefoxProfile,
     detect_chromium,
     detect_firefox,
+    read_installed_firefox_extensions,
 )
 from foxport.browsers.firefox import import_instructions, make_export_dir
 from foxport.crypto.dpapi import DecryptionError
@@ -22,7 +23,7 @@ from foxport.migrate.passwords import migrate_passwords
 
 @dataclass
 class MigrationRequest:
-    """Inputs collected from the main window before kicking off a run."""
+    """Inputs collected from the wizard before kicking off a run."""
 
     source: ChromiumProfile
     target: FirefoxProfile | None
@@ -40,7 +41,7 @@ class DetectWorker(QObject):
     log = pyqtSignal(str)
 
     def run(self) -> None:
-        self.log.emit("Scanning %LOCALAPPDATA% for Chromium browsers...")
+        self.log.emit("Scanning %LOCALAPPDATA% / %APPDATA% for Chromium browsers...")
         chromium = detect_chromium()
         self.log.emit(f"  Found {len(chromium)} Chromium profile(s).")
         self.log.emit("Scanning %APPDATA% for Firefox-family browsers...")
@@ -54,7 +55,7 @@ class MigrationWorker(QObject):
 
     log = pyqtSignal(str)
     step = pyqtSignal(int, int)  # (current, total)
-    finished = pyqtSignal(bool, str)  # (ok, export_dir_or_error)
+    finished = pyqtSignal(bool, str, dict)  # (ok, export_dir_or_error, exports map)
 
     def __init__(self, request: MigrationRequest) -> None:
         super().__init__()
@@ -69,6 +70,15 @@ class MigrationWorker(QObject):
         current = 0
         exports: dict[str, Path] = {}
 
+        already_installed: set[str] = set()
+        if req.target:
+            already_installed = read_installed_firefox_extensions(req.target)
+            if already_installed:
+                self.log.emit(
+                    f"  Target already has {len(already_installed)} extension(s); "
+                    "matching ones will be flagged in the report."
+                )
+
         try:
             if req.do_passwords:
                 current += 1
@@ -78,7 +88,6 @@ class MigrationWorker(QObject):
                     result = migrate_passwords(req.source, out_dir)
                 except DecryptionError as exc:
                     self.log.emit(f"  Password decryption failed: {exc}")
-                    self.log.emit("  Note: DPAPI requires the same Windows account that saved the data.")
                 else:
                     exports["passwords"] = result.csv_path
                     self.log.emit(
@@ -107,24 +116,33 @@ class MigrationWorker(QObject):
                 mode = "online (AMO lookup)" if req.extensions_online else "offline (curated only)"
                 self.log.emit(f"Mapping extensions, {mode}...")
                 ext_result = migrate_extensions(
-                    req.source, out_dir, online=req.extensions_online
+                    req.source,
+                    out_dir,
+                    online=req.extensions_online,
+                    already_installed_guids=already_installed,
                 )
                 exports["extensions"] = ext_result.html_path
-                self.log.emit(
-                    f"  {ext_result.matched} matched, {ext_result.unmatched} unmatched "
-                    f"out of {len(ext_result.matches)} installed."
-                )
+                if already_installed:
+                    self.log.emit(
+                        f"  {ext_result.matched} matched ({ext_result.already_installed} already installed), "
+                        f"{ext_result.unmatched} unmatched of {len(ext_result.matches)} installed."
+                    )
+                else:
+                    self.log.emit(
+                        f"  {ext_result.matched} matched, {ext_result.unmatched} unmatched "
+                        f"out of {len(ext_result.matches)} installed."
+                    )
 
             instructions_path = out_dir / "README.txt"
             instructions_path.write_text(
                 import_instructions(req.target, exports), encoding="utf-8"
             )
             self.log.emit(f"Instructions written to {instructions_path.name}")
-            self.finished.emit(True, str(out_dir))
+            self.finished.emit(True, str(out_dir), {k: str(v) for k, v in exports.items()})
 
-        except Exception as exc:  # last-resort guard so the UI never freezes
+        except Exception as exc:
             self.log.emit(f"FATAL: {exc}")
-            self.finished.emit(False, str(exc))
+            self.finished.emit(False, str(exc), {})
 
 
 def make_thread(worker: QObject) -> QThread:

@@ -1,0 +1,99 @@
+{
+  "_meta": {
+    "schema": 1,
+    "description": "Chrome extension ID -> Firefox AMO slug. Verified against live AMO listings.",
+    "last_verified": "2026-05-23",
+    "source": "https://github.com/SysAdminDoc/FoxPort"
+  },
+  "ad_tracker_privacy": {
+    "cjpalhdlnbpafiamejdnhcphjbkeiagm": "ublock-origin",
+    "ddkjiahejlhfcafbddmgiahcphecmpfh": "ublock-origin",
+    "fdoeckjeapimfjeoddjlpdkogdfnighb": "ublock-origin",
+    "gighmmpiobklfepjocnamgkkbiglidom": "adblock-plus",
+    "cfhdojbkjhnklbpkdaibdccddilifddb": "adblock-plus",
+    "mlomiejdfkolichcflejclcbmpeaniij": "ghostery",
+    "pkehgijcmpdhfbdbbnkijodmdjhbjlgp": "privacy-badger17",
+    "lckanjgmijmafbedllaakclkaicjfmnk": "clearurls",
+    "edibdbjcniadpccecjdfdjjppcpchdlm": "i-still-dont-care-about-cookies",
+    "fihnjjcciajhdojfnbdddfaoknhalnja": "i-dont-care-about-cookies",
+    "jaoafjdoijdconemdmodhbfpianehlon": "skip-redirect",
+    "lifbcibllhkdhoafpjfnlhfpfgnpldfl": "skip-redirect"
+  },
+  "password_managers": {
+    "nngceckbapebfimnlniiiahkandclblb": "bitwarden-password-manager",
+    "aeblfdkhhhdcdjpifhhbdiojplfjncoa": "1password-x-password-manager",
+    "dppgmdbiimibapkepcbdbmkaabgiofem": "1password-x-password-manager",
+    "hdokiejnpimakedhajhdlcegeplioahd": "lastpass-password-manager",
+    "pnlccmojcmeohlpggmfnbbiapkmbliob": "roboform",
+    "fooolghllnmhmmndgjiamiiodkpenpbb": "nordpass-password-management",
+    "ghmbeldphafepmbegfdlkpapadhbakde": "proton-pass",
+    "oboonakemofpalcgghocfoadofidjkkk": "keepassxc-browser",
+    "naepdomgkenhinolocfifgehidddafch": "browserpass-ce"
+  },
+  "userscripts": {
+    "dhdgffkkebhmkfjojejmpbldmpobfkfo": "tampermonkey",
+    "jinjaccalgkegednnccohejagnlnfdag": "violentmonkey",
+    "iikmkjmpaadaobahmlepeloendndfphd": "violentmonkey"
+  },
+  "styling_themes": {
+    "ikenrfhkjjdpjnpldmonkadbnkgmgcco": "stylus",
+    "clngdbkpkpeebahjckkjfobafhncgmne": "stylus",
+    "eimadpbcbfnmbkopoojfekhnkhdbieeh": "darkreader",
+    "bfbmjmiodbnnpllbbbfblcplfjjepjdn": "darkreader"
+  },
+  "vpn_proxy": {
+    "fjoaledfpmneenckfbpdfhkmimnjocfa": "nordvpn-proxy-extension",
+    "omghfjlpggmjjaagoclmmobgdodcjboh": "browsec-vpn",
+    "bihmplhobchoageeokmgbdihknkjbknd": "touch-vpn"
+  },
+  "dev_tools": {
+    "fmkadmapgofadopljbjfkapdkoienihi": "react-devtools",
+    "nhdogjmejiglipccpnnnanhbledajbpd": "vue-js-devtools",
+    "ienfalfjdbdpebioblfackkekamfmbnh": "angular-devtools",
+    "gppongmhjkpfnbhagpmjfkannfbllamg": "wappalyzer",
+    "chklaanhfefbnpoihckbnefhakgolnmc": "dan3988-json-viewer"
+  },
+  "ai_assistants": {
+    "kbfnbcaeplbcioakkpcpgfkobkghlhen": "grammarly-1",
+    "cinfaflgbaachkaamaeglolofeahelkd": "perplexity-companion",
+    "kdfieneakcjfaiglcfcgkidlkmlijjnh": "kagi-search-for-firefox"
+  },
+  "productivity_tabs": {
+    "chphlpgkkbolifaimnlloiipkdnihall": "onetab",
+    "bhchdcejhohfmigjafbampogmaanbfkg": "auto-tab-discard",
+    "laookkfknpbbblfpciffpaejjkokdgca": "momentumdash",
+    "dbepggeogbaibhgnhhndojpepiihcmeb": "vimium-ff",
+    "knipolnnllmklapflnccelgolnpehhpl": "raindropio",
+    "niloccemoadcdkdjlinkgdfekeahmflj": "pocket-mini",
+    "lpcaedmchfhocbbapmcbpinfpgnhiddi": "in-my-pocket"
+  },
+  "video_audio_streaming": {
+    "mnjggcdmjocbbbhaepdhchncahnbgone": "sponsorblock",
+    "ponfpcnoihfmfllpaingbgckeeldkhle": "enhancer-for-youtube",
+    "gebbhagfogifgggkldgodflihgfeippi": "return-youtube-dislikes",
+    "liecbddmkiiihnedobmlmillhodjkdmb": "loom-for-firefox",
+    "ajopnjidmegmdimjlfnijceegpefgped": "betterttv"
+  },
+  "shopping_coupons": {
+    "bmnlcjabgnpnenekpadlanbbkooimhnj": "honey",
+    "neebplgakaahbhdphmkckjjcegoiijjo": "keepa",
+    "chhjbpecpncaggjpdakmflnfcopglcmi": "rakuten"
+  },
+  "language_translation": {
+    "aapbdbdomjkkjkaonfhkkikfgjllcleb": "to-deepl",
+    "cofdbpoegempjloogbagkncekinflcnj": "deepl",
+    "bpoadfkcbjbfhfodiogcnhhhpibjhbnh": "immersive-translate",
+    "mhfkadjmiocppcphjbnmgilndalbghjm": "search-by-image"
+  },
+  "github_dev_workflow": {
+    "hlepfoohegkhhmjieoechaddaejaokhf": "refined-github-",
+    "ekhagklcjbdpajgpjgmbionohlpdbjgc": "zotero-connector",
+    "lkbebcjgcmobigpeffafkodonchffocl": "bukubrow"
+  },
+  "containers_isolation": {
+    "ldnnhddmnhbkjipkidpdiheffobcpfmf": "facebook-container"
+  },
+  "crypto_wallets": {
+    "nkbihfbeogaeaoehlefnkodbefgpgknn": "ether-metamask"
+  }
+}

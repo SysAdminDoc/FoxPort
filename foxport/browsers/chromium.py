@@ -52,6 +52,9 @@ class ExtensionInfo:
     version: str
     description: str
     homepage: str | None
+    gecko_id: str | None = None         # browser_specific_settings.gecko.id, if present
+    chrome_permissions: tuple[str, ...] = ()
+    chrome_host_permissions: tuple[str, ...] = ()
 
 
 def _copy_for_read(src: Path) -> Path:
@@ -166,12 +169,20 @@ def read_extensions(profile: ChromiumProfile) -> list[ExtensionInfo]:
             continue
         name = _resolve_locale_string(manifest.get("name", ""), version_dirs[0])
         desc = _resolve_locale_string(manifest.get("description", ""), version_dirs[0])
+        bss = manifest.get("browser_specific_settings") or manifest.get("applications") or {}
+        gecko = bss.get("gecko") if isinstance(bss, dict) else None
+        gecko_id = gecko.get("id") if isinstance(gecko, dict) else None
+        perms = tuple(p for p in (manifest.get("permissions") or []) if isinstance(p, str))
+        host_perms = tuple(p for p in (manifest.get("host_permissions") or []) if isinstance(p, str))
         out.append(ExtensionInfo(
             extension_id=ext_id,
             name=name or ext_id,
             version=str(manifest.get("version", "")),
             description=desc or "",
             homepage=manifest.get("homepage_url"),
+            gecko_id=gecko_id if isinstance(gecko_id, str) else None,
+            chrome_permissions=perms,
+            chrome_host_permissions=host_perms,
         ))
     return out
 

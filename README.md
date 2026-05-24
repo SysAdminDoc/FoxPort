@@ -1,6 +1,6 @@
 # FoxPort
 
-[![version](https://img.shields.io/badge/version-0.1.0-f5c2e7?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-0.2.0-f5c2e7?style=flat-square)](CHANGELOG.md)
 [![license](https://img.shields.io/badge/license-MIT-89b4fa?style=flat-square)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows-cdd6f4?style=flat-square)](#)
 [![python](https://img.shields.io/badge/python-3.11%2B-a6e3a1?style=flat-square)](https://www.python.org/)
@@ -8,6 +8,16 @@
 **Port Chromium browsers to Firefox.** FoxPort scans your installed Chromium-family browsers (Chrome, Brave, Edge, Vivaldi, Opera, Arc, Thorium, Yandex, ...), decrypts your saved passwords, packages up your bookmarks, and maps your Chrome extensions to their Firefox equivalents on addons.mozilla.org — all in one click.
 
 The source browser is never modified. FoxPort writes Firefox-native import files into an output folder; you import them through the target browser's normal UI.
+
+## What's new in v0.2.0
+
+- **Five-step wizard UI** — Source → Target → Items → Preview → Run/Done, with a left-rail step indicator, tile-based pickers, drag-and-drop support, and a sample-rich preview pane before commit.
+- **Smarter extension matching** — A 63-entry curated map plus a manifest-`gecko.id` probe against the AMO detail endpoint plus permission-overlap confidence scoring on every match.
+- **Already-installed detection** — FoxPort reads the target Firefox profile's `extensions.json` and strikes through extensions you already have so a click-through install doesn't re-tap them.
+- **App-Bound Encryption awareness** — Detects Chrome 127+ ABE on the source and reports clearly. Bookmarks and extensions still migrate; passwords on ABE-only profiles are flagged for v0.3.
+- **Opera Stable / GX flat-profile layout** — Now detected correctly (no `Default/` subdir).
+- **Browser-running banner** — Surfaces when a source browser is running so you know the data may be stale.
+- **Deterministic password GUIDs** — Re-running the migration produces stable GUIDs so Firefox dedupes instead of inserting duplicates.
 
 ---
 
@@ -66,13 +76,14 @@ DPAPI only works on the same Windows user account that originally encrypted the 
 The `Bookmarks` file is plain JSON. FoxPort walks the `bookmark_bar`, `other`, and `synced` roots, converting them to the Netscape Bookmark HTML format that Firefox (and every other browser) has imported for two decades. The bookmark bar is tagged with `PERSONAL_TOOLBAR_FOLDER="true"` so it lands in Firefox's Bookmarks Toolbar.
 
 ### Extensions
-Chrome and Firefox both speak WebExtensions, but Chrome's MV3 lockdown means extensions are not byte-for-byte portable. FoxPort instead resolves the **identity** of each Chrome extension:
+Chrome and Firefox both speak WebExtensions, but Chrome's MV3 lockdown means extensions are not byte-for-byte portable. FoxPort instead resolves the **identity** of each Chrome extension through four progressively-less-confident stages:
 
-1. **Curated map** — A built-in table of the most-used Chrome ↔ Firefox pairs (uBlock Origin, Bitwarden, Stylus, Violentmonkey, Vimium, SponsorBlock, Refined GitHub, ...).
-2. **AMO search** — For anything else, the extension's manifest name is queried against the public addons.mozilla.org search API. The top hit is used if its name matches well enough.
-3. **No match** — Reported as such so you can decide what to do.
+1. **Curated map** (`foxport/data/curated_extension_map.json`) — 63 hand-verified Chrome ID → AMO slug pairs across 14 categories (ad blockers, password managers, userscripts, dev tools, AI assistants, ...). Zero network. Open the JSON file to contribute additions.
+2. **Gecko ID probe** — If the Chromium manifest declares `browser_specific_settings.gecko.id`, FoxPort hits AMO's detail endpoint with that GUID for a 100%-confidence match.
+3. **AMO name search** — Otherwise, the localized extension name is queried against `addons.mozilla.org/api/v5/addons/search/` and the top hit is taken, ranked by exact-name + prefix overlap, filtered to public + non-disabled.
+4. **Permission overlap** — For non-curated matches, FoxPort compares Chrome's declared permissions to the candidate's AMO permissions and downgrades confidence when overlap is poor (`amo-search-low` if < 30%).
 
-Output is an HTML page you open in Firefox and click through. Offline runs (uncheck "Allow AMO online lookup") still produce a usable page from the curated table.
+The resulting `extensions.html` shows match confidence, permission requests, user count, AMO rating, and whether the equivalent is already installed in your target Firefox profile (struck through). Offline runs (uncheck "Allow online AMO lookup") still produce a usable page from the curated table.
 
 ---
 
@@ -94,10 +105,11 @@ The output folder is configurable in the UI.
 
 ## Security notes
 
-- **Local-only.** Decryption happens on your machine; the only network call is an optional AMO search for extension names. Passwords never leave the box.
+- **Local-only.** Decryption happens on your machine; the only network call is an optional AMO lookup for extension names + GUIDs. Passwords never leave the box.
 - **Output files contain plaintext passwords.** Treat `passwords.csv` like a secret. Delete it after importing.
 - **No browser modification.** FoxPort copies SQLite files to a temp dir before reading; it does not write to `Login Data`, `Bookmarks`, or anything else in the source profile.
 - **DPAPI scoping.** Decryption only succeeds when running as the Windows user who originally saved the passwords.
+- **App-Bound Encryption** (Chrome 127+, Brave) is detected and surfaced clearly; a full ABE bypass is on the v0.3.0 roadmap.
 
 ---
 

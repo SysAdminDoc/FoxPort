@@ -1,4 +1,4 @@
-"""Main window — single-page wizard to migrate one Chromium profile to one Firefox profile."""
+"""Main window — a five-step wizard for one source-to-target migration."""
 
 from __future__ import annotations
 
@@ -10,17 +10,10 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, QThread
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
-    QFileDialog,
-    QFrame,
     QHBoxLayout,
-    QLabel,
     QMainWindow,
     QMessageBox,
-    QPlainTextEdit,
-    QProgressBar,
-    QPushButton,
+    QStackedWidget,
     QStatusBar,
     QVBoxLayout,
     QWidget,
@@ -28,7 +21,16 @@ from PyQt6.QtWidgets import (
 
 from foxport import __app_name__, __version__
 from foxport.browsers.detect import ChromiumProfile, FirefoxProfile
+from foxport.gui.pages import (
+    ItemsPage,
+    MigrationContext,
+    PreviewPage,
+    RunPage,
+    SourcePage,
+    TargetPage,
+)
 from foxport.gui.theme import STYLESHEET, apply_palette
+from foxport.gui.widgets import FooterBar, StepRail
 from foxport.gui.workers import (
     DetectWorker,
     MigrationRequest,
@@ -37,169 +39,154 @@ from foxport.gui.workers import (
 )
 
 
-DEFAULT_OUT_ROOT = Path.home() / "Documents" / "FoxPort"
+STEP_NAMES = ["Source", "Target", "Items", "Preview", "Run"]
 
 
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(f"{__app_name__} v{__version__}")
-        self.resize(880, 640)
+        self.resize(960, 680)
 
-        self._chromium: list[ChromiumProfile] = []
-        self._firefox: list[FirefoxProfile] = []
-        self._out_root: Path = DEFAULT_OUT_ROOT
+        self._ctx = MigrationContext()
         self._detect_thread: QThread | None = None
         self._detect_worker: DetectWorker | None = None
         self._migrate_thread: QThread | None = None
         self._migrate_worker: MigrationWorker | None = None
+        self._migration_done = False
 
         self._build_ui()
         self._build_menu()
-        self.statusBar().showMessage("Ready.")
         self._start_detection()
 
-    # ------------------------------------------------------------------ UI
+    # --------------------------------------------------------------- UI
 
     def _build_ui(self) -> None:
         root = QWidget()
         self.setCentralWidget(root)
         outer = QVBoxLayout(root)
-        outer.setContentsMargins(20, 18, 20, 14)
-        outer.setSpacing(10)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
 
-        title = QLabel(f"{__app_name__}")
-        title.setObjectName("TitleLabel")
-        subtitle = QLabel("Migrate passwords, bookmarks, and extensions from Chromium to Firefox.")
-        subtitle.setObjectName("SubtitleLabel")
-        outer.addWidget(title)
-        outer.addWidget(subtitle)
+        # Top: step rail | stacked pages
+        top = QWidget()
+        top_layout = QHBoxLayout(top)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(0)
+        self._rail = StepRail(STEP_NAMES)
+        self._stack = QStackedWidget()
 
-        # Source / target card
-        picker_card = QFrame()
-        picker_card.setObjectName("Card")
-        picker_layout = QVBoxLayout(picker_card)
-        picker_layout.setContentsMargins(16, 12, 16, 14)
-        picker_layout.setSpacing(8)
+        self._source_page = SourcePage(self._ctx)
+        self._target_page = TargetPage(self._ctx)
+        self._items_page = ItemsPage(self._ctx)
+        self._preview_page = PreviewPage(self._ctx)
+        self._run_page = RunPage(self._ctx)
 
-        picker_layout.addWidget(self._section_label("Source"))
-        source_row = QHBoxLayout()
-        source_row.setSpacing(10)
-        self.source_combo = QComboBox()
-        self.source_combo.setMinimumWidth(360)
-        source_row.addWidget(QLabel("Chromium profile:"))
-        source_row.addWidget(self.source_combo, 1)
-        picker_layout.addLayout(source_row)
+        for page in (self._source_page, self._target_page, self._items_page,
+                     self._preview_page, self._run_page):
+            self._stack.addWidget(page)
+            page.canAdvanceChanged.connect(self._refresh_footer)
 
-        picker_layout.addWidget(self._section_label("Target"))
-        target_row = QHBoxLayout()
-        target_row.setSpacing(10)
-        self.target_combo = QComboBox()
-        self.target_combo.setMinimumWidth(360)
-        target_row.addWidget(QLabel("Firefox profile:"))
-        target_row.addWidget(self.target_combo, 1)
-        picker_layout.addLayout(target_row)
+        top_layout.addWidget(self._rail)
+        top_layout.addWidget(self._stack, 1)
+        outer.addWidget(top, 1)
 
-        rescan_row = QHBoxLayout()
-        rescan_row.addStretch(1)
-        self.rescan_btn = QPushButton("Rescan browsers")
-        self.rescan_btn.clicked.connect(self._start_detection)  # type: ignore[arg-type]
-        rescan_row.addWidget(self.rescan_btn)
-        picker_layout.addLayout(rescan_row)
-
-        outer.addWidget(picker_card)
-
-        # Options card
-        options_card = QFrame()
-        options_card.setObjectName("Card")
-        options_layout = QVBoxLayout(options_card)
-        options_layout.setContentsMargins(16, 12, 16, 14)
-        options_layout.setSpacing(6)
-        options_layout.addWidget(self._section_label("What to migrate"))
-        self.passwords_cb = QCheckBox("Passwords  (decrypt with DPAPI, write Firefox CSV)")
-        self.bookmarks_cb = QCheckBox("Bookmarks  (Netscape HTML for Library import)")
-        self.extensions_cb = QCheckBox("Extensions  (map to addons.mozilla.org equivalents)")
-        self.online_cb = QCheckBox("Allow AMO online lookup for unknown extensions")
-        self.passwords_cb.setChecked(True)
-        self.bookmarks_cb.setChecked(True)
-        self.extensions_cb.setChecked(True)
-        self.online_cb.setChecked(True)
-        self.extensions_cb.toggled.connect(self.online_cb.setEnabled)  # type: ignore[arg-type]
-        options_layout.addWidget(self.passwords_cb)
-        options_layout.addWidget(self.bookmarks_cb)
-        options_layout.addWidget(self.extensions_cb)
-        options_layout.addWidget(self.online_cb)
-
-        out_row = QHBoxLayout()
-        out_row.setSpacing(10)
-        out_row.addWidget(QLabel("Output folder:"))
-        self.out_label = QLabel(str(self._out_root))
-        self.out_label.setStyleSheet("color: #a6adc8;")
-        self.out_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        out_row.addWidget(self.out_label, 1)
-        self.out_btn = QPushButton("Change…")
-        self.out_btn.clicked.connect(self._pick_output_dir)  # type: ignore[arg-type]
-        out_row.addWidget(self.out_btn)
-        options_layout.addLayout(out_row)
-
-        outer.addWidget(options_card)
-
-        # Run row
-        run_row = QHBoxLayout()
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 1)
-        self.progress.setValue(0)
-        self.progress.setFormat("Idle")
-        run_row.addWidget(self.progress, 1)
-        self.run_btn = QPushButton("Run Migration")
-        self.run_btn.setObjectName("PrimaryButton")
-        self.run_btn.clicked.connect(self._run_migration)  # type: ignore[arg-type]
-        run_row.addWidget(self.run_btn)
-        outer.addLayout(run_row)
-
-        # Log panel
-        outer.addWidget(self._section_label("Activity Log"))
-        self.log = QPlainTextEdit()
-        self.log.setReadOnly(True)
-        self.log.setPlaceholderText("Activity will appear here.")
-        outer.addWidget(self.log, 1)
+        self._footer = FooterBar()
+        self._footer.backClicked.connect(self._on_back)
+        self._footer.nextClicked.connect(self._on_next)
+        outer.addWidget(self._footer)
 
         self.setStatusBar(QStatusBar())
+        self.statusBar().showMessage("Scanning for installed browsers...")
+        self._show_step(0)
+
+        # Done-page action wiring
+        self._run_page.open_out_btn.clicked.connect(lambda: self._open_path(Path(self._last_out_dir)))
+        self._run_page.open_pw_btn.clicked.connect(lambda: self._open_path(Path(self._last_exports.get("passwords", ""))))
+        self._run_page.open_bm_btn.clicked.connect(lambda: self._open_path(Path(self._last_exports.get("bookmarks", ""))))
+        self._run_page.open_ext_btn.clicked.connect(lambda: self._open_path(Path(self._last_exports.get("extensions", ""))))
+        self._last_out_dir: str = ""
+        self._last_exports: dict[str, str] = {}
 
     def _build_menu(self) -> None:
         menu = self.menuBar()
         file_menu = menu.addMenu("&File")
+        rescan = QAction("Rescan browsers", self)
+        rescan.triggered.connect(self._start_detection)
+        file_menu.addAction(rescan)
         open_out = QAction("Open output folder", self)
-        open_out.triggered.connect(self._open_out_root)  # type: ignore[arg-type]
+        open_out.triggered.connect(self._open_output_root)
         file_menu.addAction(open_out)
         file_menu.addSeparator()
         quit_act = QAction("Quit", self)
-        quit_act.triggered.connect(self.close)  # type: ignore[arg-type]
+        quit_act.triggered.connect(self.close)
         file_menu.addAction(quit_act)
         help_menu = menu.addMenu("&Help")
         about = QAction("About FoxPort", self)
-        about.triggered.connect(self._about)  # type: ignore[arg-type]
+        about.triggered.connect(self._about)
         help_menu.addAction(about)
 
-    def _section_label(self, text: str) -> QLabel:
-        label = QLabel(text)
-        label.setObjectName("SectionLabel")
-        return label
+    # --------------------------------------------------------------- Step nav
+
+    def _show_step(self, index: int) -> None:
+        # Leaving hook for the previous page.
+        prior = self._stack.currentWidget()
+        if hasattr(prior, "on_leave"):
+            prior.on_leave()
+        self._stack.setCurrentIndex(index)
+        self._rail.set_current(index)
+        page = self._stack.currentWidget()
+        if hasattr(page, "on_enter"):
+            page.on_enter()
+        self._refresh_footer()
+
+    def _refresh_footer(self) -> None:
+        idx = self._stack.currentIndex()
+        page = self._stack.currentWidget()
+        self._footer.set_can_back(idx > 0 and not (idx == len(STEP_NAMES) - 1 and self._migration_done))
+        if idx == len(STEP_NAMES) - 1:
+            if self._migration_done:
+                self._footer.set_next_label("Close")
+                self._footer.set_can_advance(True)
+            else:
+                self._footer.set_next_label("Run Migration")
+                self._footer.set_can_advance(page.can_advance() if hasattr(page, "can_advance") else True)
+        elif idx == len(STEP_NAMES) - 2:
+            self._footer.set_next_label("Run Migration")
+            self._footer.set_can_advance(page.can_advance() if hasattr(page, "can_advance") else True)
+        else:
+            self._footer.set_next_label("Next")
+            self._footer.set_can_advance(page.can_advance() if hasattr(page, "can_advance") else True)
+
+    def _on_back(self) -> None:
+        idx = self._stack.currentIndex()
+        if idx > 0:
+            self._show_step(idx - 1)
+
+    def _on_next(self) -> None:
+        idx = self._stack.currentIndex()
+        # Run step: clicking "Run Migration" or "Close"
+        if idx == len(STEP_NAMES) - 1:
+            if self._migration_done:
+                self.close()
+            return
+        if idx == len(STEP_NAMES) - 2:
+            # Preview step → advance into Run AND start the migration.
+            self._show_step(idx + 1)
+            self._start_migration()
+            return
+        # Going from Items (index 2) to Preview — populate counts on enter.
+        self._show_step(idx + 1)
 
     # --------------------------------------------------------------- Detection
 
     def _start_detection(self) -> None:
         if self._detect_thread is not None:
             return
-        self.rescan_btn.setEnabled(False)
-        self.run_btn.setEnabled(False)
-        self.source_combo.clear()
-        self.target_combo.clear()
         self.statusBar().showMessage("Detecting installed browsers...")
-
         worker = DetectWorker()
         thread = make_thread(worker)
-        worker.log.connect(self._append_log)
+        worker.log.connect(lambda line: self.statusBar().showMessage(line, 4000))
         worker.finished.connect(self._on_detected)
         worker.finished.connect(thread.quit)
         thread.finished.connect(worker.deleteLater)
@@ -214,58 +201,47 @@ class MainWindow(QMainWindow):
         self._detect_worker = None
 
     def _on_detected(self, chromium: list, firefox: list) -> None:
-        self._chromium = chromium
-        self._firefox = firefox
-        for prof in chromium:
-            self.source_combo.addItem(prof.label, prof)
-        for prof in firefox:
-            self.target_combo.addItem(prof.label, prof)
-            if prof.is_default:
-                self.target_combo.setCurrentIndex(self.target_combo.count() - 1)
-        if not chromium:
-            self._append_log("No Chromium browsers detected.")
-            self.statusBar().showMessage("No Chromium browsers detected.")
-        else:
-            self.statusBar().showMessage(
-                f"Detected {len(chromium)} Chromium profile(s), {len(firefox)} Firefox profile(s)."
-            )
-        self.rescan_btn.setEnabled(True)
-        self.run_btn.setEnabled(bool(chromium))
+        # Firefox profiles need their browser field stamped from the registry walk.
+        self._ctx.chromium_profiles = list(chromium)
+        self._ctx.firefox_profiles = list(firefox)
+        self._source_page.populate(chromium)
+        self._target_page.populate(firefox)
+        self.statusBar().showMessage(
+            f"Detected {len(chromium)} Chromium profile(s), {len(firefox)} Firefox profile(s)."
+        )
+        self._refresh_footer()
 
     # --------------------------------------------------------------- Migration
 
-    def _run_migration(self) -> None:
+    def _start_migration(self) -> None:
+        if not self._ctx.source:
+            QMessageBox.warning(self, "FoxPort", "No source selected.")
+            self._show_step(0)
+            return
         if self._migrate_thread is not None:
             return
-        source = self.source_combo.currentData()
-        if not isinstance(source, ChromiumProfile):
-            QMessageBox.warning(self, "FoxPort", "Pick a Chromium source profile first.")
-            return
-        target = self.target_combo.currentData() if self.target_combo.count() > 0 else None
-        if not (self.passwords_cb.isChecked() or self.bookmarks_cb.isChecked() or self.extensions_cb.isChecked()):
-            QMessageBox.warning(self, "FoxPort", "Pick at least one thing to migrate.")
-            return
-
-        request = MigrationRequest(
-            source=source,
-            target=target if isinstance(target, FirefoxProfile) else None,
-            out_root=self._out_root,
-            do_passwords=self.passwords_cb.isChecked(),
-            do_bookmarks=self.bookmarks_cb.isChecked(),
-            do_extensions=self.extensions_cb.isChecked(),
-            extensions_online=self.online_cb.isChecked(),
+        # Push counts into Items page so the user sees them on back-nav too.
+        self._items_page.set_counts(
+            self._ctx.password_count,
+            self._ctx.bookmark_count,
+            self._ctx.extension_count,
         )
-
-        self.run_btn.setEnabled(False)
-        self.rescan_btn.setEnabled(False)
-        self.progress.setFormat("Working…")
-        self.progress.setRange(0, 0)  # busy
+        request = MigrationRequest(
+            source=self._ctx.source,
+            target=self._ctx.target,
+            out_root=self._ctx.out_root,
+            do_passwords=self._ctx.do_passwords,
+            do_bookmarks=self._ctx.do_bookmarks,
+            do_extensions=self._ctx.do_extensions,
+            extensions_online=self._ctx.extensions_online,
+        )
+        self._run_page.reset()
+        self._run_page.set_busy()
         self.statusBar().showMessage("Migration running...")
-
         worker = MigrationWorker(request)
         thread = make_thread(worker)
-        worker.log.connect(self._append_log)
-        worker.step.connect(self._on_step)
+        worker.log.connect(self._run_page.append_log)
+        worker.step.connect(self._run_page.set_step)
         worker.finished.connect(self._on_migration_finished)
         worker.finished.connect(thread.quit)
         thread.finished.connect(worker.deleteLater)
@@ -279,52 +255,27 @@ class MainWindow(QMainWindow):
         self._migrate_thread = None
         self._migrate_worker = None
 
-    def _on_step(self, current: int, total: int) -> None:
-        self.progress.setRange(0, total)
-        self.progress.setValue(current)
-        self.progress.setFormat(f"Step {current} of {total}")
-
-    def _on_migration_finished(self, ok: bool, payload: str) -> None:
-        self.run_btn.setEnabled(True)
-        self.rescan_btn.setEnabled(True)
+    def _on_migration_finished(self, ok: bool, payload: str, exports: dict) -> None:
+        self._migration_done = ok
         if ok:
-            self.progress.setRange(0, 1)
-            self.progress.setValue(1)
-            self.progress.setFormat("Done")
+            self._last_out_dir = payload
+            self._last_exports = dict(exports)
+            self._run_page.set_done(True, payload, {k: Path(v) for k, v in exports.items()})
             self.statusBar().showMessage(f"Done. Output: {payload}")
-            self._append_log(f"Done. Output: {payload}")
-            reply = QMessageBox.information(
-                self,
-                "FoxPort",
-                f"Migration complete.\n\nOutput folder:\n{payload}\n\nOpen it now?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.Yes,
-            )
-            if reply == QMessageBox.StandardButton.Yes:
-                self._open_path(Path(payload))
         else:
-            self.progress.setRange(0, 1)
-            self.progress.setValue(0)
-            self.progress.setFormat("Failed")
+            self._run_page.set_done(False, payload, {})
             self.statusBar().showMessage("Migration failed.")
-            QMessageBox.critical(self, "FoxPort", f"Migration failed:\n\n{payload}")
+        self._refresh_footer()
 
     # --------------------------------------------------------------- Helpers
 
-    def _append_log(self, text: str) -> None:
-        self.log.appendPlainText(text)
-
-    def _pick_output_dir(self) -> None:
-        chosen = QFileDialog.getExistingDirectory(self, "Output folder", str(self._out_root))
-        if chosen:
-            self._out_root = Path(chosen)
-            self.out_label.setText(str(self._out_root))
-
-    def _open_out_root(self) -> None:
-        self._out_root.mkdir(parents=True, exist_ok=True)
-        self._open_path(self._out_root)
+    def _open_output_root(self) -> None:
+        self._ctx.out_root.mkdir(parents=True, exist_ok=True)
+        self._open_path(self._ctx.out_root)
 
     def _open_path(self, path: Path) -> None:
+        if not path or str(path) == "":
+            return
         try:
             if sys.platform == "win32":
                 os.startfile(str(path))  # type: ignore[attr-defined]
@@ -341,8 +292,7 @@ class MainWindow(QMainWindow):
             f"About {__app_name__}",
             f"<b>{__app_name__} v{__version__}</b><br><br>"
             "Migrate passwords, bookmarks, and extensions from Chromium-family "
-            "browsers (Chrome, Brave, Edge, Vivaldi, Opera) to Firefox-family "
-            "browsers (Firefox, LibreWolf, Waterfox).<br><br>"
+            "browsers to Firefox-family browsers.<br><br>"
             "MIT licensed. The source browser is never modified.",
         )
 

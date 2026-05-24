@@ -80,6 +80,95 @@ QFrame#Card {{
     border: 1px solid {SURFACE0};
     border-radius: 8px;
 }}
+QFrame#StepRail {{
+    background-color: {MANTLE};
+    border: none;
+    border-right: 1px solid {SURFACE0};
+}}
+QFrame#Banner {{
+    background-color: #3b2a2a;
+    border: 1px solid #6e4c2a;
+    border-left: 4px solid {YELLOW};
+    border-radius: 6px;
+}}
+QFrame#BannerInfo {{
+    background-color: #1f2b3a;
+    border: 1px solid #2c425a;
+    border-left: 4px solid {ACCENT2};
+    border-radius: 6px;
+}}
+QFrame#Tile {{
+    background-color: {MANTLE};
+    border: 1px solid {SURFACE0};
+    border-radius: 8px;
+}}
+QFrame#Tile[selected="true"] {{
+    border: 2px solid {ACCENT2};
+    background-color: {SURFACE0};
+}}
+QFrame#Tile[disabled="true"] {{
+    background-color: {CRUST};
+    border: 1px solid {SURFACE0};
+}}
+QFrame#Tile[dropTarget="true"] {{
+    border: 2px dashed #b4befe;
+    background-color: {SURFACE0};
+}}
+QLabel#StepRailItem {{
+    color: {OVERLAY0};
+    font-size: 13px;
+    font-weight: 500;
+    padding: 10px 16px 10px 14px;
+    border-left: 4px solid transparent;
+}}
+QLabel#StepRailItem[active="true"] {{
+    color: {TEXT};
+    font-weight: 700;
+    border-left: 4px solid #b4befe;
+    background-color: {BASE};
+}}
+QLabel#StepRailItem[completed="true"] {{
+    color: {GREEN};
+    font-weight: 500;
+    border-left: 4px solid {GREEN};
+}}
+QLabel#TileTitle {{
+    color: {TEXT};
+    font-size: 14px;
+    font-weight: 700;
+}}
+QLabel#TileSubtitle {{
+    color: {SUBTEXT0};
+    font-size: 12px;
+}}
+QLabel#CountBadge {{
+    background-color: {SURFACE0};
+    color: {SUBTEXT1};
+    border: 1px solid {SURFACE1};
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+}}
+QTreeWidget {{
+    background-color: {MANTLE};
+    color: {TEXT};
+    border: 1px solid {SURFACE0};
+    border-radius: 6px;
+    padding: 4px;
+    outline: 0;
+}}
+QTreeWidget::item {{ padding: 4px 6px; }}
+QTreeWidget::item:hover {{ background-color: {SURFACE0}; }}
+QTreeWidget::item:selected {{ background-color: {SURFACE1}; color: {TEXT}; }}
+QHeaderView::section {{
+    background-color: {SURFACE0};
+    color: {TEXT};
+    border: none;
+    border-right: 1px solid {MANTLE};
+    padding: 6px 8px;
+    font-weight: 600;
+}}
 QComboBox {{
     background-color: {SURFACE0};
     color: {TEXT};

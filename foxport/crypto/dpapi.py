@@ -26,6 +26,10 @@ class DecryptionError(RuntimeError):
     """Raised when a password blob cannot be decrypted."""
 
 
+class AppBoundEncryptionError(DecryptionError):
+    """Raised when a blob requires the App-Bound Encryption bypass we don't ship."""
+
+
 @dataclass(frozen=True)
 class ChromiumKey:
     """Decrypted AES-256 master key extracted from ``Local State``."""
@@ -35,6 +39,16 @@ class ChromiumKey:
     def __post_init__(self) -> None:
         if len(self.key) != 32:
             raise DecryptionError(f"expected 32-byte AES key, got {len(self.key)}")
+
+
+@dataclass(frozen=True)
+class LocalStateInfo:
+    """Summary of what was found in a Chromium ``Local State`` file."""
+
+    has_classic_key: bool       # os_crypt.encrypted_key (DPAPI v10)
+    has_app_bound_key: bool     # os_crypt.app_bound_encrypted_key (ABE, Chrome 127+)
+    encrypted_key_b64: str | None
+    app_bound_key_b64: str | None
 
 
 def _dpapi_unprotect(blob: bytes) -> bytes:
@@ -54,14 +68,41 @@ def _dpapi_unprotect(blob: bytes) -> bytes:
     return bytes(plaintext)
 
 
+def inspect_local_state(local_state_path: Path) -> LocalStateInfo:
+    """Look at a ``Local State`` file and report what keys are present.
+
+    Used to surface App-Bound Encryption to the user without blowing up the
+    whole migration. Returns a populated :class:`LocalStateInfo` even when
+    neither key is present (caller decides what to do).
+    """
+    try:
+        raw = local_state_path.read_text(encoding="utf-8", errors="ignore")
+        data = json.loads(raw)
+    except (OSError, json.JSONDecodeError):
+        return LocalStateInfo(False, False, None, None)
+    os_crypt = data.get("os_crypt", {}) or {}
+    classic = os_crypt.get("encrypted_key")
+    abe = os_crypt.get("app_bound_encrypted_key")
+    return LocalStateInfo(
+        has_classic_key=bool(classic),
+        has_app_bound_key=bool(abe),
+        encrypted_key_b64=classic,
+        app_bound_key_b64=abe,
+    )
+
+
 def load_master_key(local_state_path: Path) -> ChromiumKey:
     """Extract and decrypt the AES master key from a Chromium ``Local State`` file."""
-    raw = local_state_path.read_text(encoding="utf-8", errors="ignore")
-    data = json.loads(raw)
-    encrypted_b64 = data.get("os_crypt", {}).get("encrypted_key")
-    if not encrypted_b64:
+    info = inspect_local_state(local_state_path)
+    if not info.has_classic_key:
+        if info.has_app_bound_key:
+            raise AppBoundEncryptionError(
+                "this profile uses App-Bound Encryption only (Chrome 127+). "
+                "FoxPort v0.2 reads the classic DPAPI key; an ABE bypass is on the v0.3 roadmap. "
+                "Workaround: passwords saved before Chrome 127 may still decrypt via the classic key."
+            )
         raise DecryptionError(f"no os_crypt.encrypted_key in {local_state_path}")
-    wrapped = base64.b64decode(encrypted_b64)
+    wrapped = base64.b64decode(info.encrypted_key_b64 or "")
     if not wrapped.startswith(b"DPAPI"):
         raise DecryptionError("encrypted_key missing DPAPI prefix")
     key = _dpapi_unprotect(wrapped[5:])
