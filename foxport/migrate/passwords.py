@@ -64,6 +64,8 @@ class PasswordResult:
     skipped_empty: int
     failed: int
     failures: list[str]
+    hibp_report_path: Path | None = None
+    hibp_hits: int = 0
 
 
 def _chrome_micros_to_firefox_millis(chrome_us: int) -> int:
@@ -100,6 +102,7 @@ def migrate_passwords(
     *,
     dry_run: bool = False,
     row_filter: PasswordPredicate | None = None,
+    hibp_scan: bool = False,
 ) -> PasswordResult:
     """Decrypt all logins in ``profile`` and write a Firefox-format CSV.
 
@@ -159,6 +162,31 @@ def migrate_passwords(
                 _chrome_micros_to_firefox_millis(row.date_password_modified),
             ])
 
+    hibp_report_path: Path | None = None
+    hibp_hits = 0
+    if hibp_scan and decrypted > 0:
+        from foxport.crypto.hibp import scan_passwords
+        # Re-iterate decrypted rows. We don't keep a parallel list to avoid
+        # holding plaintext in memory longer than necessary; just decrypt
+        # again. Cheap because everything is already in the page cache.
+        rows_for_scan = []
+        for row, plaintext in _decrypt_rows(rows, key, []):
+            if plaintext:
+                rows_for_scan.append((row.origin_url, row.username, plaintext))
+        pwned = scan_passwords(rows_for_scan)
+        hibp_hits = len(pwned)
+        if pwned:
+            hibp_report_path = out_dir / "compromised-passwords.txt"
+            lines = [
+                "FoxPort HIBP scan — passwords that appear in known data breaches.",
+                "Reset these in the affected accounts before importing.",
+                "Passwords themselves are NOT printed (only URL/username).",
+                "",
+            ]
+            for origin_url, username, count in pwned:
+                lines.append(f"  {origin_url}  /  {username}  ({count:,} breach occurrences)")
+            hibp_report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
     return PasswordResult(
         csv_path=csv_path,
         total=total,
@@ -166,4 +194,6 @@ def migrate_passwords(
         skipped_empty=skipped_empty,
         failed=len(failures),
         failures=failures,
+        hibp_report_path=hibp_report_path,
+        hibp_hits=hibp_hits,
     )

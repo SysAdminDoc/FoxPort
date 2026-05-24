@@ -194,12 +194,15 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
     if "passwords" in items:
         print("\n[passwords]")
         try:
-            r = migrate_passwords(source, out_dir, dry_run=args.dry_run)
+            r = migrate_passwords(source, out_dir, dry_run=args.dry_run, hibp_scan=args.hibp)
         except DecryptionError as exc:
             print(f"  FAILED: {exc}")
         else:
             print(f"  {r.decrypted} decrypted, {r.skipped_empty} empty, "
                   f"{r.failed} failed of {r.total} total")
+            if args.hibp:
+                print(f"  HIBP: {r.hibp_hits} compromised passwords"
+                      + (f" — see {r.hibp_report_path.name}" if r.hibp_report_path else ""))
             if not args.dry_run:
                 exports["passwords"] = r.csv_path
 
@@ -307,6 +310,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Output root directory (default: ~/Documents/FoxPort)")
     mig.add_argument("--no-online", action="store_true",
                      help="Skip AMO online lookup for unknown extensions")
+    mig.add_argument("--hibp", action="store_true",
+                     help="Check decrypted passwords against haveibeenpwned.com (k-anonymity API)")
 
     diff = sub.add_parser("diff",
                            help="Show what's in the source that the target doesn't have yet")

@@ -52,6 +52,11 @@ def import_instructions(profile: FirefoxProfile | None, exports: dict[str, Path]
             f"  File: {exports['bookmarks']}",
             "  Open the target browser, press Ctrl+Shift+O to open the Library.",
             "  Import and Backup -> Import Bookmarks from HTML... -> pick the file.",
+            "  NOTE: Firefox's user-import path does NOT honor the bookmark-bar",
+            "        toolbar tag. After import, the toolbar bookmarks will land",
+            "        under 'Other Bookmarks > Bookmarks Toolbar'. Drag the",
+            "        contents of that folder up to 'Bookmarks Toolbar' in the",
+            "        Library tree to restore the original layout.",
             "",
         ])
     if "extensions" in exports:

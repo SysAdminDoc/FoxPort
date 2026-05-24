@@ -60,6 +60,7 @@ class MigrationRequest:
     direct_write_cookies: bool = False
     direct_write_history: bool = False
     direct_write_open_tabs: bool = False
+    hibp_scan: bool = False
     direction: str = "forward"      # "forward" (chromium->firefox) or "reverse"
     master_password: str = ""
 
@@ -155,6 +156,7 @@ class MigrationWorker(QObject):
                 try:
                     result = migrate_passwords(
                         req.source, out_dir, dry_run=req.dry_run, row_filter=row_filter,
+                        hibp_scan=req.hibp_scan,
                     )
                 except DecryptionError as exc:
                     self.log.emit(f"  Password decryption failed: {exc}")
@@ -170,6 +172,15 @@ class MigrationWorker(QObject):
                             self.log.emit(f"    ! {line}")
                         if len(result.failures) > 5:
                             self.log.emit(f"    ... +{len(result.failures) - 5} more")
+                    if req.hibp_scan:
+                        if result.hibp_hits > 0:
+                            self.log.emit(
+                                f"  HIBP: {result.hibp_hits} passwords found in known breaches "
+                                f"— see {result.hibp_report_path.name}"
+                            )
+                            exports["hibp"] = result.hibp_report_path
+                        else:
+                            self.log.emit("  HIBP: no passwords found in known breaches.")
 
             if req.do_bookmarks:
                 current += 1

@@ -80,6 +80,7 @@ class MigrationContext:
         self.direct_write_passwords: bool = False
         self.direct_write_cookies: bool = False
         self.direct_write_history: bool = False
+        self.hibp_scan: bool = False
         self.out_root: Path = Path.home() / "Documents" / "FoxPort"
         # Preview counts
         self.password_count: int = 0
@@ -254,13 +255,67 @@ class SourcePage(WizardPage):
             tile.set_selected(i == index)
 
     def _on_drop(self, path: str) -> None:
-        # Accept either: (a) a Login Data file, (b) a profile dir, (c) a User Data dir.
+        """Promote a dropped folder/file into a synthetic source profile.
+
+        Accepts:
+          * A Chromium profile dir (contains ``Preferences``) — promoted directly.
+          * A Chromium User Data dir (contains ``Local State`` AND
+            ``Default/Preferences``) — promoted via the Default subdir.
+          * A standalone ``Login Data`` file — wrap the parent dir.
+
+        The synthetic profile is appended to the source tile list, auto-selected,
+        and pushed into `ctx.source` so the rest of the wizard reads it like any
+        detected profile.
+        """
+        from foxport.browsers.detect import ChromiumProfile
         p = Path(path)
         if not p.exists():
             return
+        profile_dir: Path | None = None
+        user_data_dir: Path | None = None
+        if p.is_file() and p.name == "Login Data":
+            profile_dir = p.parent
+        elif p.is_dir():
+            # User Data dir?
+            if (p / "Local State").is_file() and (p / "Default" / "Preferences").is_file():
+                profile_dir = p / "Default"
+                user_data_dir = p
+            # Profile dir?
+            elif (p / "Preferences").is_file():
+                profile_dir = p
+        if profile_dir is None:
+            self._banner.set_text(
+                f"Couldn't recognize {p} as a Chromium profile or User Data folder."
+            )
+            return
+        if user_data_dir is None:
+            # Profile-dir-only case: walk up to find the parent containing Local State.
+            user_data_dir = profile_dir.parent
+        local_state = user_data_dir / "Local State"
+        if not local_state.is_file():
+            # Last-ditch: place a synthetic empty Local State next to it.
+            local_state = profile_dir / "Local State.foxport-synthetic"
+            local_state.write_text('{"os_crypt": {"encrypted_key": ""}}', encoding="utf-8")
+
+        synthetic = ChromiumProfile(
+            browser="Dropped",
+            family="chromium",
+            profile_name=profile_dir.name,
+            profile_dir=profile_dir,
+            local_state=local_state,
+            user_data_dir=user_data_dir,
+        )
         self._ctx.dropped_source_path = p
+        # Append to the source list and the tile rendering.
+        self._ctx.chromium_profiles = list(self._ctx.chromium_profiles) + [synthetic]
+        # Switch to forward direction (drag-drop only supports Chromium sources today).
+        if self._ctx.direction != MigrationContext.DIRECTION_FORWARD:
+            self._set_direction(MigrationContext.DIRECTION_FORWARD)
+        self._render_for_direction()
+        new_idx = len(self._ctx.chromium_profiles) - 1
+        self._on_pick(new_idx)
         self._banner.set_text(
-            f"Manual source selected: {p}. The wizard will try to use it as-is."
+            f"Manual source selected: {profile_dir}. Continue to the next step."
         )
 
     def _refresh_abe_check(self) -> None:
@@ -456,6 +511,15 @@ class ItemsPage(WizardPage):
         self._online_cb.setChecked(True)
         self.add_content(self._online_cb)
 
+        # HIBP scan checkbox — opt-in; sends 5-char SHA-1 prefix only.
+        self._hibp_cb = QCheckBox(
+            "Check passwords against haveibeenpwned.com (5-char SHA-1 prefix; "
+            "passwords never leave this machine)"
+        )
+        self._hibp_cb.setChecked(False)
+        self._hibp_cb.stateChanged.connect(self._sync)  # type: ignore[arg-type]
+        self.add_content(self._hibp_cb)
+
         # Direct-write password checkbox (NSS)
         self._direct_cb = QCheckBox(
             "Direct-write passwords into the target profile (close Firefox first; uses target's NSS)"
@@ -555,6 +619,7 @@ class ItemsPage(WizardPage):
         self._ctx.direct_write_passwords = self._direct_cb.isChecked()
         self._ctx.direct_write_cookies = self._direct_cookies_cb.isChecked()
         self._ctx.direct_write_history = self._direct_history_cb.isChecked()
+        self._ctx.hibp_scan = self._hibp_cb.isChecked()
         self.canAdvanceChanged.emit(self.can_advance())
 
     def set_counts(self, passwords: int, bookmarks: int, extensions: int,

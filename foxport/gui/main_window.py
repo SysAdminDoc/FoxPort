@@ -281,6 +281,7 @@ class MainWindow(QMainWindow):
             direct_write_passwords=self._ctx.direct_write_passwords,
             direct_write_cookies=self._ctx.direct_write_cookies,
             direct_write_history=self._ctx.direct_write_history,
+            hibp_scan=self._ctx.hibp_scan,
             direction=self._ctx.direction,
             master_password=self._ctx.master_password,
         )
