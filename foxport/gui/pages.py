@@ -111,6 +111,49 @@ def _count_bookmarks(roots) -> int:
     return total
 
 
+def _safe_sqlite_count(src: Path, queries: tuple[str, ...]) -> list[int]:
+    """Run COUNT-style queries on a locked Chromium SQLite file safely.
+
+    Copies the DB + its ``-wal``/``-shm`` siblings to a fresh temp dir
+    (Chromium holds an exclusive lock on the live file, and skipping the
+    WAL produces a stale snapshot), runs the queries, and tears the
+    tempdir down — even if the copy or the connect fails. Returns one
+    int per query, or ``[]`` on any error. Never raises.
+    """
+    import shutil
+    import tempfile
+
+    tmp_dir: str | None = None
+    try:
+        tmp_dir = tempfile.mkdtemp(prefix="foxport_count_")
+        dest = Path(tmp_dir) / src.name
+        shutil.copy2(src, dest)
+        for suffix in ("-wal", "-shm"):
+            sibling = src.with_name(src.name + suffix)
+            if sibling.exists():
+                try:
+                    shutil.copy2(sibling, Path(tmp_dir) / sibling.name)
+                except OSError:
+                    # Sibling could be locked; the main file alone is still
+                    # a usable (if slightly stale) snapshot.
+                    pass
+        conn = sqlite3.connect(str(dest))
+        try:
+            out: list[int] = []
+            for q in queries:
+                row = conn.execute(q).fetchone()
+                out.append(int(row[0]) if row and row[0] is not None else 0)
+            return out
+        finally:
+            conn.close()
+    except (OSError, sqlite3.DatabaseError, sqlite3.OperationalError):
+        return []
+    finally:
+        if tmp_dir is not None:
+            import shutil as _sh
+            _sh.rmtree(tmp_dir, ignore_errors=True)
+
+
 # ----------------------------------------------------------- Step 1: Source
 
 class SourcePage(WizardPage):
@@ -858,41 +901,22 @@ class PreviewPage(WizardPage):
     def _count_cookies(self, profile: ChromiumProfile) -> int:
         for path in (profile.profile_dir / "Network" / "Cookies", profile.profile_dir / "Cookies"):
             if path.is_file():
-                try:
-                    import shutil, tempfile
-                    tmp = tempfile.mkdtemp(prefix="foxport_cookies_count_")
-                    dest = Path(tmp) / path.name
-                    shutil.copy2(path, dest)
-                    conn = sqlite3.connect(str(dest))
-                    try:
-                        row = conn.execute("SELECT COUNT(*) FROM cookies").fetchone()
-                        return int(row[0]) if row else 0
-                    finally:
-                        conn.close()
-                        shutil.rmtree(tmp, ignore_errors=True)
-                except (OSError, sqlite3.DatabaseError):
-                    return 0
+                rows = _safe_sqlite_count(path, ("SELECT COUNT(*) FROM cookies",))
+                if rows:
+                    return rows[0]
         return 0
 
     def _count_history(self, profile: ChromiumProfile) -> tuple[int, int]:
         path = profile.profile_dir / "History"
         if not path.is_file():
             return 0, 0
-        try:
-            import shutil, tempfile
-            tmp = tempfile.mkdtemp(prefix="foxport_history_count_")
-            dest = Path(tmp) / path.name
-            shutil.copy2(path, dest)
-            conn = sqlite3.connect(str(dest))
-            try:
-                urls = conn.execute("SELECT COUNT(*) FROM urls").fetchone()
-                visits = conn.execute("SELECT COUNT(*) FROM visits").fetchone()
-                return int(urls[0]) if urls else 0, int(visits[0]) if visits else 0
-            finally:
-                conn.close()
-                shutil.rmtree(tmp, ignore_errors=True)
-        except (OSError, sqlite3.DatabaseError):
+        rows = _safe_sqlite_count(
+            path,
+            ("SELECT COUNT(*) FROM urls", "SELECT COUNT(*) FROM visits"),
+        )
+        if len(rows) < 2:
             return 0, 0
+        return rows[0], rows[1]
 
 
 # ----------------------------------------------------------- Step 5: Run

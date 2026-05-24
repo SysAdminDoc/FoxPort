@@ -336,6 +336,35 @@ class MainWindow(QMainWindow):
         self._migrate_thread = None
         self._migrate_worker = None
 
+    def closeEvent(self, event) -> None:
+        """Don't tear down the window mid-migration — direct-write paths can
+        leave a half-imported logins.json / places.sqlite if killed between
+        the backup and the atomic replace. Block the close until the user
+        confirms abort; if confirmed, give the worker thread a bounded
+        window to wind down cleanly.
+        """
+        if self._migrate_thread is not None and self._migrate_thread.isRunning():
+            answer = QMessageBox.question(
+                self,
+                "FoxPort",
+                "A migration is still running. Closing now may leave the target "
+                "profile in a partial state. Quit anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
+            # Migration worker doesn't expose a cooperative cancel today; the
+            # most we can do is wait briefly for the in-flight step to finish
+            # before letting Qt destroy the thread.
+            self._migrate_thread.quit()
+            self._migrate_thread.wait(3000)
+        if self._detect_thread is not None and self._detect_thread.isRunning():
+            self._detect_thread.quit()
+            self._detect_thread.wait(2000)
+        super().closeEvent(event)
+
     def _on_migration_finished(self, ok: bool, payload: str, exports: dict) -> None:
         self._migration_done = ok
         if ok:
