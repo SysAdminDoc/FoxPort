@@ -20,11 +20,39 @@ from pathlib import Path
 from foxport.browsers.detect import FirefoxProfile
 
 
+_UNSAFE_SLUG_RE = __import__("re").compile(r"[^A-Za-z0-9._\-]+")
+
+
+def _safe_slug(value: str) -> str:
+    """Collapse anything outside ``[A-Za-z0-9._-]`` to underscores and trim.
+
+    Used on parts that flow into directory names — defangs path-traversal
+    attempts (``..``, leading slash, NULs) and Unicode whitespace tricks.
+    """
+    cleaned = _UNSAFE_SLUG_RE.sub("_", value).strip("._-") or "profile"
+    return cleaned[:120]                  # cap to keep total path under MAX_PATH
+
+
 def make_export_dir(parent: Path, source_label: str, target_label: str) -> Path:
-    """Create a timestamped subdir under ``parent`` to hold a single migration's output."""
+    """Create a timestamped subdir under ``parent`` to hold a single migration's output.
+
+    Slug components are sanitized against path-traversal — `source_label`
+    and `target_label` flow into a filesystem name, so we strip everything
+    outside ``[A-Za-z0-9._-]`` first. The final path is asserted to live
+    under ``parent.resolve()`` before creation.
+    """
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    slug = f"{source_label}__to__{target_label}".replace(" ", "_").replace("—", "-")
+    slug = f"{_safe_slug(source_label)}__to__{_safe_slug(target_label)}"
     out = parent / f"{stamp}_{slug}"
+    # Belt-and-suspenders: refuse any path that escapes the parent.
+    parent_resolved = parent.expanduser().resolve()
+    out_resolved = out.expanduser().resolve()
+    try:
+        out_resolved.relative_to(parent_resolved)
+    except ValueError as exc:
+        raise ValueError(
+            f"refusing export path {out_resolved} (escapes parent {parent_resolved})"
+        ) from exc
     out.mkdir(parents=True, exist_ok=True)
     return out
 

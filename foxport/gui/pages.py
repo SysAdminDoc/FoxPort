@@ -94,6 +94,8 @@ class MigrationContext:
         # Filters
         self.password_include_keys: set[str] | None = None
         self.bookmark_excluded_paths: set[tuple[str, ...]] = set()
+        self.history_date_from_us: int | None = None
+        self.history_date_to_us: int | None = None
 
 
 def _count_bookmarks(roots) -> int:
@@ -482,7 +484,8 @@ class ItemsPage(WizardPage):
             default_checked=False)
         self._history_row = self._make_row("Browsing history",
             "Convert the source URL+visit log to a fresh Firefox places.sqlite for swap-in.",
-            default_checked=False)
+            default_checked=False,
+            customize_callback=self._customize_history)
         self._autofill_row = self._make_row("Form autofill",
             "Translate Chromium's Web Data.autofill into Firefox's formhistory.sqlite.",
             default_checked=False)
@@ -650,6 +653,17 @@ class ItemsPage(WizardPage):
             self._open_tabs_row[1].isChecked(),
         ])
 
+    def apply_context_defaults(self) -> None:
+        """Push the migration context's per-flag defaults INTO the checkboxes.
+
+        Called once after the wizard is built (settings → UI) and again
+        whenever the user changes settings via the Settings dialog. The
+        usual on_enter direction is widgets → ctx via :meth:`_sync`.
+        """
+        self._online_cb.setChecked(self._ctx.extensions_online)
+        self._dry_cb.setChecked(self._ctx.dry_run)
+        self._hibp_cb.setChecked(self._ctx.hibp_scan)
+
     def on_enter(self) -> None:
         self._sync()
         reverse = self._ctx.direction == MigrationContext.DIRECTION_REVERSE
@@ -697,6 +711,16 @@ class ItemsPage(WizardPage):
         )
         if dlg.exec():
             self._ctx.bookmark_excluded_paths = dlg.excluded_paths()
+
+    def _customize_history(self) -> None:
+        from foxport.gui.dialogs import HistoryFilterDialog
+        dlg = HistoryFilterDialog(
+            self._ctx.history_date_from_us,
+            self._ctx.history_date_to_us,
+            parent=self,
+        )
+        if dlg.exec():
+            self._ctx.history_date_from_us, self._ctx.history_date_to_us = dlg.selected_range()
 
 
 # ----------------------------------------------------------- Step 4: Preview

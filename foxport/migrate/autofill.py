@@ -53,6 +53,9 @@ class AutofillResult:
     failures: list[str] = field(default_factory=list)
 
 
+# Firefox v5 schema added moz_sources (extension/app provenance per entry)
+# and the moz_history_to_sources junction. We create both empty so Firefox's
+# v4 → v5 migration doesn't fire on first launch.
 _FIREFOX_FORMHISTORY_SCHEMA = """
 CREATE TABLE moz_formhistory (
     id INTEGER PRIMARY KEY,
@@ -74,7 +77,18 @@ CREATE TABLE moz_deleted_formhistory (
 );
 CREATE UNIQUE INDEX moz_deleted_formhistory_guid_index ON moz_deleted_formhistory (guid);
 
-PRAGMA user_version = 4;
+CREATE TABLE moz_sources (
+    id INTEGER PRIMARY KEY,
+    source TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE moz_history_to_sources (
+    history_id INTEGER NOT NULL REFERENCES moz_formhistory(id) ON DELETE CASCADE,
+    source_id INTEGER NOT NULL REFERENCES moz_sources(id) ON DELETE CASCADE,
+    PRIMARY KEY (history_id, source_id)
+);
+
+PRAGMA user_version = 5;
 """
 
 

@@ -56,6 +56,8 @@ class MigrationRequest:
     dry_run: bool = False
     password_include_keys: set[str] | None = None
     bookmark_excluded_paths: set[tuple[str, ...]] = field(default_factory=set)
+    history_date_from_us: int | None = None
+    history_date_to_us: int | None = None
     direct_write_passwords: bool = False
     direct_write_cookies: bool = False
     direct_write_history: bool = False
@@ -264,8 +266,15 @@ class MigrationWorker(QObject):
             if req.do_history:
                 current += 1
                 self.step.emit(current, steps)
-                self.log.emit("Migrating history...")
-                history_result = migrate_history(req.source, out_dir, dry_run=req.dry_run)
+                if req.history_date_from_us or req.history_date_to_us:
+                    self.log.emit("Migrating history (date-range filter active)...")
+                else:
+                    self.log.emit("Migrating history...")
+                history_result = migrate_history(
+                    req.source, out_dir, dry_run=req.dry_run,
+                    date_from_us=req.history_date_from_us,
+                    date_to_us=req.history_date_to_us,
+                )
                 if not req.dry_run:
                     exports["history"] = history_result.sqlite_path
                 self.log.emit(

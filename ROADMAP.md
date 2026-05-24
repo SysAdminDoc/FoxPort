@@ -7,32 +7,32 @@ ideas from the bottom of the file as scope firms up.
 > `RESEARCH_FEATURE_PLAN.md` is the most recent research output. The
 > `v1.2.0` section below is the promoted action list from that file.
 
-## v1.2.0 — Research-driven correctness + trust
+## v1.2.0 — Research-driven correctness + trust  ✅ shipped 2026-05-23
 
 ### P0 (correctness — three bugs verified live in v1.1.0)
-- [ ] **places.sqlite v77 → v86 + correct `url_hash`** — port `mfbt::HashString` to Python; drop MD5/fabricated-scheme-table; add v78–v86 columns. Risk: Firefox `replaceDatabaseOnStartup` on import.
-- [ ] **`open_tabs` SNSS Pickle parser** — live run returns 0 URLs from real 2754-byte Chrome session. Replace regex with real parser; also read `Tabs/Tabs_*` files.
-- [ ] **Add `tests/` suite** — pytest config, fixtures, round-trip tests for every migrator. CI workflow runs `pytest`.
+- [x] **places.sqlite v77 → v86 + correct `url_hash`** — `crypto/mozhash.py` ports mfbt::HashString. schema bumped, `block_until_ms`/`block_pages_until_ms` added.
+- [x] **`open_tabs` SNSS Pickle parser** — structural parser + UTF-8 fallback. Live verified: 0 → 12 URLs on real Chrome profile.
+- [x] **Add `tests/` suite** — pytest config in `pyproject.toml`, `tests/conftest.py` fixtures, 41 tests across mozhash/bookmarks/history/cookies/open_tabs/extensions. CI runs `pytest`.
 
 ### P1 (schema gaps + UX trust)
 - [x] **`cookies.sqlite` add `updateTime`** column (v17 spec compliance)
-- [ ] **`bookmarks.html` toolbar** — stop relying on `PERSONAL_TOOLBAR_FOLDER`; document or implement post-import move
+- [x] **`bookmarks.html` toolbar** — documented manual-move workaround in import_instructions; direct-write path remains a v1.3 candidate
 - [x] **Filter `chrome://`, `chrome-extension://`, `edge://`, `brave://`, `about:`** URLs from bookmark + history + tab exports by default
 - [x] **`diff` CLI refuses ambiguous profile matches** — multiple substring hits print list and exit 2
-- [ ] **Wire drag-and-drop "Manual source" tile** — currently dead code
+- [x] **Wire drag-and-drop "Manual source" tile** — synthetic ChromiumProfile auto-promoted into source list
 - [x] **`favicons.sqlite` backup, not delete** in history direct-write
-- [ ] **HIBP scan during password migration** — opt-in; produces `compromised-passwords.txt`
+- [x] **HIBP scan during password migration** — opt-in; produces `compromised-passwords.txt`
 
 ### P2 (polish + small features)
 - [x] **Password preview dialog masks values by default** (Show-all toggle; per-row eye is a future polish pass)
 - [x] **Hide already-installed extensions** in `extensions.html` by default (collapsed `<details>` block)
-- [ ] **Settings page** — output dir, mask-passwords, online-AMO, dry-run default, telemetry opt-in
+- [x] **Settings page** — File → Settings… persisted to per-platform `config.json`
 - [x] **Master-password retry loop** (up to 3 attempts)
-- [ ] **NSSSession.decrypt method** in `crypto/nss.py` (currently bound inline in `firefox_read.py`)
-- [ ] **`formhistory.sqlite` v4 → v5** with `moz_sources` + `moz_history_to_sources`
-- [ ] **Reverse-direction matcher coverage** (13 → 60+ AMO_GUID_TO_CHROME entries) via harvester script
-- [ ] **History time-range filter dialog** (last N days + custom range)
-- [ ] **Path-traversal hardening** on `make_export_dir`
+- [x] **NSSSession.decrypt method** in `crypto/nss.py`
+- [x] **`formhistory.sqlite` v4 → v5** with `moz_sources` + `moz_history_to_sources`
+- [x] **Reverse-direction matcher coverage** — `scripts/harvest_reverse_map.py` (run with `--write` to refresh)
+- [x] **History time-range filter dialog** (Last 7/30/90 days + Last 12 months + Custom)
+- [x] **Path-traversal hardening** on `make_export_dir`
 - [x] **Curated map placeholder cleanup** — removed `"{446900e4-…}": ""` and the bad ClearURLs entry
 - [x] **`check_curated_map.py --strict-stale` flag** — fail CI on entries older than N months
 

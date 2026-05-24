@@ -170,6 +170,9 @@ def load_nss(install_path: Path | None = None) -> NSSLibrary:
     # PK11SDR_Encrypt(keyid*, data*, result*, context) -> SECStatus
     handle.PK11SDR_Encrypt.argtypes = [POINTER(_SECItem), POINTER(_SECItem), POINTER(_SECItem), c_void_p]
     handle.PK11SDR_Encrypt.restype = c_int
+    # PK11SDR_Decrypt(data*, result*, context) -> SECStatus
+    handle.PK11SDR_Decrypt.argtypes = [POINTER(_SECItem), POINTER(_SECItem), c_void_p]
+    handle.PK11SDR_Decrypt.restype = c_int
     handle.SECITEM_FreeItem.argtypes = [POINTER(_SECItem), c_int]
     handle.SECITEM_FreeItem.restype = None
     return NSSLibrary(handle=handle, install_path=nss_path)
@@ -220,6 +223,29 @@ class NSSSession:
         finally:
             self._lib.handle.SECITEM_FreeItem(byref(result), 0)
         return base64.b64encode(blob).decode("ascii")
+
+    def decrypt(self, encoded: str) -> str:
+        """Decrypt a base64-DER blob via PK11SDR_Decrypt, return UTF-8 plaintext.
+
+        Mirror of :meth:`encrypt`; used by the reverse-direction reader to
+        pull cleartext out of Firefox's ``logins.json``.
+        """
+        if self._slot is None:
+            raise NSSError("NSS session is closed")
+        blob = base64.b64decode(encoded)
+        if not blob:
+            return ""
+        buf = create_string_buffer(blob)
+        data_item = _SECItem(type=0, data=ctypes.cast(buf, c_void_p).value, len=len(blob))
+        result = _SECItem(type=0, data=None, len=0)
+        rv = self._lib.handle.PK11SDR_Decrypt(byref(data_item), byref(result), None)
+        if rv != SECSuccess:
+            raise NSSError(f"PK11SDR_Decrypt failed (rv={rv})")
+        try:
+            plaintext = ctypes.string_at(result.data, result.len)
+        finally:
+            self._lib.handle.SECITEM_FreeItem(byref(result), 0)
+        return plaintext.decode("utf-8", errors="replace")
 
     def close(self) -> None:
         if self._slot is not None:

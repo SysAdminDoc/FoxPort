@@ -261,6 +261,8 @@ def migrate_history(
     *,
     dry_run: bool = False,
     include_internal: bool = False,
+    date_from_us: int | None = None,
+    date_to_us: int | None = None,
 ) -> HistoryResult:
     """Write a fresh ``places.sqlite`` to ``out_dir`` populated with the
     source profile's URLs and visits. Bookmarks are left empty (the
@@ -274,13 +276,22 @@ def migrate_history(
     url_count = 0
     visit_count = 0
 
+    def _in_range(visit_us: int) -> bool:
+        if date_from_us is not None and visit_us < date_from_us:
+            return False
+        if date_to_us is not None and visit_us > date_to_us:
+            return False
+        return True
+
     if dry_run:
         for url_row, visit_rows in _iter_chromium_history(profile):
-            _id, url, *_ = url_row
+            _id, url, *_, last_visit_time, _hidden = url_row
             if not url or (not include_internal and is_browser_internal_url(url)):
                 continue
+            if not _in_range(int(last_visit_time or 0)):
+                continue
             url_count += 1
-            visit_count += len(visit_rows)
+            visit_count += sum(1 for v in visit_rows if _in_range(int(v[2] or 0)))
         return HistoryResult(
             sqlite_path=sqlite_path,
             urls=url_count,
@@ -327,6 +338,13 @@ def migrate_history(
                 if not url:
                     continue
                 if not include_internal and is_browser_internal_url(url):
+                    continue
+                if not _in_range(int(last_visit_time or 0)):
+                    continue
+                # Drop individual visits outside the range too; if no visits
+                # remain, skip the entire URL.
+                visit_rows = [v for v in visit_rows if _in_range(int(v[2] or 0))]
+                if not visit_rows:
                     continue
                 try:
                     origin_id = origin_id_for(url)

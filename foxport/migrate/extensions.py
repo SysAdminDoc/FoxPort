@@ -39,7 +39,7 @@ _AMO_BASE = "https://addons.mozilla.org/api/v5"
 _AMO_SEARCH = f"{_AMO_BASE}/addons/search/"
 _AMO_DETAIL = f"{_AMO_BASE}/addons/addon"
 _NAME_NORMALIZE = re.compile(r"[^a-z0-9]+")
-_USER_AGENT = "FoxPort/1.1.0 (+https://github.com/SysAdminDoc/FoxPort)"
+_USER_AGENT = "FoxPort/1.2.0 (+https://github.com/SysAdminDoc/FoxPort)"
 
 
 def load_curated_map() -> dict[str, str]:

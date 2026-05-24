@@ -8,7 +8,6 @@ which already handles per-platform DLL/dylib/.so lookup.
 
 from __future__ import annotations
 
-import base64
 import json
 import shutil
 import sqlite3
@@ -80,41 +79,14 @@ def read_firefox_logins(profile: FirefoxProfile, master_password: str = "") -> I
 
     session = open_session(profile, master_password=master_password)
     with session:
-        from foxport.crypto.nss import (
-            SECSuccess,
-            _SECItem,
-        )
-        # We need decrypt direction here — NSS exposes PK11SDR_Decrypt.
-        # The shared NSSLibrary doesn't bind it by default, so do it inline.
-        dec = session._lib.handle.PK11SDR_Decrypt  # noqa: SLF001
-        from ctypes import POINTER, byref, c_int, c_void_p
-        dec.argtypes = [POINTER(_SECItem), POINTER(_SECItem), c_void_p]
-        dec.restype = c_int
-
-        def decrypt(encoded: str) -> str:
-            blob = base64.b64decode(encoded)
-            from ctypes import c_uint, cast, create_string_buffer
-            buf = create_string_buffer(blob)
-            data_item = _SECItem(type=0, data=cast(buf, c_void_p).value, len=c_uint(len(blob)).value)
-            result = _SECItem(type=0, data=None, len=0)
-            rv = dec(byref(data_item), byref(result), None)
-            if rv != SECSuccess:
-                raise NSSError(f"PK11SDR_Decrypt failed (rv={rv})")
-            try:
-                import ctypes
-                plain = ctypes.string_at(result.data, result.len)
-            finally:
-                session._lib.handle.SECITEM_FreeItem(byref(result), 0)  # noqa: SLF001
-            return plain.decode("utf-8", errors="replace")
-
         for login in data.get("logins", []) or []:
             try:
                 yield FirefoxLogin(
                     hostname=login.get("hostname") or "",
                     form_submit_url=login.get("formSubmitURL") or "",
                     http_realm=login.get("httpRealm"),
-                    username=decrypt(login.get("encryptedUsername") or ""),
-                    password=decrypt(login.get("encryptedPassword") or ""),
+                    username=session.decrypt(login.get("encryptedUsername") or ""),
+                    password=session.decrypt(login.get("encryptedPassword") or ""),
                     guid=login.get("guid") or "",
                     time_created_ms=int(login.get("timeCreated") or 0),
                     time_last_used_ms=int(login.get("timeLastUsed") or 0),

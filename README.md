@@ -4,7 +4,7 @@
 
 # FoxPort
 
-[![version](https://img.shields.io/badge/version-1.1.0-f5c2e7?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-1.2.0-f5c2e7?style=flat-square)](CHANGELOG.md)
 [![license](https://img.shields.io/badge/license-MIT-89b4fa?style=flat-square)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-cdd6f4?style=flat-square)](#)
 [![python](https://img.shields.io/badge/python-3.11%2B-a6e3a1?style=flat-square)](https://www.python.org/)
@@ -30,6 +30,50 @@ left-rail step indicator and Catppuccin Mocha dark theme:
 <p align="center">
   <img src="assets/screenshots/5-run.png" alt="Run / done step" width="80%"/>
 </p>
+
+## What's new in v1.2.0
+
+**Research-driven correctness pass** — fixes for three P0 bugs identified
+in `RESEARCH_FEATURE_PLAN.md` plus a basket of P1/P2 trust + polish wins.
+
+- **Correct `places.sqlite`** — schema bumped to Firefox tip (v86), new
+  `block_until_ms` / `block_pages_until_ms` columns on `moz_origins`,
+  `url_hash` now uses a Mozilla `mfbt::HashString` port (new
+  `crypto/mozhash.py`) so AwesomeBar dedup actually works.
+- **Working open-tabs SNSS extractor** — proper Pickle-aware parser that
+  reads both `Sessions/Session_*` AND `Sessions/Tabs_*` files. Verified
+  live: previous extractor returned 0 URLs; new one returns 12 from the
+  same Chrome profile.
+- **48-test pytest suite** — `tests/` tree with synthetic fixtures for
+  Chromium Bookmarks JSON, History SQLite, SNSS Tabs files. CI runs
+  `pytest` cross-platform.
+- **HIBP password scan** (opt-in, free k-anonymity API). Produces
+  `compromised-passwords.txt` with URL+username (no plaintext).
+- **Drag-and-drop "Manual source" tile now works** — promotes the
+  dropped folder into a synthetic `ChromiumProfile` and the wizard
+  proceeds with it.
+- **Quick wins** — `cookies.sqlite` `updateTime` column; `favicons.sqlite`
+  backed up instead of deleted; `chrome://` / `about:` / `edge://` URLs
+  filtered from bookmarks + history + open-tabs by default;
+  `diff` CLI refuses ambiguous profile matches; master-password retry
+  loop (3 attempts); password preview masks values by default with a
+  Show-all toggle; already-installed extensions fold into a collapsed
+  `<details>` block in `extensions.html`; reverse-extensions
+  `AMO_GUID_TO_CHROME` cleaned up; `check_curated_map.py --strict-stale`.
+- **History time-range filter** — Last 7 / 30 / 90 days, last 12 months,
+  custom range. Surfaced via "Customize…" on the History row.
+- **Settings page** (File → Settings…) persisted to per-platform JSON
+  (`%APPDATA%/FoxPort/config.json`, `~/Library/Application Support/...`,
+  `$XDG_CONFIG_HOME/FoxPort/...`).
+- **Path-traversal hardening** on `make_export_dir` — slug-safe
+  characters, resolved-path bounds check.
+- **`formhistory.sqlite` v5** schema with `moz_sources` +
+  `moz_history_to_sources` tables.
+- **`NSSSession.decrypt()`** method centralizes the previously-inline
+  `PK11SDR_Decrypt` ctypes call.
+- **Reverse-map harvester** (`scripts/harvest_reverse_map.py`) auto-
+  populates `AMO_GUID_TO_CHROME` from the forward curated map via the
+  AMO detail API.
 
 ## What's new in v1.1.0
 

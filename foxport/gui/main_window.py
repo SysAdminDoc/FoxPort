@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 
 from foxport import __app_name__, __version__
 from foxport.browsers.detect import ChromiumProfile, FirefoxProfile
+from foxport.config import Settings, load_settings
 from foxport.gui.pages import (
     ItemsPage,
     MigrationContext,
@@ -48,7 +49,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{__app_name__} v{__version__}")
         self.resize(960, 680)
 
+        self._settings: Settings = load_settings()
         self._ctx = MigrationContext()
+        self._apply_settings_defaults()
         self._detect_thread: QThread | None = None
         self._detect_worker: DetectWorker | None = None
         self._migrate_thread: QThread | None = None
@@ -89,6 +92,9 @@ class MainWindow(QMainWindow):
         # When the user flips Source → Target direction, the target tiles need
         # to re-render against the swapped profile list.
         self._source_page.directionChanged.connect(self._target_page._render_for_direction)
+        # Settings defaults already populated ctx; push them into the widgets
+        # so the user sees them on first wizard view.
+        self._items_page.apply_context_defaults()
 
         top_layout.addWidget(self._rail)
         top_layout.addWidget(self._stack, 1)
@@ -123,6 +129,10 @@ class MainWindow(QMainWindow):
         open_out.triggered.connect(self._open_output_root)
         file_menu.addAction(open_out)
         file_menu.addSeparator()
+        settings = QAction("Settings…", self)
+        settings.triggered.connect(self._open_settings)
+        file_menu.addAction(settings)
+        file_menu.addSeparator()
         quit_act = QAction("Quit", self)
         quit_act.triggered.connect(self.close)
         file_menu.addAction(quit_act)
@@ -130,6 +140,24 @@ class MainWindow(QMainWindow):
         about = QAction("About FoxPort", self)
         about.triggered.connect(self._about)
         help_menu.addAction(about)
+
+    def _apply_settings_defaults(self) -> None:
+        """Pre-populate MigrationContext from persisted settings."""
+        s = self._settings
+        if s.output_dir:
+            self._ctx.out_root = Path(s.output_dir)
+        self._ctx.extensions_online = s.allow_online_amo_lookup
+        self._ctx.dry_run = s.default_dry_run
+        self._ctx.hibp_scan = s.hibp_scan_default
+
+    def _open_settings(self) -> None:
+        from foxport.gui.dialogs import SettingsDialog
+        dlg = SettingsDialog(self._settings, parent=self)
+        if dlg.exec():
+            self._settings = dlg.settings()
+            self._apply_settings_defaults()
+            # Push new defaults into the Items page widgets.
+            self._items_page.apply_context_defaults()
 
     # --------------------------------------------------------------- Step nav
 
@@ -278,6 +306,8 @@ class MainWindow(QMainWindow):
             dry_run=self._ctx.dry_run,
             password_include_keys=self._ctx.password_include_keys,
             bookmark_excluded_paths=set(self._ctx.bookmark_excluded_paths),
+            history_date_from_us=self._ctx.history_date_from_us,
+            history_date_to_us=self._ctx.history_date_to_us,
             direct_write_passwords=self._ctx.direct_write_passwords,
             direct_write_cookies=self._ctx.direct_write_cookies,
             direct_write_history=self._ctx.direct_write_history,

@@ -4,6 +4,103 @@ All notable changes to FoxPort are documented here. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/), versioning per
 [SemVer](https://semver.org/).
 
+## [1.2.0] — 2026-05-23
+
+Research-driven correctness + trust pass. Acts on every P0 and most P1/P2
+items from `RESEARCH_FEATURE_PLAN.md`.
+
+### Fixed (P0 correctness)
+- `migrate/history.py` — `PRAGMA user_version` bumped 77 → 86 (Firefox
+  tip). Added `block_until_ms` + `block_pages_until_ms` to `moz_origins`
+  to match v78–v86 column additions. **`url_hash` algorithm replaced**:
+  the previous MD5 + fabricated-scheme-int-table approach is gone. New
+  `crypto/mozhash.py` is a faithful port of `mfbt::HashString`
+  (`AddU32ToHash` mix; RotateLeft5 + 0x9E3779B9 golden ratio). Hashes now
+  match what Firefox computes on first visit; AwesomeBar dedup works.
+- `migrate/open_tabs.py` — rewrote the SNSS extractor. Walks SNSS
+  commands with a proper uint16-size + uint8-id parser. Pulls URLs from
+  `kCommandUpdateTabNavigation` (id 6 / 0x21) Pickle payloads with a
+  UTF-8 regex fallback for schema drift. Reads both `Sessions/Session_*`
+  **and** `Sessions/Tabs_*` files (the previous extractor only looked at
+  Session_*, which on real Chrome data return 0 URLs). Live verification
+  against this host: 0 → 12 URLs extracted from the same profile.
+- New `tests/` tree with `pyproject.toml` pytest config and 56 round-trip
+  tests across bookmarks, history, cookies, open_tabs, extensions,
+  mozhash, HIBP, export-dir, and config. CI runs `pytest` cross-platform.
+
+### Added
+- `crypto/hibp.py` — HIBP Pwned Passwords k-anonymity client. SHA-1 hash
+  each plaintext, request the 5-char prefix only, scan the returned
+  suffix list for the rest. Per-prefix LRU cache; `Add-Padding: true`
+  request header. Opt-in via Items-step checkbox or CLI `--hibp`.
+  Produces `compromised-passwords.txt` with URL + username
+  (NEVER the plaintext).
+- `foxport/config.py` + `gui/dialogs.SettingsDialog` — persisted
+  preferences (output dir, password masking, online AMO lookup, dry-run
+  default, HIBP default, future telemetry / crash-reporting opt-ins).
+  Per-platform: `%APPDATA%/FoxPort/`, `~/Library/Application Support/
+  FoxPort/`, `$XDG_CONFIG_HOME/FoxPort/`.
+- `gui/dialogs.HistoryFilterDialog` — time-range picker with presets
+  (Last 7 / 30 / 90 days, Last 12 months, Custom range). Threaded
+  through `MigrationContext.history_date_from_us` /
+  `history_date_to_us` → `migrate_history(date_from_us=, date_to_us=)`.
+- `crypto/nss.NSSSession.decrypt()` — public method binding
+  `PK11SDR_Decrypt`. Replaces the previously-inline `_lib.handle.PK11SDR
+  _Decrypt` access in `browsers/firefox_read.py`.
+- `scripts/harvest_reverse_map.py` — walks the curated forward map and
+  queries the AMO detail endpoint to populate
+  `AMO_GUID_TO_CHROME` automatically. `--write` rewrites the module.
+- `migrate/autofill.py` — `formhistory.sqlite` schema bumped v4 → v5
+  with empty `moz_sources` + `moz_history_to_sources` tables (avoids
+  Firefox's first-launch migration race).
+- `browsers/firefox.make_export_dir` — slug-safe filename component
+  scrubbing (`[A-Za-z0-9._-]`-only, 120 char cap, NULs stripped) plus
+  resolved-path bounds check refusing any path that escapes the parent.
+
+### Changed
+- `gui/pages.SourcePage._on_drop` — was dead code. Now promotes the
+  dropped folder into a synthetic `ChromiumProfile` (handles Login Data
+  file / profile dir / User Data root) and appends it to the source
+  tile list with auto-select.
+- `gui/dialogs.PasswordPreviewDialog` — passwords masked by default
+  (first/last char visible, middle dots). New "Show all passwords"
+  toggle button.
+- `migrate/extensions._build_html` — already-installed extensions fold
+  into a collapsed `<details>` block so a one-click install pass
+  doesn't re-tap them. Stat "Matched" renamed "To install" (matched
+  minus already-installed) for accuracy.
+- `migrate/cookies._FIREFOX_COOKIES_SCHEMA` — added missing
+  `updateTime INTEGER` column (Firefox 138 expects it per v17).
+- `migrate/nss_history.write_history_into_target` — `favicons.sqlite`
+  is moved to `favicons.foxport-backup-<mtime>.sqlite` instead of
+  unlinked. Field name `favicons_deleted` kept for API stability.
+- `browsers/chromium.is_browser_internal_url` — new predicate covering
+  `chrome://`, `chrome-extension://`, `chrome-search://`,
+  `chrome-untrusted://`, `chrome-devtools://`, `devtools://`, `edge://`,
+  `brave://`, `opera://`, `vivaldi://`, `yandex://`, `arc://`, `about:`.
+  Applied in bookmarks + history + open_tabs by default. New
+  `include_internal=True` kwarg for the opt-in case.
+- `cli.AmbiguousProfileMatch` — raised when `--source`/`--target` matches
+  more than one profile via substring. Exits 2 instead of silently
+  picking the first.
+- `gui/main_window._start_migration` — master-password prompt loops up
+  to 3 attempts on reverse-mode NSS open; surfaces "attempt N of 3" in
+  the title.
+- `scripts/check_curated_map.py` — `--strict-stale` flag exits 2 when
+  any entry is older than `--stale-months`.
+- `migrate_reverse/extensions.AMO_GUID_TO_CHROME` — removed the
+  `"{446900e4-…}": ""` placeholder and the wrong-mapping ClearURLs
+  entry. 11 verified entries remain.
+
+### Notes
+- 56/56 tests pass. CI YAML installs pytest and runs the suite on
+  Windows/macOS/Linux × Python 3.11/3.12.
+- HIBP scan is OFF by default. When enabled, only the 5-char SHA-1
+  prefix leaves the machine (HIBP k-anonymity guarantee).
+- Settings dialog ships with telemetry + crash-reporting checkboxes
+  disabled in the UI; they're persisted but the v1.3 Glean + Sentry
+  wiring isn't yet present.
+
 ## [1.1.0] — 2026-05-23
 
 GUI direction toggle, direct-write cookies/history, open tabs migration,
