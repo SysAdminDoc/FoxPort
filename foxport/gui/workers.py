@@ -159,6 +159,19 @@ class MigrationWorker(QObject):
                     row_filter = lambda r: f"{r.origin_url}\x00{r.username}" in keep  # noqa: E731
 
                 if req.direct_write_passwords and req.target and not req.dry_run:
+                    # Pre-flight conflict analysis — non-mutating count of
+                    # how many source logins already exist in the target.
+                    # Surfaces the skip number BEFORE we hit NSS so the
+                    # user sees "12 of 50 already exist; will write 38".
+                    try:
+                        from foxport.migrate.conflicts import analyze_passwords
+                        conflicts = analyze_passwords(req.source, req.target)
+                        self.log.emit(
+                            f"  Pre-flight: {conflicts.duplicates} of {conflicts.source_total} "
+                            f"already in target, {conflicts.new} new."
+                        )
+                    except Exception as exc:  # noqa: BLE001 — informational
+                        self.log.emit(f"  Pre-flight skipped: {exc}")
                     self.log.emit("  Direct-write mode: encrypting via target profile's NSS...")
                     try:
                         nss_result = migrate_passwords_via_nss(req.source, req.target)
@@ -282,6 +295,15 @@ class MigrationWorker(QObject):
                     )
                     if req.direct_write_cookies and req.target and not req.dry_run:
                         try:
+                            from foxport.migrate.conflicts import analyze_cookies
+                            ck_conflicts = analyze_cookies(req.source, req.target)
+                            self.log.emit(
+                                f"  Pre-flight: {ck_conflicts.source_total} source cookies will "
+                                f"REPLACE {ck_conflicts.duplicates} existing rows in target."
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            self.log.emit(f"  Pre-flight skipped: {exc}")
+                        try:
                             cdw = write_cookies_into_target(req.source, req.target, out_dir)
                         except ProfileLockedError as exc:
                             self.log.emit(f"  Cookies direct-write aborted: {exc}")
@@ -318,6 +340,15 @@ class MigrationWorker(QObject):
                     f"({len(history_result.failures)} failed)."
                 )
                 if req.direct_write_history and req.target and not req.dry_run:
+                    try:
+                        from foxport.migrate.conflicts import analyze_history
+                        h_conflicts = analyze_history(req.source, req.target)
+                        self.log.emit(
+                            f"  Pre-flight: {h_conflicts.source_total} source URLs will "
+                            f"REPLACE {h_conflicts.duplicates} existing places.sqlite rows."
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        self.log.emit(f"  Pre-flight skipped: {exc}")
                     try:
                         hdw = write_history_into_target(req.source, req.target, out_dir)
                     except ProfileLockedError as exc:

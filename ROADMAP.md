@@ -88,8 +88,22 @@ for the full list.
       `DirectWriteResult.nss_version`; the worker logs it.
       `tests/crypto/test_nss_version.py` (11 tests) pins the parsing,
       fail-open behavior, refusal, and env-var override.
-- [ ] **P1** Direct-write conflict review + rollback manifest across
-      passwords / cookies / history / open-tabs.
+- [~] **P1** Direct-write conflict review + rollback manifest.
+      **Phase 1 (analysis scaffolding) shipped**: new
+      `foxport/migrate/conflicts.py` exposes
+      `analyze_passwords()` / `analyze_cookies()` / `analyze_history()`
+      which open the target's `logins.json` / `cookies.sqlite` /
+      `places.sqlite` read-only (SQLite URI mode) and return per-
+      category `CategoryConflicts` (source_total / duplicates / new /
+      failures). Wired into the worker as a pre-flight log step so
+      every direct-write run already prints
+      `Pre-flight: X of Y already in target` before mutation.
+      Manifest already records direct-write backups via the v1.3
+      `direct_write_backups` map. **Phase 2 (conflict-review dialog
+      + per-category policy selection + CLI `--direct-write-policy`)
+      remains open** — needs UX design + integration of skip/merge/
+      overwrite/backup-only semantics into the NSS write loop.
+      `tests/migrate/test_conflicts.py` (5 tests) pins the analyzers.
 - [x] **P1** Atomic-replace for staging-folder emitters. `foxport/fileops.py`
       grew `write_text_atomic`; every non-`nss_*` writer (`passwords.py`,
       `bookmarks.py`, `cookies.py`, `history.py`, `autofill.py`, `cards.py`,

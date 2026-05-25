@@ -85,6 +85,30 @@ hardens the surfaces that the v1.3 GUI and release work will land on.
   button generation order, signal closure binding, reset cleanup,
   and failure-state action hiding.
 
+### Direct-write conflict pre-flight (Phase C, scaffolding)
+- New `foxport/migrate/conflicts.py` exposes non-mutating
+  `analyze_passwords()` / `analyze_cookies()` / `analyze_history()`
+  that open the target's `logins.json` / `cookies.sqlite` /
+  `places.sqlite` read-only (SQLite URI mode, shared read lock) and
+  return a per-category `CategoryConflicts` (source_total /
+  duplicates / new / failures). The password analyzer mirrors what
+  the real merge path would do — deterministic GUID match — so the
+  count matches the eventual skip count exactly.
+- Worker calls the matching analyzer before each direct-write step
+  and surfaces the result in the run log
+  ("Pre-flight: 12 of 50 already in target, 38 new" /
+  "Pre-flight: 3 source cookies will REPLACE 200 existing rows in
+  target"). Pre-flight failures are non-fatal — the user sees
+  "Pre-flight skipped: <reason>" and the run continues.
+- This is Phase 1 of the conflict-review work. The next slice (the
+  modal review dialog with skip/merge/overwrite/backup-only policy
+  selection and the matching CLI `--direct-write-policy` flag)
+  builds on these analyzers; v1.3 ships the counts only.
+- `tests/migrate/test_conflicts.py` — 5 tests covering the
+  deterministic-GUID overlap math, the missing-target fallback, the
+  corrupt-target fail-closed path, and the cookies / history
+  source-vs-target counts. **163 tests pass.**
+
 ### Done screen "Reveal backup" actions (Phase D)
 - `MigrationWorker` grew a `directWriteBackups` signal that fires
   before `finished` with `{key: backup_path_str}`. `RunPage.set_done`
