@@ -2,8 +2,10 @@
   "_meta": {
     "schema": 1,
     "description": "Chrome extension ID -> Firefox AMO slug. Verified against live AMO listings.",
-    "last_verified": "2026-05-23",
-    "source": "https://github.com/SysAdminDoc/FoxPort"
+    "last_verified": "2026-05-25",
+    "source": "https://github.com/SysAdminDoc/FoxPort",
+    "entry_count": 63,
+    "category_count": 14
   },
   "ad_tracker_privacy": {
     "cjpalhdlnbpafiamejdnhcphjbkeiagm": "ublock-origin",

@@ -145,6 +145,31 @@ def main() -> int:
         return 2
     raw = json.loads(map_path.read_text(encoding="utf-8"))
     flat = _flatten(raw)
+    # Self-check meta against reality first — catches doc drift even when
+    # the network half of the audit can't run. The v1.2 audit pass shipped
+    # "67-entry" docs for a 63-entry map; this guard prevents that recurring.
+    meta = raw.get("_meta", {}) if isinstance(raw.get("_meta"), dict) else {}
+    declared_count = meta.get("entry_count")
+    declared_cats = meta.get("category_count")
+    actual_cats = sum(
+        1 for k, v in raw.items()
+        if not k.startswith("_") and isinstance(v, dict)
+    )
+    meta_errors: list[str] = []
+    if declared_count is not None and declared_count != len(flat):
+        meta_errors.append(
+            f"_meta.entry_count={declared_count} but actual is {len(flat)}"
+        )
+    if declared_cats is not None and declared_cats != actual_cats:
+        meta_errors.append(
+            f"_meta.category_count={declared_cats} but actual is {actual_cats}"
+        )
+    if meta_errors:
+        for err in meta_errors:
+            print(f"  [META] {err}", file=sys.stderr)
+        # Fail closed — fixing _meta is a docs-only patch and prevents the
+        # README from drifting again silently.
+        return 3
     print(f"Auditing {len(flat)} curated entries against AMO...")
 
     session = requests.Session()

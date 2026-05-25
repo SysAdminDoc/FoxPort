@@ -155,6 +155,75 @@ def analyze_history(
     return result
 
 
+def analyze_open_tabs(
+    source: ChromiumProfile,
+    target: FirefoxProfile,
+) -> CategoryConflicts:
+    """Count source open tabs vs. tabs currently in the target's session.
+
+    Open-tabs direct-write replaces ``sessionstore-backups/recovery.jsonlz4``
+    wholesale. ``source_total`` is what FoxPort would emit; ``duplicates``
+    is the count of tabs in the target's current recovery file (the
+    "displaced" count, same idiom as :func:`analyze_cookies` /
+    :func:`analyze_history`).
+    """
+
+    result = CategoryConflicts(category="open_tabs")
+    # Source side — reuse the existing SNSS scan in dry-run mode so the
+    # count matches what migrate_open_tabs would actually write.
+    try:
+        import tempfile
+        from foxport.migrate.open_tabs import migrate_open_tabs
+        with tempfile.TemporaryDirectory(prefix="foxport_ot_preflight_") as tmp:
+            res = migrate_open_tabs(source, Path(tmp), dry_run=True)
+        result.source_total = res.tabs
+    except Exception as exc:  # noqa: BLE001
+        result.failures.append(f"could not count source open tabs: {exc}")
+    result.new = result.source_total
+
+    # Target side — decode the existing recovery.jsonlz4 if present.
+    recovery = target.profile_dir / "sessionstore-backups" / "recovery.jsonlz4"
+    if recovery.is_file():
+        try:
+            result.duplicates = _count_recovery_jsonlz4_tabs(recovery)
+        except Exception as exc:  # noqa: BLE001
+            result.failures.append(f"could not count target open tabs: {exc}")
+    return result
+
+
+def _count_recovery_jsonlz4_tabs(path: Path) -> int:
+    """Decode a Firefox ``recovery.jsonlz4`` and count navigation entries.
+
+    Format: ``b"mozLz40\\0"`` + uint32_le(original_size) + lz4.block.compress(
+    JSON). The JSON is a sessionstore payload with windows -> tabs ->
+    entries. We count one URL per tab (the active entry); closed tabs in
+    ``_closedTabs`` are NOT counted because the user wouldn't see them in
+    a fresh Firefox launch.
+    """
+
+    raw = path.read_bytes()
+    if not raw.startswith(b"mozLz40\x00"):
+        return 0
+    import json as _json
+    import struct as _struct
+    try:
+        import lz4.block as _lz4_block
+    except ImportError:
+        return 0
+    offset = len(b"mozLz40\x00")
+    (orig_size,) = _struct.unpack_from("<I", raw, offset)
+    payload = _lz4_block.decompress(raw[offset + 4:], uncompressed_size=orig_size)
+    try:
+        data = _json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return 0
+    tab_count = 0
+    for window in data.get("windows", []) or []:
+        for _tab in window.get("tabs", []) or []:
+            tab_count += 1
+    return tab_count
+
+
 def _safe_count(db_path: Path, query: str) -> int:
     """Open ``db_path`` read-only, run a single COUNT query, return the int.
 

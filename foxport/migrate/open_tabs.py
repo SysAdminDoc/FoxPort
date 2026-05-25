@@ -67,6 +67,20 @@ class OpenTabsResult:
     failures: list[str] = field(default_factory=list)
 
 
+@dataclass
+class OpenTabsDirectWriteResult:
+    """Outcome of ``write_session_into_target``.
+
+    The worker reads ``backup_path`` so the Done screen can render a
+    "Reveal open_tabs backup" button alongside the cookies/history
+    equivalents. Returning just the target path (the v1.3 behavior) lost
+    that affordance — see RESEARCH_FEATURE_PLAN.md #3.
+    """
+
+    target_path: Path
+    backup_path: Path | None    # None when the target had nothing to back up
+
+
 def _latest_session_files(profile: ChromiumProfile) -> list[Path]:
     """Return every SNSS file (Session_* and Tabs_*) in the latest session.
 
@@ -298,9 +312,15 @@ def write_session_into_target(
     source: ChromiumProfile,
     target: FirefoxProfile,
     staging_dir: Path,
-) -> Path:
+) -> OpenTabsDirectWriteResult:
     """Run :func:`migrate_open_tabs` then drop the result into the target
-    profile's ``sessionstore-backups/recovery.jsonlz4`` (closed-profile only)."""
+    profile's ``sessionstore-backups/recovery.jsonlz4`` (closed-profile only).
+
+    Returns the target path AND the timestamped backup path so the worker
+    can surface a "Reveal open_tabs backup" Done-screen button alongside
+    the cookies / history equivalents. Before v1.3.1 this returned only
+    the target Path, which meant a regret-undo was hidden from the GUI.
+    """
     from foxport.browsers.detect import is_firefox_profile_locked
     if is_firefox_profile_locked(target):
         from foxport.migrate.nss_cookies import ProfileLockedError
@@ -312,6 +332,7 @@ def write_session_into_target(
     backups_dir.mkdir(parents=True, exist_ok=True)
     target_path = backups_dir / "recovery.jsonlz4"
     import shutil
+    backup: Path | None = None
     if target_path.exists():
         backup = target_path.with_name(
             f"recovery.foxport-backup-{int(target_path.stat().st_mtime)}.jsonlz4"
@@ -319,4 +340,4 @@ def write_session_into_target(
         shutil.copy2(target_path, backup)
     from foxport.fileops import replace_file_atomic
     replace_file_atomic(result.out_path, target_path)
-    return target_path
+    return OpenTabsDirectWriteResult(target_path=target_path, backup_path=backup)

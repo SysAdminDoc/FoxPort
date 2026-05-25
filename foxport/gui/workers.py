@@ -442,11 +442,32 @@ class MigrationWorker(QObject):
                     exports["open_tabs"] = ot_result.out_path
                 if req.direct_write_open_tabs and req.target and not req.dry_run and ot_result.tabs > 0:
                     try:
-                        installed = write_session_into_target(req.source, req.target, out_dir)
+                        from foxport.migrate.conflicts import analyze_open_tabs
+                        ot_conflicts = analyze_open_tabs(req.source, req.target)
+                        self.log.emit(
+                            f"  Pre-flight: {ot_conflicts.source_total} source tabs will "
+                            f"REPLACE {ot_conflicts.duplicates} existing session tab(s)."
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        self.log.emit(f"  Pre-flight skipped: {exc}")
+                    try:
+                        ot_install = write_session_into_target(
+                            req.source, req.target, out_dir,
+                        )
                     except ProfileLockedError as exc:
                         self.log.emit(f"  Open-tabs direct-write aborted: {exc}")
                     else:
-                        self.log.emit(f"  Wrote recovery.jsonlz4 to {installed}")
+                        direct_write_backups["open_tabs"] = ot_install.backup_path
+                        if ot_install.backup_path is not None:
+                            self.log.emit(
+                                f"  Wrote recovery.jsonlz4 to {ot_install.target_path}; "
+                                f"previous backed up as {ot_install.backup_path.name}"
+                            )
+                        else:
+                            self.log.emit(
+                                f"  Wrote recovery.jsonlz4 to {ot_install.target_path} "
+                                "(no previous file to back up)"
+                            )
 
             if not req.dry_run:
                 instructions_path = out_dir / "README.txt"

@@ -4,6 +4,54 @@ All notable changes to FoxPort are documented here. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/), versioning per
 [SemVer](https://semver.org/).
 
+## [Unreleased] — v1.3.1 (in progress, 2026-05-25)
+
+Audit-batch regressions caught by the 2026-05-25 research pass. Three
+real bugs the v1.3.0 doc/code work left behind plus an auditor self-check
+that prevents the curated-map drift recurring.
+
+### Fixed
+- **Curated-map doc drift (63 vs 67)** — README, CLAUDE.md, and the
+  previous RESEARCH_FEATURE_PLAN.md all claimed "67 entries" while
+  `foxport/data/curated_extension_map.json` actually holds **63 entries
+  across 14 categories**. The v1.3.0 "doc refresh" batch corrected
+  63 → 67 based on a wrong count in the prior research plan and the
+  drift propagated. Reverted the docs to 63 and added
+  `_meta.entry_count` + `_meta.category_count` fields.
+- **`scripts/check_curated_map.py` meta self-check** — the auditor now
+  fails closed (exit 3) when `_meta.entry_count` / `_meta.category_count`
+  disagrees with the live count BEFORE touching the network. This
+  catches drift even when the AMO half of the audit can't run.
+- **`foxport/migrate/extensions.py:_USER_AGENT`** — was hardcoded to
+  `FoxPort/1.2.0`; now mirrors `crypto/hibp.py` and reflects the
+  running `__version__` so AMO requests carry the truthful identity
+  across upgrades. New regression test in `tests/migrate/test_extensions.py`.
+- **Open-tabs direct-write backup path** — `write_session_into_target()`
+  created `recovery.foxport-backup-<mtime>.jsonlz4` but returned only
+  the target path, so the worker never populated
+  `direct_write_backups["open_tabs"]` and the Done screen's
+  "Reveal open_tabs backup" button never rendered. Now returns a
+  small `OpenTabsDirectWriteResult` with both paths; worker wires
+  the backup the same way it does for cookies/history. New regression
+  test in `tests/migrate/test_open_tabs.py`.
+
+### Added
+- **`foxport/migrate/conflicts.analyze_open_tabs()`** — pre-flight count
+  of source tabs vs. tabs in the target's existing `recovery.jsonlz4`.
+  Decodes the mozLz40-wrapped session JSON read-only and reports
+  "N source tabs will REPLACE M existing session tab(s)" before the
+  destructive write. Worker calls it alongside the existing
+  passwords/cookies/history pre-flight analyzers.
+
+### Internal
+- ROADMAP.md restructured around v1.3.1 / v1.3.2 / v1.3.3 / v1.4 with
+  the v1.3.0 milestone collapsed.
+- RESEARCH_FEATURE_PLAN.md refreshed 2026-05-25 against the post-v1.3.0
+  baseline (was authored against an uncommitted working tree pre-v1.3).
+- CLAUDE.md status block refreshed to reflect v1.3.0 + the 13 follow-on
+  commits; v1.3.1 batch noted.
+- **165 tests pass** (up from 163).
+
 ## [1.3.0] — 2026-05-24
 
 Trust + completeness pass — Phase A of the v1.3 roadmap. Atomic

@@ -1,12 +1,16 @@
 """Tests for the SNSS open-tabs URL extractor."""
 
 import struct
+from pathlib import Path
+from types import SimpleNamespace
 
 from foxport.migrate.open_tabs import (
+    OpenTabsDirectWriteResult,
     _extract_url_from_navigation_payload,
     _extract_urls,
     _iter_snss_commands,
     _scan_urls_utf8,
+    write_session_into_target,
 )
 
 
@@ -101,3 +105,50 @@ def test_extract_urls_filters_internal_schemes():
 def test_scan_urls_utf8_dedupes():
     data = b"a https://x.com b https://x.com c"
     assert _scan_urls_utf8(data) == ["https://x.com"]
+
+
+def test_write_session_into_target_returns_backup_path(tmp_path, monkeypatch):
+    """write_session_into_target must return both target and backup paths so
+    the worker can surface a "Reveal open_tabs backup" button on the Done
+    screen — the v1.3.0 shape returned only the target path and the
+    affordance silently disappeared even when a backup existed.
+    """
+
+    # Synthetic source profile dir with a single Tabs_ file containing one URL.
+    source_dir = tmp_path / "source"
+    sessions = source_dir / "Sessions"
+    sessions.mkdir(parents=True)
+    blob = _build_snss([(6, _build_nav_payload("https://kept.example/x"))])
+    (sessions / "Tabs_1").write_bytes(blob)
+    source = SimpleNamespace(
+        label="Source",
+        profile_dir=source_dir,
+    )
+
+    # Target profile dir with a pre-existing recovery.jsonlz4 so the backup
+    # branch runs.
+    target_dir = tmp_path / "target"
+    backups_dir = target_dir / "sessionstore-backups"
+    backups_dir.mkdir(parents=True)
+    existing = backups_dir / "recovery.jsonlz4"
+    existing.write_bytes(b"pre-existing session")
+    target = SimpleNamespace(label="Target", profile_dir=target_dir)
+
+    # Bypass the lock check — the synthetic profile has no parent.lock so
+    # the helper would short-circuit on a real call.
+    monkeypatch.setattr(
+        "foxport.browsers.detect.is_firefox_profile_locked",
+        lambda _profile: False,
+    )
+
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    result = write_session_into_target(source, target, staging)
+
+    assert isinstance(result, OpenTabsDirectWriteResult)
+    assert result.target_path == backups_dir / "recovery.jsonlz4"
+    assert result.backup_path is not None
+    assert result.backup_path.exists(), \
+        "backup file should have been copied next to the target"
+    assert result.backup_path.name.startswith("recovery.foxport-backup-")
+    assert result.backup_path.name.endswith(".jsonlz4")

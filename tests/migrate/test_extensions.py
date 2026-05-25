@@ -1,8 +1,10 @@
 """Tests for the extension matcher's pure-function pieces."""
 
+from foxport import __version__
 from foxport.browsers.chromium import ExtensionInfo
 from foxport.migrate.extensions import (
     CURATED_MAP,
+    _USER_AGENT,
     _normalize,
     _permission_overlap,
     _resolve_amo_name,
@@ -12,6 +14,18 @@ from foxport.migrate.extensions import (
 
 def test_curated_map_loaded():
     assert len(CURATED_MAP) >= 50, "Curated map shrank unexpectedly"
+
+
+def test_user_agent_reflects_running_version():
+    """The AMO User-Agent must include the live ``__version__`` — a hardcoded
+    string here misrepresents FoxPort's identity across upgrades.
+
+    Mirrors the same invariant ``crypto/hibp.py:_USER_AGENT`` carries.
+    """
+    assert __version__ in _USER_AGENT, (
+        f"AMO User-Agent header {_USER_AGENT!r} is missing the running "
+        f"version {__version__!r} — refresh the literal in extensions.py."
+    )
 
 
 def test_curated_map_keys_are_chromium_ids():
