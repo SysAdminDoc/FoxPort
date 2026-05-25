@@ -6,6 +6,18 @@ All notable changes to FoxPort are documented here. Format roughly follows
 
 ## [Unreleased]
 
+### Changed
+- **Responsive Preview counts on large profiles.** Pre-v1.4 the
+  Preview page ran every `_safe_sqlite_count` synchronously on the
+  GUI thread, freezing the window on multi-million-row profiles.
+  `PreviewPage._yield_to_event_loop()` now pumps the Qt event queue
+  between per-category counts so the window stays responsive, and a
+  "Counting items in the source profile — this may take a moment on
+  a large browser history." banner surfaces before the heavy work
+  starts. Zero invasive churn to the tested code paths; a true
+  background-worker rewrite stays available for v1.5 if profile
+  sizes continue to grow.
+
 ### Added
 - **Restore-from-backup wizard (regret-undo for direct-write runs).**
   Closes the loop on the v1.3 direct-write trust arc: when a user

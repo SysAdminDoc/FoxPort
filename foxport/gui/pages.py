@@ -952,10 +952,45 @@ class PreviewPage(WizardPage):
         self._note = Banner("", variant="info")
         self.add_content(self._note)
 
+    def _yield_to_event_loop(self) -> None:
+        """Pump the Qt event queue so the GUI stays responsive during a
+        sequence of synchronous count queries.
+
+        Each ``_safe_sqlite_count`` call copies the source DB to a tmp
+        dir + runs a ``COUNT(*)``. On a Chromium profile with multi-
+        million-row tables (uncommon but real for power users), several
+        seconds can elapse between the start of ``on_enter`` and the
+        final tree render. Without this yield the window would appear
+        frozen — "Not responding" on Windows, beachballed on macOS.
+
+        Real background-worker preview counts (v1.4 P3) would move the
+        whole loop off the GUI thread, but that's a substantial rewrite
+        with non-trivial test impact. Yielding the event loop is the
+        small-and-correct fix that keeps the existing structure intact.
+        """
+
+        try:
+            from PyQt6.QtWidgets import QApplication
+            QApplication.processEvents()
+        except ImportError:
+            pass
+
     def on_enter(self) -> None:
         self._tree.clear()
         ctx = self._ctx
         ctx.counts = {}
+
+        # Surface a brief "Counting…" status before the heavy work
+        # starts. The banner is overwritten by the final notes block at
+        # the end of on_enter. Users who never see a long count step
+        # see the banner flash; users on a large profile see it linger
+        # — either way it's clearer than a frozen window with no signal.
+        self._note.set_variant("info")
+        self._note.set_text(
+            "Counting items in the source profile — this may take a "
+            "moment on a large browser history."
+        )
+        self._yield_to_event_loop()
 
         source_node = QTreeWidgetItem([f"Source: {ctx.source.label if ctx.source else '(manual)'}", ""])
         source_node.addChild(QTreeWidgetItem(
@@ -1003,6 +1038,7 @@ class PreviewPage(WizardPage):
                 ctx.counts["passwords"] = count
                 node = QTreeWidgetItem([f"Passwords ({count:,})", "passwords.csv → about:logins"])
                 self._tree.addTopLevelItem(node)
+                self._yield_to_event_loop()
             if ctx.do_bookmarks:
                 roots = read_bookmarks(ctx.source)
                 count = _count_bookmarks(roots)
@@ -1013,6 +1049,7 @@ class PreviewPage(WizardPage):
                     node.addChild(child)
                 self._tree.addTopLevelItem(node)
                 node.setExpanded(True)
+                self._yield_to_event_loop()
             if ctx.do_extensions:
                 extensions = read_extensions(ctx.source)
                 ctx.counts["extensions"] = len(extensions)
@@ -1024,11 +1061,13 @@ class PreviewPage(WizardPage):
                     node.addChild(QTreeWidgetItem([f"   …+{len(extensions) - 10} more", ""]))
                 self._tree.addTopLevelItem(node)
                 node.setExpanded(True)
+                self._yield_to_event_loop()
             if ctx.do_cookies:
                 cookie_count = self._count_cookies(ctx.source)
                 ctx.counts["cookies"] = cookie_count
                 node = QTreeWidgetItem([f"Cookies ({cookie_count:,})", "cookies.sqlite → swap into closed Firefox profile"])
                 self._tree.addTopLevelItem(node)
+                self._yield_to_event_loop()
             if ctx.do_history:
                 hist_urls, hist_visits = self._count_history(ctx.source)
                 # History badge shows visit count — that's what gets migrated.
@@ -1038,6 +1077,7 @@ class PreviewPage(WizardPage):
                      "places.sqlite → swap into closed Firefox profile"],
                 )
                 self._tree.addTopLevelItem(node)
+                self._yield_to_event_loop()
             if ctx.do_autofill:
                 count = self._count_web_data(ctx.source, (
                     "SELECT COUNT(*) FROM autofill WHERE name <> '' AND value <> ''",
@@ -1047,6 +1087,7 @@ class PreviewPage(WizardPage):
                     f"Form autofill ({count:,})",
                     "formhistory.sqlite -> closed Firefox profile",
                 ]))
+                self._yield_to_event_loop()
             if ctx.do_cards:
                 count = self._count_web_data(ctx.source, (
                     "SELECT COUNT(*) FROM credit_cards",
@@ -1056,6 +1097,7 @@ class PreviewPage(WizardPage):
                     f"Saved cards ({count:,})",
                     "saved-cards.csv -> password-manager review/import",
                 ]))
+                self._yield_to_event_loop()
             if ctx.do_search_engines:
                 count = self._count_web_data(ctx.source, (
                     "SELECT COUNT(*) FROM keywords WHERE keyword IS NOT NULL AND keyword <> ''",
@@ -1065,6 +1107,7 @@ class PreviewPage(WizardPage):
                     f"Search engines ({count:,})",
                     "search-engines.json + OpenSearch XML files",
                 ]))
+                self._yield_to_event_loop()
             if ctx.do_open_tabs:
                 tabs, failures = self._count_open_tabs(ctx.source)
                 ctx.counts["open_tabs"] = tabs

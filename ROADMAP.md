@@ -244,9 +244,18 @@ the last P1 (conflict-review dialog) plus the P2/P3 follow-ons.
       overwritten. Backup is preserved (copy, not move) so the user
       can re-undo. Six new tests in `tests/test_fileops.py` + 3 new
       tests in `tests/test_cli_json.py`.
-- [ ] **P3** Background-worker preview counts for large profiles
-      Today `_safe_sqlite_count` is synchronous on the GUI thread for the
-      Preview page.
+- [x] **P3** Responsive Preview counts on large profiles
+      Pre-v1.4 the Preview page ran every `_safe_sqlite_count` call
+      synchronously on the GUI thread, freezing the window on profiles
+      with multi-million-row tables. `PreviewPage._yield_to_event_loop`
+      now pumps the Qt event queue between per-category counts so the
+      window stays responsive, and a "Counting items in the source
+      profile — this may take a moment on a large browser history."
+      banner surfaces before the heavy work starts. A true background-
+      worker rewrite stays available for v1.5 if profile sizes
+      continue to grow, but the yield-and-banner pattern delivers the
+      perceived responsiveness win with zero invasive churn to the
+      tested code paths.
 - [ ] **P3** Raster logo / favicon set
       Banner is SVG only; signed release expects an `.ico`.
 
