@@ -116,7 +116,10 @@ def test_migrate_downloads_renders_state_labels(tmp_path: Path, fake_chromium_pr
     assert result.written == 3
     csv_path = out_dir / "downloads.csv"
     assert csv_path.is_file()
-    rows = list(_csv.reader(csv_path.open(encoding="utf-8")))
+    # ``csv_path.open(...)`` leaks the file handle until GC; use a
+    # context manager so ``pytest -W error::ResourceWarning`` stays clean.
+    with csv_path.open(encoding="utf-8") as fh:
+        rows = list(_csv.reader(fh))
     assert rows[0] == _CSV_HEADER
     body = rows[1:]
     # State labels render rather than raw ints.

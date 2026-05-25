@@ -59,6 +59,10 @@ class MainWindow(QMainWindow):
         self._migrate_thread: QThread | None = None
         self._migrate_worker: MigrationWorker | None = None
         self._migration_done = False
+        # True once a migration has been kicked off. Used by ``_refresh_footer``
+        # to distinguish "never started" from "started, failed" — the latter
+        # turns the footer button into "Try Again".
+        self._migration_attempted = False
 
         self._build_ui()
         self._build_menu()
@@ -219,14 +223,33 @@ class MainWindow(QMainWindow):
     def _refresh_footer(self) -> None:
         idx = self._stack.currentIndex()
         page = self._stack.currentWidget()
-        self._footer.set_can_back(idx > 0 and not (idx == len(STEP_NAMES) - 1 and self._migration_done))
-        if idx == len(STEP_NAMES) - 1:
+        running = self._migrate_thread is not None and self._migrate_thread.isRunning()
+        on_run_step = idx == len(STEP_NAMES) - 1
+        failed = on_run_step and not running and not self._migration_done and self._migration_attempted
+        # Back is allowed everywhere except a finished run (where the user
+        # should click Close instead) and while a migration is actively
+        # running (the in-flight thread mustn't be orphaned).
+        self._footer.set_can_back(
+            idx > 0 and not (on_run_step and (self._migration_done or running))
+        )
+        if on_run_step:
             if self._migration_done:
                 self._footer.set_next_label("Close")
                 self._footer.set_can_advance(True)
+            elif failed:
+                # Pre-v1.3.2 this still said "Run Migration" but clicking did
+                # nothing — user could only retry via Back. Now the click
+                # restarts the migration from this step so the label keeps
+                # its promise.
+                self._footer.set_next_label("Try Again")
+                self._footer.set_can_advance(not running)
             else:
+                # Either running or never attempted (rare; can_advance gates).
                 self._footer.set_next_label("Run Migration")
-                self._footer.set_can_advance(page.can_advance() if hasattr(page, "can_advance") else True)
+                self._footer.set_can_advance(
+                    (page.can_advance() if hasattr(page, "can_advance") else True)
+                    and not running
+                )
         elif idx == len(STEP_NAMES) - 2:
             self._footer.set_next_label("Run Migration")
             self._footer.set_can_advance(page.can_advance() if hasattr(page, "can_advance") else True)
@@ -241,10 +264,18 @@ class MainWindow(QMainWindow):
 
     def _on_next(self) -> None:
         idx = self._stack.currentIndex()
-        # Run step: clicking "Run Migration" or "Close"
+        # Run step: clicking "Run Migration" / "Try Again" / "Close"
         if idx == len(STEP_NAMES) - 1:
             if self._migration_done:
                 self.close()
+                return
+            running = self._migrate_thread is not None and self._migrate_thread.isRunning()
+            if not running and self._migration_attempted:
+                # Failed → retry. Reset the run page so the previous log /
+                # action buttons / banner don't bleed into the new run.
+                self._run_page.reset()
+                self._migration_attempted = False
+                self._start_migration()
             return
         if idx == len(STEP_NAMES) - 2:
             # Preview step → advance into Run AND start the migration.
@@ -357,6 +388,11 @@ class MainWindow(QMainWindow):
         )
         self._run_page.reset()
         self._run_page.set_busy()
+        # ``_migration_attempted`` flips to True the moment the worker
+        # thread starts — used by the footer state-machine to render
+        # "Try Again" if the run later fails.
+        self._migration_attempted = True
+        self._migration_done = False
         self.statusBar().showMessage("Migration running...")
         worker = MigrationWorker(request)
         thread = make_thread(worker)

@@ -159,6 +159,40 @@ def test_diff_json_payload_shape(capsys, monkeypatch, tmp_path: Path):
     assert "password" not in blob.replace("passwords", "")
 
 
+def test_import_bookmarks_json_payload(capsys, tmp_path: Path):
+    """`import-bookmarks --json` mirrors every other action subcommand's
+    JSON contract: a single object on stdout, command name + schema
+    version at the root, no secrets in the payload.
+    """
+
+    # Minimal Netscape Bookmark fixture — the parser is regex-based and
+    # accepts any properly-tagged anchor under the well-known DOCTYPE.
+    src = tmp_path / "bookmarks.html"
+    src.write_text(
+        "<!DOCTYPE NETSCAPE-Bookmark-file-1>\n"
+        "<DL><p>"
+        '<DT><A HREF="https://example.com/x" ADD_DATE="1700000000">Example</A>'
+        "</DL><p>\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "out.firefox.html"
+
+    rc, payload = _run([
+        "import-bookmarks",
+        "--input", str(src),
+        "--out", str(out),
+        "--json",
+    ], capsys)
+
+    assert rc == 0
+    assert payload["command"] == "import-bookmarks"
+    assert payload["schema_version"] == 1
+    assert payload["input_format"] == "netscape-html"
+    assert payload["parsed_count"] == 1
+    assert payload["out_path"] == str(out)
+    assert out.is_file()
+
+
 def test_schema_versions_constants_export(capsys):
     """`_JSON_SCHEMA_VERSIONS` defines every command's schema version
     so a stray bump shows up in a single place.
@@ -167,7 +201,8 @@ def test_schema_versions_constants_export(capsys):
 
     # Every supported command appears in the dict.
     assert set(_JSON_SCHEMA_VERSIONS.keys()) >= {
-        "list", "migrate", "migrate-reverse", "diff", "snapshot", "restore",
+        "list", "migrate", "migrate-reverse", "diff",
+        "snapshot", "restore", "import-bookmarks",
     }
     # And all currently sit at v1.
     for cmd, version in _JSON_SCHEMA_VERSIONS.items():

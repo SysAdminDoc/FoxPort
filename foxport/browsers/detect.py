@@ -275,17 +275,30 @@ def detect_chromium() -> list[ChromiumProfile]:
 
 
 def _parse_profiles_ini(ini_path: Path, root: Path) -> list[FirefoxProfile]:
+    """Parse a Firefox ``profiles.ini`` defensively.
+
+    Real-world profiles.ini files are sometimes malformed: hand-edited
+    INI sections, UTF-8 BOM markers, ``IsRelative=yes`` (non-numeric),
+    duplicate sections, etc. We catch every legitimate parse failure
+    and return an empty list — a partial parse is worse than no parse
+    because the user then sees half their profiles missing from the
+    Target picker with no indication of why.
+    """
+
     if not ini_path.is_file():
         return []
     cfg = configparser.ConfigParser()
     try:
         cfg.read(ini_path, encoding="utf-8")
-    except configparser.Error:
+    except (configparser.Error, UnicodeDecodeError, OSError):
         return []
     install_default: str | None = None
     for section in cfg.sections():
         if section.startswith("Install") and cfg.has_option(section, "Default"):
-            install_default = cfg.get(section, "Default")
+            try:
+                install_default = cfg.get(section, "Default")
+            except configparser.Error:
+                pass
             break
     profiles: list[FirefoxProfile] = []
     for section in cfg.sections():
@@ -293,17 +306,31 @@ def _parse_profiles_ini(ini_path: Path, root: Path) -> list[FirefoxProfile]:
             continue
         if not cfg.has_option(section, "Path"):
             continue
-        rel = cfg.get(section, "Path")
-        is_relative = cfg.getint(section, "IsRelative", fallback=1) == 1
+        try:
+            rel = cfg.get(section, "Path")
+        except configparser.Error:
+            continue
+        try:
+            is_relative = cfg.getint(section, "IsRelative", fallback=1) == 1
+        except ValueError:
+            # Hand-edited "IsRelative=yes" / "true" / "" — treat as relative
+            # (the Firefox convention for `Path` without a leading slash).
+            is_relative = True
         profile_dir = (root / rel) if is_relative else Path(rel)
         if not profile_dir.is_dir():
             continue
         is_default = False
         if install_default and rel == install_default:
             is_default = True
-        elif cfg.has_option(section, "Default") and cfg.getint(section, "Default", fallback=0) == 1:
-            is_default = True
-        name = cfg.get(section, "Name", fallback=profile_dir.name)
+        elif cfg.has_option(section, "Default"):
+            try:
+                is_default = cfg.getint(section, "Default", fallback=0) == 1
+            except ValueError:
+                is_default = False
+        try:
+            name = cfg.get(section, "Name", fallback=profile_dir.name)
+        except configparser.Error:
+            name = profile_dir.name
         profiles.append(FirefoxProfile(
             browser="",
             family="firefox",

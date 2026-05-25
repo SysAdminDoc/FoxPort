@@ -78,6 +78,7 @@ _JSON_SCHEMA_VERSIONS = {
     "diff": 1,
     "snapshot": 1,
     "restore": 1,
+    "import-bookmarks": 1,
 }
 
 
@@ -589,6 +590,8 @@ def build_parser() -> argparse.ArgumentParser:
     imp.add_argument("--format", default="auto",
                      choices=("auto", "pocket", "pinboard", "opml", "netscape"),
                      help="Force a specific input format if auto-detection misclassifies the file")
+    imp.add_argument("--json", action="store_true",
+                     help="Emit a schema-versioned JSON payload instead of human text")
 
     rev = sub.add_parser("migrate-reverse",
                           help="Reverse direction: Firefox profile to Chromium-importable bundle")
@@ -877,6 +880,16 @@ def _cmd_import_bookmarks(args: argparse.Namespace) -> int:
 
     out_path = Path(args.out) if args.out else in_path.with_suffix(in_path.suffix + ".firefox.html")
     write_netscape_html(entries, out_path)
+    if getattr(args, "json", False):
+        _emit_json({
+            "schema_version": _JSON_SCHEMA_VERSIONS["import-bookmarks"],
+            "command": "import-bookmarks",
+            "input_path": str(in_path),
+            "input_format": fmt,
+            "parsed_count": len(entries),
+            "out_path": str(out_path),
+        })
+        return 0
     print(f"Detected format: {fmt}")
     print(f"Parsed:  {len(entries)} bookmark(s)")
     print(f"Wrote:   {out_path}")
