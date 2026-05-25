@@ -15,6 +15,10 @@ on:
 
 permissions:
   contents: write
+  # OIDC token + Sigstore attestation writes for SLSA build provenance
+  # via actions/attest-build-provenance. Required for keyless signing.
+  id-token: write
+  attestations: write
 
 jobs:
   windows:
@@ -166,6 +170,30 @@ jobs:
           "ZIP_NAME=$zip" >> $env:GITHUB_ENV
           "ZIP_SHA256_NAME=$zip.sha256" >> $env:GITHUB_ENV
 
+      - name: Generate CycloneDX SBOM
+        shell: pwsh
+        run: |
+          # Describes the FoxPort Python runtime dependency tree. The
+          # SBOM is emitted from the pinned requirements.txt so what
+          # ships in the bundle matches what's attested below. Filename
+          # carries the release tag so users downloading multiple
+          # versions can tell SBOMs apart.
+          pip install cyclonedx-bom==7.3.0
+          $sbom = "FoxPort-${{ inputs.tag }}-sbom.cdx.json"
+          cyclonedx-py requirements --of JSON --mc-type application -o $sbom requirements.txt
+          if (-not (Test-Path $sbom)) { throw "SBOM not generated" }
+          "SBOM_NAME=$sbom" >> $env:GITHUB_ENV
+
+      - name: Attest build provenance (SLSA / Sigstore keyless)
+        # Generates a SLSA build provenance attestation for the Windows
+        # ZIP + the SBOM via GitHub's OIDC + Sigstore Rekor. No keys
+        # are required; verifiers use `gh attestation verify`.
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            ${{ env.ZIP_NAME }}
+            ${{ env.SBOM_NAME }}
+
       - name: Generate signed WinSparkle appcast (when key secret is present)
         shell: pwsh
         env:
@@ -195,6 +223,7 @@ jobs:
           path: |
             ${{ env.ZIP_NAME }}
             ${{ env.ZIP_SHA256_NAME }}
+            ${{ env.SBOM_NAME }}
             appcast.xml
 
       - name: Create GitHub release
@@ -209,6 +238,9 @@ jobs:
           git push origin "${{ inputs.tag }}"
           $prereleaseFlag = if ("${{ inputs.prerelease }}" -eq "true") { "--prerelease" } else { "" }
           $assets = @("$env:ZIP_NAME", "$env:ZIP_SHA256_NAME")
+          if ($env:SBOM_NAME -and (Test-Path $env:SBOM_NAME)) {
+            $assets += $env:SBOM_NAME
+          }
           if ($env:APPCAST_NAME -and (Test-Path $env:APPCAST_NAME)) {
             $assets += $env:APPCAST_NAME
           }

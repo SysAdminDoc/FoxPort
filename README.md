@@ -327,6 +327,7 @@ The output folder is configurable in the UI.
 - **DPAPI scoping.** Decryption only succeeds when running as the Windows user who originally saved the passwords.
 - **App-Bound Encryption** (Chrome 127+, Brave) is detected and surfaced clearly; a full ABE bypass via the `foxport_abe.exe` sidecar ships when the signed-release pipeline lands.
 - **NSS version guard.** Before any direct-write into `logins.json` FoxPort checks the version reported by the loaded `nss3.dll`. Below NSS 3.x we refuse — set `FOXPORT_NSS_FORCE=1` to override only if you know what you're doing.
+- **SBOM + signed build provenance.** Each release publishes a CycloneDX SBOM of the bundled Python dependencies plus a SLSA build-provenance attestation signed via GitHub OIDC + Sigstore. Verify with `gh attestation verify FoxPort-<tag>-windows-x64.zip --owner SysAdminDoc --repo SysAdminDoc/FoxPort`. See [docs/supply-chain.md](docs/supply-chain.md).
 
 ---
 

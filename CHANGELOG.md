@@ -7,6 +7,17 @@ All notable changes to FoxPort are documented here. Format roughly follows
 ## [Unreleased]
 
 ### Added
+- **SBOM + signed build provenance.** The release workflow now emits a
+  CycloneDX 1.6 SBOM (`FoxPort-<tag>-sbom.cdx.json`) via `cyclonedx-bom`
+  against the pinned `requirements.txt` and a SLSA build-provenance
+  attestation over the ZIP + SBOM via
+  `actions/attest-build-provenance@v2` (GitHub OIDC + Sigstore
+  Rekor — keyless, no signing-key secret required). Both ship as
+  release assets. Users can run
+  `gh attestation verify FoxPort-<tag>-windows-x64.zip --owner SysAdminDoc --repo SysAdminDoc/FoxPort`
+  to confirm an unmodified bundle came out of FoxPort's release
+  pipeline before importing real profile data. Verification details
+  live in `docs/supply-chain.md`.
 - **Raster logo / favicon set.** `assets/icon.ico` now ships a
   multi-resolution Windows ICO (16/24/32/48/64/128/256 px) plus
   `assets/icon-256.png`, `assets/icon-32.png`, and `assets/icon-16.png`

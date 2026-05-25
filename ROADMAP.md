@@ -319,8 +319,16 @@ the last P1 (conflict-review dialog) plus the P2/P3 follow-ons.
 - [ ] **Reach** Curated map auto-PR generator that proposes new entries
       from frequently-seen "no-match" extensions (requires opt-in
       telemetry; see v1.4 Glean).
-- [ ] **Distribution** SBOM / supply-chain attestation
-      cosign + GitHub OIDC for release-artifact provenance.
+- [x] **Distribution** SBOM / supply-chain attestation
+      Release workflow now emits a CycloneDX 1.6 SBOM
+      (`FoxPort-<tag>-sbom.cdx.json`) via `cyclonedx-bom` against the
+      pinned `requirements.txt` and a SLSA build-provenance
+      attestation over the ZIP + SBOM via
+      `actions/attest-build-provenance@v2` (GitHub OIDC + Sigstore
+      Rekor — no private signing key needed). Both ship as release
+      assets; verification is `gh attestation verify <zip>
+      --owner SysAdminDoc --repo SysAdminDoc/FoxPort`. Documented in
+      [docs/supply-chain.md](docs/supply-chain.md).
 
 ---
 
