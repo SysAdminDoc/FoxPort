@@ -269,7 +269,7 @@ The `Bookmarks` file is plain JSON. FoxPort walks the `bookmark_bar`, `other`, a
 ### Extensions
 Chrome and Firefox both speak WebExtensions, but Chrome's MV3 lockdown means extensions are not byte-for-byte portable. FoxPort instead resolves the **identity** of each Chrome extension through four progressively-less-confident stages:
 
-1. **Curated map** (`foxport/data/curated_extension_map.json`) — 63 hand-verified Chrome ID → AMO slug pairs across 14 categories (ad blockers, password managers, userscripts, dev tools, AI assistants, ...). Zero network. Open the JSON file to contribute additions.
+1. **Curated map** (`foxport/data/curated_extension_map.json`) — 67 hand-verified Chrome ID → AMO slug pairs across 14 categories (ad blockers, password managers, userscripts, dev tools, AI assistants, ...). Zero network. Open the JSON file to contribute additions. The monthly `curated-map-audit.yml` workflow re-verifies every slug against AMO and files a GitHub issue on broken or removed entries.
 2. **Gecko ID probe** — If the Chromium manifest declares `browser_specific_settings.gecko.id`, FoxPort hits AMO's detail endpoint with that GUID for a 100%-confidence match.
 3. **AMO name search** — Otherwise, the localized extension name is queried against `addons.mozilla.org/api/v5/addons/search/` and the top hit is taken, ranked by exact-name + prefix overlap, filtered to public + non-disabled.
 4. **Permission overlap** — For non-curated matches, FoxPort compares Chrome's declared permissions to the candidate's AMO permissions and downgrades confidence when overlap is poor (`amo-search-low` if < 30%).
@@ -302,11 +302,16 @@ The output folder is configurable in the UI.
 
 ## Security notes
 
-- **Local-only.** Decryption happens on your machine; the only network call is an optional AMO lookup for extension names + GUIDs. Passwords never leave the box.
-- **Output files contain plaintext passwords.** Treat `passwords.csv` like a secret. Delete it after importing.
-- **No browser modification.** FoxPort copies SQLite files to a temp dir before reading; it does not write to `Login Data`, `Bookmarks`, or anything else in the source profile.
+- **Source profile read-only.** FoxPort copies SQLite files to a temp dir before reading; it never writes to `Login Data`, `Bookmarks`, or anything else in the source profile.
+- **Local-only by default.** Decryption happens on your machine. Two optional network calls exist and both can be turned off:
+  - AMO lookup for extension names + GUIDs (the "Allow online Add-ons lookup" checkbox / `--no-online` flag).
+  - The HIBP `https://api.pwnedpasswords.com/range/<prefix>` breach scan, opt-in via the Items step or `--hibp`. Uses k-anonymity — only the first five hex chars of each `SHA-1(password)` go over the wire and the `Add-Padding: true` header is set. Plaintext never leaves the box.
+- **Output files contain plaintext passwords.** Treat `passwords.csv` and `saved-cards.csv` like secrets. Delete them after importing.
+- **`manifest.json` per run.** Every non-dry-run migration writes a schema-versioned manifest next to `README.txt` listing every emitted artifact with its SHA-256, size, sensitivity label, and (when applicable) the absolute path of any direct-write backup. Plaintext secret values never appear in the manifest, only metadata about the files that contain them.
+- **Direct-write into Firefox only via atomic replace.** When you opt in to writing `logins.json` / `cookies.sqlite` / `places.sqlite` / `recovery.jsonlz4` straight into a closed target profile, FoxPort stages the file in a temp dir, fsyncs, and `Path.replace`s — an interrupted write can never leave a half-written file in your profile. Backups of the previous file are kept under timestamped names so a regret-undo is always possible.
 - **DPAPI scoping.** Decryption only succeeds when running as the Windows user who originally saved the passwords.
-- **App-Bound Encryption** (Chrome 127+, Brave) is detected and surfaced clearly; a full ABE bypass is on the v0.3.0 roadmap.
+- **App-Bound Encryption** (Chrome 127+, Brave) is detected and surfaced clearly; a full ABE bypass via the `foxport_abe.exe` sidecar ships when the signed-release pipeline lands.
+- **NSS version guard.** Before any direct-write into `logins.json` FoxPort checks the version reported by the loaded `nss3.dll`. Below NSS 3.x we refuse — set `FOXPORT_NSS_FORCE=1` to override only if you know what you're doing.
 
 ---
 

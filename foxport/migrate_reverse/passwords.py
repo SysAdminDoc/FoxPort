@@ -17,12 +17,14 @@ identifier in the ``note`` field for traceability.
 from __future__ import annotations
 
 import csv
+import io
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from foxport.browsers.detect import FirefoxProfile
 from foxport.browsers.firefox_read import read_firefox_logins
 from foxport.crypto.nss import NSSError
+from foxport.fileops import write_text_atomic
 
 
 _CHROME_CSV_HEADER = ["name", "url", "username", "password", "note"]
@@ -67,24 +69,26 @@ def migrate_passwords_reverse(
             failures=failures,
         )
 
-    with csv_path.open("w", encoding="utf-8", newline="") as fh:
-        writer = csv.writer(fh, quoting=csv.QUOTE_ALL)
-        writer.writerow(_CHROME_CSV_HEADER)
-        for login in logins:
-            try:
-                # Chrome wants the full URL (host + scheme). Firefox's
-                # `hostname` field already contains that; passing it raw
-                # is what Chrome's own export does.
-                writer.writerow([
-                    login.hostname,
-                    login.hostname,
-                    login.username,
-                    login.password,
-                    f"foxport guid={login.guid}",
-                ])
-                written += 1
-            except (csv.Error, OSError) as exc:
-                failures.append(f"{login.hostname} / {login.username}: {exc}")
+    buf = io.StringIO(newline="")
+    writer = csv.writer(buf, quoting=csv.QUOTE_ALL)
+    writer.writerow(_CHROME_CSV_HEADER)
+    for login in logins:
+        try:
+            # Chrome wants the full URL (host + scheme). Firefox's
+            # `hostname` field already contains that; passing it raw
+            # is what Chrome's own export does.
+            writer.writerow([
+                login.hostname,
+                login.hostname,
+                login.username,
+                login.password,
+                f"foxport guid={login.guid}",
+            ])
+            written += 1
+        except csv.Error as exc:
+            failures.append(f"{login.hostname} / {login.username}: {exc}")
+    if written > 0:
+        write_text_atomic(csv_path, buf.getvalue())
 
     return ReversePasswordResult(
         csv_path=csv_path,

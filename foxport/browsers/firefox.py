@@ -1,8 +1,17 @@
 """Firefox-side helpers - discover import targets and prepare staging files.
 
-FoxPort emits browser-native import artifacts by default and offers guarded
-direct-write paths for a few Firefox profile databases when the target profile
-is closed. Outputs land in a dated export folder so they are easy to find,
+FoxPort emits browser-native import artifacts by default (CSV / HTML / JSON /
+OpenSearch XML / mozLz40) so the user always has a portable copy in the
+output folder. It also offers opt-in *direct-write* paths for the Firefox
+files where the official import dialog is missing or fragile —
+``logins.json`` (via NSS), ``cookies.sqlite``, ``places.sqlite``, and
+session ``recovery.jsonlz4``. Direct-write only runs when the target
+profile is closed and goes through ``foxport.fileops.replace_file_atomic``
+so an interrupted write can never leave a half-written file in the user's
+profile.
+
+Outputs land in a dated export folder alongside a generated ``README.txt``
+and a machine-readable ``manifest.json`` so the artifacts are easy to find,
 review, snapshot, restore, or import manually later.
 """
 

@@ -19,6 +19,7 @@ from foxport.browsers.firefox_read import (
     read_firefox_extensions,
 )
 from foxport.data import data_file
+from foxport.fileops import write_text_atomic
 from foxport.migrate.extensions import CURATED_MAP as CURATED_CHROME_TO_AMO
 
 
@@ -167,8 +168,8 @@ def migrate_extensions_reverse(
     json_path = out_dir / "chrome-extensions.json"
     if dry_run:
         return ReverseExtensionResult(html_path=html_path, json_path=json_path, matches=matches)
-    html_path.write_text(_build_html(matches, source.label), encoding="utf-8")
-    json_path.write_text(json.dumps([
+    write_text_atomic(html_path, _build_html(matches, source.label))
+    write_text_atomic(json_path, json.dumps([
         {
             "guid": m.source.guid,
             "name": m.source.name,
@@ -178,5 +179,5 @@ def migrate_extensions_reverse(
             "confidence": m.confidence,
         }
         for m in matches
-    ], indent=2), encoding="utf-8")
+    ], indent=2))
     return ReverseExtensionResult(html_path=html_path, json_path=json_path, matches=matches)

@@ -18,6 +18,7 @@ from foxport.browsers.firefox_read import (
     FirefoxBookmark,
     read_firefox_bookmarks,
 )
+from foxport.fileops import write_text_atomic
 
 
 @dataclass
@@ -124,7 +125,7 @@ def migrate_bookmarks_reverse(
     buf.append("</DL><p>")
 
     if not dry_run:
-        html_path.write_text("\n".join(buf) + "\n", encoding="utf-8")
+        write_text_atomic(html_path, "\n".join(buf) + "\n")
     return ReverseBookmarkResult(
         html_path=html_path,
         folders=counter[0],

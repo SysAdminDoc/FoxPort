@@ -85,6 +85,37 @@ hardens the surfaces that the v1.3 GUI and release work will land on.
   button generation order, signal closure binding, reset cleanup,
   and failure-state action hiding.
 
+### Regression tests for the gaps the v1.3 audit found
+- `tests/migrate/test_downloads.py` — 4 tests for the CSV shape, the
+  state-label mapping (0 = in_progress, 1 = complete, etc.),
+  the no-History-DB branch, and dry-run.
+- `tests/migrate/test_search_engines.py` — 5 tests covering the slug
+  helper, Chrome `{google:*}` token stripping in OpenSearch XML, the
+  no-Web-Data branch, full round-trip with multiple engines + skip
+  for empty name / empty URL, and dry-run.
+- `tests/test_diff.py` — 4 tests for the CLI `diff` subcommand's
+  set-difference logic across passwords / bookmarks / extensions
+  with all readers mocked (no real profile required). Includes the
+  NSS-error-fail-open path and the gecko-id-vs-installed-guid check.
+- `tests/migrate_reverse/test_bookmarks_reverse.py` — 3 tests
+  pinning the Firefox-toolbar-first-and-tagged invariant (Chrome's
+  Bookmarks Bar promotion rule), HTML/URL escape, and dry-run.
+- Reverse passwords / bookmarks / extensions emitters now go through
+  `write_text_atomic` for consistency with the forward direction.
+
+### Documentation drift fixes
+- README curated-map count corrected to 67 entries (was 63 pre-audit).
+- README "Security notes" rewritten as a longer enumeration that
+  describes both optional network endpoints (AMO + HIBP),
+  manifest.json semantics, atomic direct-write behavior, the NSS
+  version guard, and DPAPI scoping. Replaces the v1.2 paragraph that
+  only mentioned AMO.
+- `foxport/browsers/firefox.py` module docstring updated to
+  acknowledge direct-write modules (the old version claimed FoxPort
+  emits "import files" only).
+- `CLAUDE.md` curated-map line synced to "67-entry" with the
+  category-count framing.
+
 ### External bookmark adapters surfaced (Phase C)
 - `import_/adapters.write_netscape_html()` — shared emitter consumed
   by the CLI subcommand and the GUI manual-drop branch. Groups by the

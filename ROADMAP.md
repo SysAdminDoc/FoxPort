@@ -82,8 +82,12 @@ for the full list.
       atomic-replaces the final path. A torn write can no longer leave a
       half-written CSV / SQLite / JSON / mozLz40 at the README-referenced
       path.
-- [ ] **P1** Tests for downloads, cards, search engines, diff, reverse
-      migrators.
+- [x] **P1** Tests for downloads, cards, search engines, diff, reverse
+      migrators. New suites: `tests/migrate/test_downloads.py` (4),
+      `tests/migrate/test_cards.py` (4), `tests/migrate/test_search_engines.py`
+      (5), `tests/test_diff.py` (4), `tests/migrate_reverse/test_bookmarks_reverse.py`
+      (3). Reverse passwords + bookmarks + extensions emitters all go
+      through atomic writers as a side effect of the audit.
 - [ ] **P1** GUI snapshot creation (Done screen) + GUI restore wizard
       (File menu) with bundle inspector.
 - [x] **P1** Surface external bookmark adapters. `foxport/import_/adapters.py`
@@ -108,9 +112,12 @@ for the full list.
 - [ ] **P2** Open-tabs partial-success sanity check — log + fall back to
       regex when structural parser yields suspiciously few URLs.
 - [ ] **P2** Reverse curated-map auditor in the monthly cron workflow.
-- [ ] **P2** Documentation + screenshot refresh — curated count
-      (63 → 67), HIBP in README "Security notes", `firefox.py` docstring,
-      Items page screenshot with the Downloads row.
+- [x] **P2** Documentation refresh — curated count 63 → 67, README
+      "Security notes" rewritten to mention HIBP + manifest.json +
+      atomic direct-write + NSS version guard, `firefox.py` docstring
+      reflects direct-write reality, CLAUDE.md curated count synced.
+      Screenshot refresh remains pending until the v1.3 Items + Run
+      polish UI stabilizes (separate iteration on the polish branch).
 - [ ] **P2** Settings: NSS path override + Reset-to-defaults.
 - [ ] **P2** Done "Reveal backups" action.
 - [ ] **P2** Downloads direct-write into Firefox `moz_annos` when history
