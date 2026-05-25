@@ -79,6 +79,7 @@ _JSON_SCHEMA_VERSIONS = {
     "snapshot": 1,
     "restore": 1,
     "import-bookmarks": 1,
+    "restore-backup": 1,
 }
 
 
@@ -633,6 +634,20 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Emit a schema-versioned JSON payload instead of human text")
     rev.add_argument("--privacy-redact", action="store_true",
                      help="Strip user-dir prefixes from manifest backup_path / labels")
+
+    rbk = sub.add_parser("restore-backup",
+                         help="Restore a *.foxport-backup-<mtime>.* file over its original target "
+                              "(regret-undo for a direct-write run)")
+    rbk.add_argument("--backup", required=True,
+                     help="Path to the timestamped backup produced by a direct-write run")
+    rbk.add_argument("--target", default=None,
+                     help="Optional explicit target path; defaults to the backup's "
+                          "resolved original (e.g. logins.foxport-backup-1.json -> logins.json)")
+    rbk.add_argument("--yes", action="store_true",
+                     help="Skip the confirmation prompt (the CLI doesn't prompt today; "
+                          "flag reserved for future interactive use)")
+    rbk.add_argument("--json", action="store_true",
+                     help="Emit a schema-versioned JSON payload instead of human text")
     return parser
 
 
@@ -925,6 +940,59 @@ def _cmd_import_bookmarks(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_restore_backup(args: argparse.Namespace) -> int:
+    """Regret-undo a direct-write run.
+
+    Copies the named ``*.foxport-backup-<mtime>.*`` file over its
+    original target via the same atomic-replace helper a real
+    direct-write step uses. Resolves the target automatically from
+    the backup name when ``--target`` isn't given.
+    """
+
+    from foxport.fileops import original_from_backup, restore_from_backup
+
+    json_mode = getattr(args, "json", False)
+    backup = Path(args.backup)
+    if not backup.is_file():
+        print(f"error: backup file not found: {backup}", file=sys.stderr)
+        return 2
+
+    explicit_target = Path(args.target) if args.target else None
+    resolved_target = explicit_target or original_from_backup(backup)
+    if resolved_target is None:
+        print(
+            f"error: {backup.name} does not match the foxport-backup naming "
+            "convention; pass --target to point at the file to overwrite.",
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        restored = restore_from_backup(backup, target_path=resolved_target)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    except OSError as exc:
+        # Permission denied / target dir gone / disk full mid-copy.
+        print(f"error: could not restore: {exc}", file=sys.stderr)
+        return 1
+
+    if json_mode:
+        _emit_json({
+            "schema_version": _JSON_SCHEMA_VERSIONS["restore-backup"],
+            "command": "restore-backup",
+            "backup": str(backup),
+            "target": str(restored),
+            "explicit_target": explicit_target is not None,
+        })
+        return 0
+    print(f"Restored {backup.name} -> {restored}")
+    if explicit_target is None:
+        print("(target was resolved automatically from the backup name; "
+              "pass --target to override)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -942,6 +1010,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_restore(args)
     if args.command == "import-bookmarks":
         return _cmd_import_bookmarks(args)
+    if args.command == "restore-backup":
+        return _cmd_restore_backup(args)
     parser.error("no command")
     return 2
 

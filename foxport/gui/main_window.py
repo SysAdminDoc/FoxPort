@@ -153,6 +153,12 @@ class MainWindow(QMainWindow):
         restore_act = QAction("Restore snapshot…", self)
         restore_act.triggered.connect(self._restore_snapshot)
         file_menu.addAction(restore_act)
+        # Restore-from-backup — the "regret undo" surface for a direct-
+        # write run. Picks a *.foxport-backup-<mtime>.* file and copies
+        # it back over its original target.
+        restore_backup_act = QAction("Restore direct-write backup…", self)
+        restore_backup_act.triggered.connect(self._restore_direct_write_backup)
+        file_menu.addAction(restore_backup_act)
         file_menu.addSeparator()
         settings = QAction("Settings…", self)
         settings.triggered.connect(self._open_settings)
@@ -581,6 +587,67 @@ class MainWindow(QMainWindow):
                 subprocess.Popen(["xdg-open", str(path.parent)])
         except OSError as exc:
             QMessageBox.warning(self, "FoxPort", f"Could not reveal {path}:\n{exc}")
+
+    def _restore_direct_write_backup(self) -> None:
+        """Regret-undo a direct-write run via the File menu.
+
+        Picks a ``*.foxport-backup-<mtime>.*`` file from the user's
+        filesystem, resolves the original target name via
+        :func:`foxport.fileops.original_from_backup`, asks for
+        confirmation (showing exactly which file will be overwritten),
+        then performs the atomic-replace.
+
+        Falls open with a per-failure-mode message when the backup is
+        missing, doesn't match the naming convention, or can't be
+        written over.
+        """
+
+        from foxport.fileops import original_from_backup, restore_from_backup
+
+        # Default the picker to the user's Firefox install path if we
+        # can guess one — otherwise to the standard output folder.
+        # Either way the user can navigate from there.
+        start_dir = str(self._ctx.out_root)
+        backup_str, _ = QFileDialog.getOpenFileName(
+            self,
+            "Pick a *.foxport-backup-* file to restore",
+            start_dir,
+            "FoxPort direct-write backups (*.foxport-backup-*);;All files (*)",
+        )
+        if not backup_str:
+            return
+        backup = Path(backup_str)
+        resolved = original_from_backup(backup)
+        if resolved is None:
+            QMessageBox.warning(
+                self,
+                "FoxPort",
+                f"{backup.name} doesn't match the FoxPort backup naming "
+                "convention (expected ``<name>.foxport-backup-<mtime>.<ext>``). "
+                "If this really is a FoxPort backup, restore it manually "
+                "by copying it over the live file.",
+            )
+            return
+        answer = QMessageBox.question(
+            self,
+            "FoxPort",
+            f"Restore {backup.name}\n\nover\n\n{resolved}?\n\n"
+            "This overwrites the current file. The backup itself is left "
+            "in place so you can re-undo if needed.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            restored = restore_from_backup(backup)
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            QMessageBox.critical(self, "FoxPort", f"Restore failed: {exc}")
+            return
+        QMessageBox.information(
+            self, "FoxPort",
+            f"Restored {backup.name} -> {restored}.",
+        )
 
     def _restore_snapshot(self) -> None:
         """Pick a .fxport bundle, prompt for the passphrase (encrypted

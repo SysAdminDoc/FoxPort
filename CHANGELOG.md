@@ -6,6 +6,45 @@ All notable changes to FoxPort are documented here. Format roughly follows
 
 ## [Unreleased]
 
+### Added
+- **Restore-from-backup wizard (regret-undo for direct-write runs).**
+  Closes the loop on the v1.3 direct-write trust arc: when a user
+  enables direct-write and later changes their mind, FoxPort now
+  ships a one-shot helper that copies the timestamped backup file
+  back over the live target via atomic-replace. Three surfaces:
+  - `foxport.fileops.original_from_backup(backup_path)` reverses
+    `timestamped_backup_path()` — given
+    `logins.foxport-backup-1700000000.json`, returns `logins.json`.
+    Returns `None` for files that don't match the convention so the
+    caller can fall back to an explicit target.
+  - `foxport.fileops.restore_from_backup(backup, target_path=None)`
+    auto-resolves the target via the helper above and copies the
+    backup atomically. Backup itself is preserved (copy, not move)
+    so re-undo is always possible.
+  - CLI: `foxport restore-backup --backup <path> [--target <path>]
+    [--json]`. Schema-versioned JSON output joins the existing 7-
+    subcommand JSON arc.
+  - GUI: File menu "Restore direct-write backup…" surfaces a file
+    picker filtered to `*.foxport-backup-*` + a confirmation modal
+    showing exactly which file gets overwritten.
+  Six new tests in `tests/test_fileops.py` + 3 new CLI tests in
+  `tests/test_cli_json.py`.
+- **macOS Keychain + Linux libsecret/kwallet test coverage.** Nine
+  new tests in `tests/crypto/test_keychain.py` mock the per-platform
+  CLIs (`security`, `secret-tool`, `kwallet-query`) and pin the
+  canonical happy paths, the Google-Chrome short-name fallback, the
+  `OSError`-on-missing-binary branch, the multi-tool Linux
+  degradation chain ending in `"peanuts"`, and the per-platform
+  PBKDF2 iteration counts (1003 mac vs 1 linux). Closes the
+  largest crypto/ test-coverage gap.
+- **Profile detection layout fixtures.** Seven new tests in
+  `tests/test_detect_layouts.py` exercise `_enumerate_profile_subdirs`
+  (Default + Profile N, Guest Profile, missing-marker rejection,
+  non-profile-name filter, ShaderCache regression) and
+  `_parse_profiles_ini` (Install-default promotion, absolute-path
+  / portable Firefox `IsRelative=0` layout). Closes the
+  detect/* test-coverage gap.
+
 ## [1.3.3] — 2026-05-25
 
 Trust + completeness arc closeout. Four commits delivering the last

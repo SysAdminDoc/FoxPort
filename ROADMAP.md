@@ -232,9 +232,18 @@ the last P1 (conflict-review dialog) plus the P2/P3 follow-ons.
       Preserve target rows + add source rows by uniqueness key
       (cookies = `host_key+path+name`; history = URL+visit_time).
       Builds on v1.3.3's skip/overwrite/backup-only policy framework.
-- [ ] **P3** Restore-from-backup wizard step
-      Regret-undo UI that copies a `*.foxport-backup-<mtime>.*` file
-      back over the live file with a confirm.
+- [x] **P3** Restore-from-backup wizard step
+      Regret-undo for any direct-write run. CLI:
+      ``foxport restore-backup --backup <path> [--target <path>] [--json]``
+      auto-resolves the original target from the
+      ``<name>.foxport-backup-<mtime>.<ext>`` naming convention via
+      `foxport.fileops.original_from_backup` + atomically copies the
+      backup over the live file via ``restore_from_backup``. GUI:
+      File menu "Restore direct-write backup…" surfaces a file
+      picker + confirmation modal showing exactly which file gets
+      overwritten. Backup is preserved (copy, not move) so the user
+      can re-undo. Six new tests in `tests/test_fileops.py` + 3 new
+      tests in `tests/test_cli_json.py`.
 - [ ] **P3** Background-worker preview counts for large profiles
       Today `_safe_sqlite_count` is synchronous on the GUI thread for the
       Preview page.

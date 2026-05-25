@@ -159,6 +159,65 @@ def test_diff_json_payload_shape(capsys, monkeypatch, tmp_path: Path):
     assert "password" not in blob.replace("passwords", "")
 
 
+def test_restore_backup_command_round_trips(capsys, tmp_path: Path):
+    """``restore-backup`` copies the named backup file over its
+    original target. Auto-resolves the target name from the backup
+    name convention; --target overrides; --json emits the schema-
+    versioned receipt.
+    """
+
+    target = tmp_path / "logins.json"
+    target.write_text('{"current": true}', encoding="utf-8")
+    backup = tmp_path / "logins.foxport-backup-1700000000.json"
+    backup.write_text('{"previous": true}', encoding="utf-8")
+
+    rc, payload = _run([
+        "restore-backup",
+        "--backup", str(backup),
+        "--json",
+    ], capsys)
+
+    assert rc == 0
+    assert payload["command"] == "restore-backup"
+    assert payload["schema_version"] == 1
+    assert payload["backup"] == str(backup)
+    assert payload["target"] == str(target)
+    assert payload["explicit_target"] is False
+    assert target.read_text(encoding="utf-8") == '{"previous": true}'
+
+
+def test_restore_backup_command_with_explicit_target(capsys, tmp_path: Path):
+    """``--target`` overrides the auto-resolved path so a user can
+    restore into a renamed / relocated file."""
+
+    backup = tmp_path / "logins.foxport-backup-1.json"
+    backup.write_text("payload", encoding="utf-8")
+    explicit = tmp_path / "different.json"
+
+    rc, payload = _run([
+        "restore-backup",
+        "--backup", str(backup),
+        "--target", str(explicit),
+        "--json",
+    ], capsys)
+
+    assert rc == 0
+    assert payload["target"] == str(explicit)
+    assert payload["explicit_target"] is True
+    assert explicit.read_text(encoding="utf-8") == "payload"
+
+
+def test_restore_backup_command_rejects_missing_backup(capsys, tmp_path: Path):
+    rc, _payload = _run([
+        "restore-backup",
+        "--backup", str(tmp_path / "does-not-exist.foxport-backup-1.json"),
+        "--json",
+    ], capsys)
+    # Exit 2 — the CLI's standard "user error" code (matches every
+    # other subcommand's missing-file behavior).
+    assert rc == 2
+
+
 def test_import_bookmarks_json_payload(capsys, tmp_path: Path):
     """`import-bookmarks --json` mirrors every other action subcommand's
     JSON contract: a single object on stdout, command name + schema
@@ -203,6 +262,7 @@ def test_schema_versions_constants_export(capsys):
     assert set(_JSON_SCHEMA_VERSIONS.keys()) >= {
         "list", "migrate", "migrate-reverse", "diff",
         "snapshot", "restore", "import-bookmarks",
+        "restore-backup",
     }
     # And all currently sit at v1.
     for cmd, version in _JSON_SCHEMA_VERSIONS.items():

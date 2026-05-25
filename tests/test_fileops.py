@@ -4,7 +4,9 @@ from pathlib import Path
 import pytest
 
 from foxport.fileops import (
+    original_from_backup,
     replace_file_atomic,
+    restore_from_backup,
     timestamped_backup_path,
     write_bytes_atomic,
 )
@@ -128,3 +130,77 @@ def test_replace_file_atomic_preserves_target_when_replace_fails(tmp_path, monke
     assert target.read_text(encoding="utf-8") == '{"existing": true}'
     orphans = list(tmp_path.glob(".logins.json.foxport-*"))
     assert orphans == [], f"orphan tmpfiles after failed replace: {orphans}"
+
+
+# --------------------------- original_from_backup ----------------------------
+
+def test_original_from_backup_resolves_suffixed_file(tmp_path: Path):
+    """logins.foxport-backup-1700000000.json -> logins.json"""
+
+    backup = tmp_path / "logins.foxport-backup-1700000000.json"
+    assert original_from_backup(backup) == tmp_path / "logins.json"
+
+
+def test_original_from_backup_resolves_extensionless_file(tmp_path: Path):
+    """Login Data.foxport-backup-1700000000 -> Login Data"""
+
+    backup = tmp_path / "Login Data.foxport-backup-1700000000"
+    assert original_from_backup(backup) == tmp_path / "Login Data"
+
+
+def test_original_from_backup_rejects_non_backup_name(tmp_path: Path):
+    """A regular file that doesn't match the convention returns None
+    so the CLI restore-backup can prompt the user for an explicit target."""
+
+    assert original_from_backup(tmp_path / "logins.json") is None
+    assert original_from_backup(tmp_path / "logins.backup.json") is None
+
+
+def test_restore_from_backup_atomically_overwrites_target(tmp_path: Path):
+    """End-to-end: backup file copied over the original target via
+    atomic-replace; original content is gone, backup content lands."""
+
+    target = tmp_path / "logins.json"
+    target.write_text('{"current": true}', encoding="utf-8")
+    backup = tmp_path / "logins.foxport-backup-1700000000.json"
+    backup.write_text('{"previous": true}', encoding="utf-8")
+
+    restored = restore_from_backup(backup)
+
+    assert restored == target
+    assert target.read_text(encoding="utf-8") == '{"previous": true}'
+    # Backup itself is left alone — copied, not moved, so the user
+    # can re-undo if they change their mind again.
+    assert backup.is_file()
+    assert backup.read_text(encoding="utf-8") == '{"previous": true}'
+
+
+def test_restore_from_backup_with_explicit_target(tmp_path: Path):
+    """When the user supplies --target explicitly, that path wins
+    over the auto-resolved one."""
+
+    backup = tmp_path / "logins.foxport-backup-1700000000.json"
+    backup.write_text("backup contents", encoding="utf-8")
+    explicit = tmp_path / "elsewhere" / "renamed.json"
+
+    restored = restore_from_backup(backup, target_path=explicit)
+
+    assert restored == explicit
+    assert explicit.read_text(encoding="utf-8") == "backup contents"
+
+
+def test_restore_from_backup_missing_backup_raises(tmp_path: Path):
+    """The CLI surfaces FileNotFoundError as a clean error code 2."""
+
+    with pytest.raises(FileNotFoundError):
+        restore_from_backup(tmp_path / "missing.foxport-backup-1.json")
+
+
+def test_restore_from_backup_non_convention_name_requires_explicit_target(tmp_path: Path):
+    """A file whose name doesn't match the convention can't be auto-
+    resolved; the caller must pass --target."""
+
+    weird = tmp_path / "not-a-backup.json"
+    weird.write_text("x", encoding="utf-8")
+    with pytest.raises(ValueError, match="foxport-backup naming convention"):
+        restore_from_backup(weird)
