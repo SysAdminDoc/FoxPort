@@ -47,6 +47,11 @@ from foxport.gui.widgets import (
     Tile,
     WizardPage,
 )
+from foxport.crash_reporting import (
+    SENTRY_HOST,
+    crash_reporting_network_host,
+    current_crash_reporting_status,
+)
 from foxport.telemetry import TELEMETRY_HOST
 
 
@@ -96,6 +101,7 @@ class MigrationContext:
         self.policy_open_tabs: str = "apply"
         self.hibp_scan: bool = False
         self.telemetry_opt_in: bool = False
+        self.crash_reporting_opt_in: bool = False
         self.mask_passwords_in_preview: bool = True
         self.out_root: Path = Path.home() / "Documents" / "FoxPort"
         # Preview counts, keyed by item slug. PreviewPage fills this in;
@@ -1181,8 +1187,15 @@ class PreviewPage(WizardPage):
             ("ENABLED — aggregate migration metrics"
              if ctx.telemetry_opt_in else "disabled"),
         ]))
+        crash_status = current_crash_reporting_status(ctx.crash_reporting_opt_in)
         net_node.addChild(QTreeWidgetItem([
-            "  crash / update",
+            f"  {crash_reporting_network_host() or SENTRY_HOST}",
+            ("ENABLED — path-stripped crash reports"
+             if crash_status == "initialized"
+             else crash_status),
+        ]))
+        net_node.addChild(QTreeWidgetItem([
+            "  update",
             "off (no opt-in surface yet)",
         ]))
         self._tree.addTopLevelItem(net_node)

@@ -28,8 +28,9 @@ from pathlib import Path
 # Revision history:
 #   0 — v1.3.0 baseline (AMO + HIBP only, both opt-in, no telemetry).
 #   1 — v1.4 Glean migration telemetry opt-in.
-#   2 — reserved for the v1.4 crash / update opt-in surface.
-_TRUST_REVISION: int = 1
+#   2 — v1.4 Sentry crash-reporting opt-in.
+#   3 — reserved for the v1.4 update opt-in surface.
+_TRUST_REVISION: int = 2
 
 
 @dataclass
@@ -45,7 +46,7 @@ class Settings:
     default_dry_run: bool = False
     hibp_scan_default: bool = False
     telemetry_opt_in: bool = False           # Glean aggregate run telemetry
-    crash_reporting_opt_in: bool = False     # for future Sentry wiring
+    crash_reporting_opt_in: bool = False     # Sentry crash reporting
     # Empty string = autodetect via foxport.crypto.nss.find_nss().
     # When set, overrides the per-platform search list — useful for
     # portable Firefox installs that aren't in the standard paths. The

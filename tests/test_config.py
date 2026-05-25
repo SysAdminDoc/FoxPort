@@ -28,6 +28,7 @@ def test_changed_values_round_trip(tmp_path, monkeypatch):
         default_dry_run=True,
         hibp_scan_default=True,
         telemetry_opt_in=True,
+        crash_reporting_opt_in=True,
         privacy_redact_manifest=True,
         first_run_acked_trust_revision=2,
     )
@@ -36,6 +37,7 @@ def test_changed_values_round_trip(tmp_path, monkeypatch):
     assert loaded == s
     assert loaded.privacy_redact_manifest is True
     assert loaded.telemetry_opt_in is True
+    assert loaded.crash_reporting_opt_in is True
     assert loaded.first_run_acked_trust_revision == 2
 
 

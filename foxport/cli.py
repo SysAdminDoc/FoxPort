@@ -27,6 +27,13 @@ import sys
 from pathlib import Path
 
 from foxport import __app_name__, __version__
+from foxport.crash_reporting import (
+    SENTRY_ENABLE_ENV,
+    crash_reporting_env_enabled,
+    crash_reporting_network_host,
+    current_crash_reporting_status,
+    initialize_crash_reporting,
+)
 from foxport.manifest import (
     RunManifest,
     build_artifact,
@@ -481,6 +488,9 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
         "addons.mozilla.org": "disabled" if args.no_online else "enabled",
         "api.pwnedpasswords.com": hibp_status_for_network,
         TELEMETRY_HOST: telemetry_status,
+        crash_reporting_network_host(): current_crash_reporting_status(
+            _crash_reporting_requested(args)
+        ),
     }
 
     manifest_path: Path | None = None
@@ -607,6 +617,10 @@ def build_parser() -> argparse.ArgumentParser:
         description=f"{__app_name__} v{__version__} - Chromium to Firefox migration",
     )
     parser.add_argument("--version", action="version", version=f"{__app_name__} {__version__}")
+    parser.add_argument("--crash-reporting", action="store_true",
+                        help=f"Opt in to path-stripped Sentry crash reporting for this "
+                             f"CLI invocation. Requires FOXPORT_SENTRY_DSN or SENTRY_DSN; "
+                             f"{SENTRY_ENABLE_ENV}=1 also enables this without the flag.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     list_p = sub.add_parser("list", help="List detected source and target profiles")
@@ -816,6 +830,9 @@ def _cmd_migrate_reverse(args: argparse.Namespace) -> int:
         "addons.mozilla.org": "disabled",
         "api.pwnedpasswords.com": "disabled",
         TELEMETRY_HOST: telemetry_status,
+        crash_reporting_network_host(): current_crash_reporting_status(
+            _crash_reporting_requested(args)
+        ),
     }
 
     manifest_path: Path | None = None
@@ -1109,6 +1126,9 @@ def _cmd_restore_backup(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    crash_status = initialize_crash_reporting(enabled=_crash_reporting_requested(args))
+    if getattr(args, "crash_reporting", False) and crash_status.status not in {"initialized", "disabled"}:
+        print(f"warning: crash reporting {crash_status.status}: {crash_status.message}", file=sys.stderr)
     if args.command == "list":
         return _cmd_list(args)
     if args.command == "migrate":
@@ -1127,6 +1147,10 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_restore_backup(args)
     parser.error("no command")
     return 2
+
+
+def _crash_reporting_requested(args: argparse.Namespace) -> bool:
+    return bool(getattr(args, "crash_reporting", False) or crash_reporting_env_enabled())
 
 
 if __name__ == "__main__":

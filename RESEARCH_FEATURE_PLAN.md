@@ -31,6 +31,9 @@ when the work ships.
 - v1.4 opt-in Glean telemetry is now shipped: declared metrics/pings live
   under `foxport/data/`, the GUI/CLI opt-in sends only aggregate run
   metadata, and `docs/telemetry.md` documents the never-send boundary.
+- v1.4 opt-in Sentry crash reporting is now shipped: no DSN is committed;
+  users must configure `FOXPORT_SENTRY_DSN`/`SENTRY_DSN`, and the wrapper
+  disables locals/source context plus strips local paths before send.
 
 ## Current Process
 

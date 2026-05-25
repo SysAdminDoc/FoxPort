@@ -19,6 +19,18 @@ All notable changes to FoxPort are documented here. Format roughly follows
   sizes continue to grow.
 
 ### Added
+- **Opt-in Sentry crash reporting with path stripping.** Crash reporting is
+  off by default and also requires a configured `FOXPORT_SENTRY_DSN` or
+  `SENTRY_DSN`. The GUI first-run trust prompt and Settings dialog expose
+  the opt-in; CLI invocations can pass `--crash-reporting` or set
+  `FOXPORT_CRASH_REPORTING=1`. `foxport.crash_reporting` initializes
+  `sentry-sdk` only on that path, disables locals/source context, avoids
+  Sentry's default argument/log/module integrations, strips Windows/UNC/
+  POSIX paths in `before_send`, and removes user/request/server/module/
+  frame-local context before events can leave the machine. Migration
+  manifests record the configured Sentry host under `network`. Five new
+  tests pin disabled/no-DSN behavior, SDK privacy options, path scrubbing,
+  and event-context stripping.
 - **Opt-in Glean telemetry with declared metrics.** Telemetry remains off by
   default. The GUI Settings dialog and first-run trust prompt now expose
   an explicit migration-metrics opt-in, and CLI `migrate` /

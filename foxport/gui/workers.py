@@ -16,6 +16,10 @@ from foxport.browsers.detect import (
 )
 from foxport.browsers.firefox import import_instructions, make_export_dir
 from foxport.crypto.dpapi import DecryptionError
+from foxport.crash_reporting import (
+    crash_reporting_network_host,
+    current_crash_reporting_status,
+)
 from foxport.manifest import (
     RunManifest,
     build_artifact,
@@ -89,6 +93,7 @@ class MigrationRequest:
     policy_open_tabs: str = "apply"
     hibp_scan: bool = False
     telemetry_opt_in: bool = False
+    crash_reporting_opt_in: bool = False
     direction: str = "forward"      # "forward" (chromium->firefox) or "reverse"
     master_password: str = ""
     # When True, the on-disk manifest.json scrubs the current user's
@@ -889,6 +894,9 @@ def _write_run_manifest(
             "enabled" if req.hibp_scan and req.do_passwords else "disabled"
         ),
         TELEMETRY_HOST: telemetry_status,
+        crash_reporting_network_host(): current_crash_reporting_status(
+            req.crash_reporting_opt_in
+        ),
     }
 
     manifest = RunManifest(

@@ -315,10 +315,11 @@ The output folder is configurable in the UI.
 ## Security notes
 
 - **Source profile read-only.** FoxPort copies SQLite files to a temp dir before reading; it never writes to `Login Data`, `Bookmarks`, or anything else in the source profile.
-- **Local-only by default.** Decryption happens on your machine. Three optional network calls exist and all can be turned off:
+- **Local-only by default.** Decryption happens on your machine. Four optional network calls exist and all can be turned off:
   - AMO lookup for extension names + GUIDs (the "Allow online Add-ons lookup" checkbox / `--no-online` flag).
   - The HIBP `https://api.pwnedpasswords.com/range/<prefix>` breach scan, opt-in via the Items step or `--hibp`. Uses k-anonymity — only the first five hex chars of each `SHA-1(password)` go over the wire and the `Add-Padding: true` header is set. Plaintext never leaves the box.
   - Glean migration telemetry to `https://incoming.telemetry.mozilla.org`, opt-in via Settings or `--telemetry`. It sends only selected category slugs, aggregate counts, direction, dry-run/direct-write flags, and outcome. It never sends paths, profile labels, URLs, hostnames, usernames, filenames, or secrets. See `docs/telemetry.md`.
+  - Sentry crash reporting, opt-in via Settings or CLI `--crash-reporting` and only active when `FOXPORT_SENTRY_DSN` or `SENTRY_DSN` is configured. It disables locals/source context, strips paths before send, and does not enable Sentry's default argument/log/module integrations. See `docs/crash-reporting.md`.
 - **Output files contain plaintext passwords.** Treat `passwords.csv` and `saved-cards.csv` like secrets. Delete them after importing.
 - **`manifest.json` per run.** Every non-dry-run migration writes a schema-versioned manifest next to `README.txt` listing every emitted artifact with its SHA-256, size, sensitivity label, and (when applicable) the absolute path of any direct-write backup. Plaintext secret values never appear in the manifest, only metadata about the files that contain them.
 - **Direct-write into Firefox only via atomic replace.** When you opt in to writing `logins.json` / `cookies.sqlite` / `places.sqlite` / `recovery.jsonlz4` straight into a closed target profile, FoxPort stages the file in a temp dir, fsyncs, and `Path.replace`s — an interrupted write can never leave a half-written file in your profile. Backups of the previous file are kept under timestamped names so a regret-undo is always possible.

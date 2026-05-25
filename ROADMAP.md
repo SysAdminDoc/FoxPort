@@ -218,7 +218,14 @@ the last P1 (conflict-review dialog) plus the P2/P3 follow-ons.
       `include_client_id: false` and records only aggregate item slugs,
       counts, direction, surface, dry-run/direct-write flags, and
       outcome. No paths/profile labels/URLs/secrets/exception text.
-- [ ] **P3** Opt-in Sentry crash reporting (path-stripped)
+- [x] **P3** Opt-in Sentry crash reporting (path-stripped)
+      Off by default and also requires `FOXPORT_SENTRY_DSN` or
+      `SENTRY_DSN`. GUI Settings + the first-run trust re-prompt expose
+      the opt-in; CLI can pass `--crash-reporting` or set
+      `FOXPORT_CRASH_REPORTING=1`. The wrapper disables locals/source
+      context, skips Sentry's default argv/log/module integrations, strips
+      Windows/UNC/POSIX paths in `before_send`, and removes user/request/
+      server/module/frame-local context.
 - [ ] **P3** Signed update appcast (WinSparkle)
 - [ ] **P3** Passkey inventory CXF prototype
       `passkeys inventory` CLI; presence + counts only. No export until

@@ -41,6 +41,7 @@ from foxport.config import (
     reset_to_defaults,
     save_settings,
 )
+from foxport.crash_reporting import SENTRY_DSN_ENV
 from foxport.crypto.dpapi import decrypt_value, load_master_key
 from foxport.migrate.extension_settings import (
     SUPPORTED_EXTENSION_SETTINGS,
@@ -360,14 +361,13 @@ class FirstRunDialog(QDialog):
     1. Source profiles are read-only.
     2. Output files contain plaintext credentials and should be deleted
        after import.
-    3. The outbound network requests are AMO, HIBP, and Glean telemetry —
-       all opt-in, all able to be disabled before the run.
-    4. There is no crash reporting or update check.
+    3. The outbound network requests are AMO, HIBP, Glean telemetry, and
+       Sentry crash reporting — all opt-in, all able to be disabled.
+    4. There is no update check.
 
-    The dialog also lets the user pre-set the two optional toggles
-    (AMO + HIBP defaults) so they don't have to repeat the choice on
-    every Items page. Persisted via ``Settings.allow_online_amo_lookup``
-    and ``Settings.hibp_scan_default``.
+    The dialog also lets the user pre-set optional network defaults
+    (AMO, HIBP, telemetry, crash reporting) so they don't have to repeat
+    the choice later.
 
     Acknowledging the dialog writes the current ISO timestamp into
     ``Settings.first_run_acked_iso`` so the next launch skips the
@@ -435,6 +435,10 @@ class FirstRunDialog(QDialog):
             " counts, direction, dry-run/direct-write flags, and outcome;"
             " never paths, profile labels, URLs, hostnames, usernames,"
             " filenames, or secrets.</td></tr>"
+            f"<tr><td><b>{SENTRY_DSN_ENV} / SENTRY_DSN</b></td><td>"
+            "Optional Sentry crash reporting. Requires a configured DSN;"
+            " local paths are stripped before send, and locals/source"
+            " context are disabled.</td></tr>"
             "</table>"
         )
         net.setTextFormat(Qt.TextFormat.RichText)
@@ -455,14 +459,24 @@ class FirstRunDialog(QDialog):
         outer.addWidget(self._hibp_cb)
         outer.addWidget(self._telemetry_cb)
 
-        no_crash_update = QLabel(
-            "FoxPort still does not send crash reports or version update"
-            " probes. Those stay wired off until separate opt-in surfaces"
-            " ship."
+        self._crash_cb = QCheckBox(
+            f"Send path-stripped crash reports by default (requires {SENTRY_DSN_ENV})"
         )
-        no_crash_update.setStyleSheet("color: #94e2d5; font-style: italic;")
-        no_crash_update.setWordWrap(True)
-        outer.addWidget(no_crash_update)
+        self._crash_cb.setChecked(settings.crash_reporting_opt_in)
+        self._crash_cb.setToolTip(
+            "Opt-in Sentry crash reports. Stack traces are stripped of "
+            "local paths, locals/source context are disabled, and no report "
+            f"is sent unless {SENTRY_DSN_ENV} or SENTRY_DSN is configured."
+        )
+        outer.addWidget(self._crash_cb)
+
+        no_update = QLabel(
+            "FoxPort still does not send version update probes. That stays"
+            " wired off until a separate opt-in surface ships."
+        )
+        no_update.setStyleSheet("color: #94e2d5; font-style: italic;")
+        no_update.setWordWrap(True)
+        outer.addWidget(no_update)
 
         outer.addStretch(1)
 
@@ -480,6 +494,7 @@ class FirstRunDialog(QDialog):
         self._settings.allow_online_amo_lookup = self._amo_cb.isChecked()
         self._settings.hibp_scan_default = self._hibp_cb.isChecked()
         self._settings.telemetry_opt_in = self._telemetry_cb.isChecked()
+        self._settings.crash_reporting_opt_in = self._crash_cb.isChecked()
         self._settings.first_run_acked_iso = datetime.now(timezone.utc).isoformat()
         # Pin the revision so a future bump (e.g. v1.4 adds telemetry)
         # triggers a fresh re-prompt instead of silently inheriting the
@@ -1233,17 +1248,16 @@ class SettingsDialog(QDialog):
         )
         privacy_layout.addWidget(self._telemetry_cb)
 
-        # Future-wired Sentry flag. Hidden until the crash-reporting task
-        # ships; the placeholder preserves the stored value so _save() can
-        # keep the field round-tripping without branching.
-        _FUTURE_CRASH_REPORTING = False
-        if _FUTURE_CRASH_REPORTING:
-            self._crash_cb = QCheckBox("Send crash reports (no user data)")
-            self._crash_cb.setChecked(settings.crash_reporting_opt_in)
-            privacy_layout.addWidget(self._crash_cb)
-        else:
-            self._crash_cb = QCheckBox()
-            self._crash_cb.setChecked(settings.crash_reporting_opt_in)
+        self._crash_cb = QCheckBox(
+            f"Send path-stripped crash reports (requires {SENTRY_DSN_ENV})"
+        )
+        self._crash_cb.setChecked(settings.crash_reporting_opt_in)
+        self._crash_cb.setToolTip(
+            f"Opt-in Sentry crash reporting to the configured {SENTRY_DSN_ENV} "
+            "or SENTRY_DSN endpoint. Local paths are stripped before send; "
+            "locals and source context are disabled."
+        )
+        privacy_layout.addWidget(self._crash_cb)
 
         layout.addWidget(privacy_card)
 

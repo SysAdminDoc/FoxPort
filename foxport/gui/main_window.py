@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 from foxport import __app_name__, __version__
 from foxport.browsers.detect import ChromiumProfile, FirefoxProfile
 from foxport.config import Settings, load_settings
+from foxport.crash_reporting import initialize_crash_reporting
 from foxport.gui.pages import (
     ItemsPage,
     MigrationContext,
@@ -193,6 +194,7 @@ class MainWindow(QMainWindow):
         self._ctx.dry_run = s.default_dry_run
         self._ctx.hibp_scan = s.hibp_scan_default
         self._ctx.telemetry_opt_in = s.telemetry_opt_in
+        self._ctx.crash_reporting_opt_in = s.crash_reporting_opt_in
         self._ctx.mask_passwords_in_preview = s.mask_passwords_in_preview
 
     def _show_first_run_dialog(self) -> None:
@@ -216,6 +218,7 @@ class MainWindow(QMainWindow):
         dlg = SettingsDialog(self._settings, parent=self)
         if dlg.exec():
             self._settings = dlg.settings()
+            initialize_crash_reporting(enabled=self._settings.crash_reporting_opt_in)
             self._apply_settings_defaults()
             # Push new defaults into the Items page widgets.
             self._items_page.apply_context_defaults()
@@ -440,6 +443,7 @@ class MainWindow(QMainWindow):
             policy_open_tabs=self._ctx.policy_open_tabs,
             hibp_scan=self._ctx.hibp_scan,
             telemetry_opt_in=self._ctx.telemetry_opt_in,
+            crash_reporting_opt_in=self._ctx.crash_reporting_opt_in,
             direction=self._ctx.direction,
             master_password=self._ctx.master_password,
             privacy_redact_manifest=self._settings.privacy_redact_manifest,
