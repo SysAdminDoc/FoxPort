@@ -40,6 +40,10 @@ when the work ships.
 - v1.4 passkey inventory is now shipped: `passkeys inventory` reports
   presence/counts only for known or likely local passkey stores. No export
   or CXF/CXP conversion is attempted.
+- v1.4 curated-map hot-reload + in-run AMO cache is now shipped:
+  extension matching reloads the active map for each run, honors
+  `FOXPORT_CURATED_MAP_PATH` overrides, and caches duplicate AMO detail /
+  search lookups within a single run.
 
 ## Current Process
 

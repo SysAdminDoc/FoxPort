@@ -242,7 +242,13 @@ the last P1 (conflict-review dialog) plus the P2/P3 follow-ons.
 - [ ] **P3** macOS DMG + Linux AppImage distribution
       Apple Developer ID + notarization for macOS; AppImage for Linux
       (bundle NSS or document `FOXPORT_NSS_PATH`).
-- [ ] **P3** Curated map hot-reload + in-run AMO cache
+- [x] **P3** Curated map hot-reload + in-run AMO cache
+      `match_extensions()` now reloads the active curated map on every
+      matching run instead of relying on import-time state, and
+      `FOXPORT_CURATED_MAP_PATH` can point at a freshly generated override
+      map. Online matching now carries one in-run AMO cache so duplicate
+      Gecko-ID detail probes and duplicate name searches hit AMO once per
+      run.
 - [x] **P3** Profile detection test fixtures
        Seven new tests in `tests/test_detect_layouts.py` exercise
        `_enumerate_profile_subdirs` (Default + Profile N, Guest

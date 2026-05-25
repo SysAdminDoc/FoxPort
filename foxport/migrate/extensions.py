@@ -2,14 +2,18 @@
 
 Resolution strategy, in order of confidence:
 
-1. **Curated table** (`foxport/data/curated_extension_map.json`) — manually
-   verified Chrome ID → AMO slug pairs. Highest signal, zero network.
+1. **Curated table** (`foxport/data/curated_extension_map.json`, or
+   ``FOXPORT_CURATED_MAP_PATH``) — manually verified Chrome ID → AMO slug
+   pairs. Highest signal, zero network. The active map is reloaded for each
+   matching run so CI/users can hot-swap a fresh map without restarting.
 2. **Gecko ID probe** — if the Chromium manifest declares
    ``browser_specific_settings.gecko.id`` (a published Firefox port of the
    same extension), look it up via AMO's GUID-aware detail endpoint
-   (``/api/v5/addons/addon/{guid}/``). 100%-confidence match when it resolves.
+   (``/api/v5/addons/addon/{guid}/``). 100%-confidence match when it resolves;
+   duplicate GUID probes share one in-run AMO cache.
 3. **AMO name search** — query ``/addons/search/`` with the localized
-   extension name and pick the best hit.
+   extension name and pick the best hit. Duplicate names share the same
+   in-run AMO cache.
 4. **Permission overlap** — for non-curated matches, compare Chrome's
    declared permissions to the candidate's AMO ``permissions`` list and
    downgrade confidence when the overlap is poor.
@@ -22,6 +26,7 @@ file is machine-readable for downstream tools.
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from html import escape
@@ -46,17 +51,39 @@ _NAME_NORMALIZE = re.compile(r"[^a-z0-9]+")
 # string here misrepresents FoxPort's identity to AMO across upgrades and
 # blocks any future user-agent-keyed analytics on the AMO side.
 _USER_AGENT = f"FoxPort/{__version__} (+https://github.com/SysAdminDoc/FoxPort)"
+CURATED_MAP_ENV = "FOXPORT_CURATED_MAP_PATH"
 
 
-def load_curated_map() -> dict[str, str]:
-    """Flatten the bundled curated map JSON into a single id -> slug dict."""
-    path = data_file("curated_extension_map.json")
+def _curated_map_path() -> Path:
+    """Return the active curated map path.
+
+    The bundled map remains the default, while power users and CI can point
+    ``FOXPORT_CURATED_MAP_PATH`` at a freshly generated map without waiting
+    for a new FoxPort release.
+    """
+
+    override = os.environ.get(CURATED_MAP_ENV)
+    if override:
+        return Path(override).expanduser()
+    return data_file("curated_extension_map.json")
+
+
+def _read_curated_map_json(path: Path | None = None) -> dict:
+    path = path or _curated_map_path()
     if not path.is_file():
         return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
+    if not isinstance(data, dict):
+        return {}
+    return data
+
+
+def load_curated_map(path: Path | None = None) -> dict[str, str]:
+    """Flatten the active curated map JSON into a single id -> slug dict."""
+    data = _read_curated_map_json(path)
     out: dict[str, str] = {}
     for key, value in data.items():
         if key.startswith("_"):
@@ -68,8 +95,8 @@ def load_curated_map() -> dict[str, str]:
     return out
 
 
-def _curated_map_age_days() -> int | None:
-    """Return the age in days of ``_meta.last_verified`` in the bundled map,
+def _curated_map_age_days(path: Path | None = None) -> int | None:
+    """Return the age in days of ``_meta.last_verified`` in the active map,
     or ``None`` when the field is missing / unparseable.
 
     Used by :func:`match_extensions` to surface a runtime warning when the
@@ -81,13 +108,7 @@ def _curated_map_age_days() -> int | None:
 
     import datetime as _dt
 
-    path = data_file("curated_extension_map.json")
-    if not path.is_file():
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
+    data = _read_curated_map_json(path)
     meta = data.get("_meta") if isinstance(data.get("_meta"), dict) else {}
     iso = meta.get("last_verified")
     if not isinstance(iso, str):
@@ -108,6 +129,14 @@ CURATED_STALE_THRESHOLD_DAYS = 90
 
 
 CURATED_MAP: dict[str, str] = load_curated_map()
+
+
+@dataclass
+class AmoLookupCache:
+    """AMO responses shared by one extension matching run."""
+
+    details: dict[str, dict | None] = field(default_factory=dict)
+    searches: dict[str, list[dict]] = field(default_factory=dict)
 
 
 @dataclass
@@ -203,20 +232,40 @@ def _amo_get(session: requests.Session, url: str, params: dict | None = None) ->
         return None
 
 
-def _amo_detail(session: requests.Session, slug_or_guid: str) -> dict | None:
+def _amo_detail(
+    session: requests.Session,
+    slug_or_guid: str,
+    cache: AmoLookupCache | None = None,
+) -> dict | None:
     # Extension manifests can put arbitrary strings in
     # browser_specific_settings.gecko.id; encode aggressively (safe="") so
     # a slug like "../addons/foo" can't escape the /addons/addon/ path.
-    return _amo_get(session, f"{_AMO_DETAIL}/{quote(slug_or_guid, safe='')}/")
+    if cache is not None and slug_or_guid in cache.details:
+        return cache.details[slug_or_guid]
+    result = _amo_get(session, f"{_AMO_DETAIL}/{quote(slug_or_guid, safe='')}/")
+    if cache is not None:
+        cache.details[slug_or_guid] = result
+    return result
 
 
-def _amo_search(session: requests.Session, query: str) -> list[dict]:
+def _amo_search(
+    session: requests.Session,
+    query: str,
+    cache: AmoLookupCache | None = None,
+) -> list[dict]:
+    if cache is not None and query in cache.searches:
+        return cache.searches[query]
     data = _amo_get(session, _AMO_SEARCH, {
         "q": query, "type": "extension", "app": "firefox", "page_size": 5,
     })
     if not data:
+        if cache is not None:
+            cache.searches[query] = []
         return []
-    return data.get("results") or []
+    results = data.get("results") or []
+    if cache is not None:
+        cache.searches[query] = results
+    return results
 
 
 def _permission_overlap(source_perms: Iterable[str], amo_perms: Iterable[str]) -> float:
@@ -243,6 +292,8 @@ def _confidence_for(overlap: float | None, default: str) -> str:
 def _match_one(
     ext: ExtensionInfo,
     session: requests.Session | None,
+    curated_map: dict[str, str],
+    amo_cache: AmoLookupCache | None,
 ) -> ExtensionMatch:
     base = dict(
         source=ext,
@@ -257,7 +308,7 @@ def _match_one(
     )
 
     # 1. Curated map — highest confidence, no network needed.
-    slug = CURATED_MAP.get(ext.extension_id)
+    slug = curated_map.get(ext.extension_id)
     if slug:
         return ExtensionMatch(**{**base, "amo_slug": slug, "confidence": "curated"})
 
@@ -266,7 +317,7 @@ def _match_one(
 
     # 2. Gecko ID probe — if the manifest declares its Firefox identity, ask AMO directly.
     if ext.gecko_id:
-        detail = _amo_detail(session, ext.gecko_id)
+        detail = _amo_detail(session, ext.gecko_id, amo_cache)
         if detail and detail.get("status") == "public" and not detail.get("is_disabled"):
             fields = _hit_to_match_fields(detail)
             overlap = _permission_overlap(
@@ -287,7 +338,7 @@ def _match_one(
 
     # 3. AMO name search — pick best hit by exact-name then prefix overlap.
     if ext.name:
-        results = _amo_search(session, ext.name)
+        results = _amo_search(session, ext.name, amo_cache)
         results = [r for r in results if r.get("status") == "public" and not r.get("is_disabled")]
         if results:
             needle = _normalize(ext.name)
@@ -331,9 +382,12 @@ def match_extensions(
     *,
     online: bool = True,
     already_installed_guids: set[str] | None = None,
+    curated_map: dict[str, str] | None = None,
 ) -> list[ExtensionMatch]:
     """Resolve installed extensions to AMO equivalents and tag dupes."""
     already_installed_guids = already_installed_guids or set()
+    active_curated_map = load_curated_map() if curated_map is None else dict(curated_map)
+    amo_cache = AmoLookupCache()
     session: requests.Session | None = None
     if online:
         session = requests.Session()
@@ -341,7 +395,7 @@ def match_extensions(
     try:
         out: list[ExtensionMatch] = []
         for ext in extensions:
-            match = _match_one(ext, session)
+            match = _match_one(ext, session, active_curated_map, amo_cache)
             if match.amo_guid and match.amo_guid in already_installed_guids:
                 match.already_installed = True
             out.append(match)

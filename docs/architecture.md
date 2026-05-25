@@ -49,8 +49,9 @@ foxport/
 ├── migrate/                    # Forward (Chromium → Firefox) emitters
 │   ├── passwords.py            # Firefox CSV; PasswordResult carries hibp_status tri-state
 │   ├── bookmarks.py            # Netscape HTML
-│   ├── extensions.py           # 4-stage AMO matcher → install-page HTML; User-Agent
-│   │                           #   tracks __version__
+│   ├── extensions.py           # 4-stage AMO matcher → install-page HTML; active
+│   │                           #   curated map reloads per run; AMO lookups cached
+│   │                           #   within each run; User-Agent tracks __version__
 │   ├── extension_settings.py   # opt-in allowlisted uBO/Stylus/Bitwarden settings
 │   ├── cookies.py              # writes cookies.sqlite (v17) from scratch; Chrome 130+
 │   │                           #   HOST_KEY prefix stripped in bytes-space
@@ -84,7 +85,8 @@ foxport/
 │
 ├── data/
 │   ├── curated_extension_map.json   # 56 Chrome ID → AMO slug pairs across 14 categories;
-│   │                                #   _meta.entry_count asserted by the auditor
+│   │                                #   _meta.entry_count asserted by the auditor;
+│   │                                #   can be overridden by FOXPORT_CURATED_MAP_PATH
 │   ├── glean_metrics.yaml           # declared Glean metrics for opt-in telemetry
 │   └── glean_pings.yaml             # custom migration ping declaration
 │

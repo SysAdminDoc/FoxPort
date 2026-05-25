@@ -7,6 +7,14 @@ All notable changes to FoxPort are documented here. Format roughly follows
 ## [Unreleased]
 
 ### Changed
+- **Curated extension map hot-reload + AMO cache.** Extension matching now
+  reloads the active curated map for each run instead of relying on
+  import-time state, and honors `FOXPORT_CURATED_MAP_PATH` for advanced
+  users/CI that want to test a freshly generated map before release.
+  Online matching also shares one in-run AMO cache, so duplicate Gecko-ID
+  probes and duplicate name searches hit AMO once per migration run.
+  Four new tests cover env-map reload, active-map stale-date warnings, and
+  duplicate detail/search caching.
 - **Responsive Preview counts on large profiles.** Pre-v1.4 the
   Preview page ran every `_safe_sqlite_count` synchronously on the
   GUI thread, freezing the window on multi-million-row profiles.

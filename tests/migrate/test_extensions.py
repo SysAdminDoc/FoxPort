@@ -1,5 +1,7 @@
 """Tests for the extension matcher's pure-function pieces."""
 
+import json
+
 from foxport import __version__
 from foxport.browsers.chromium import ExtensionInfo
 from foxport.migrate.extensions import (
@@ -9,7 +11,26 @@ from foxport.migrate.extensions import (
     _permission_overlap,
     _resolve_amo_name,
     load_curated_map,
+    match_extensions,
 )
+
+
+def _extension(
+    extension_id: str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    name: str = "Example Extension",
+    *,
+    gecko_id: str | None = None,
+) -> ExtensionInfo:
+    return ExtensionInfo(
+        extension_id=extension_id,
+        name=name,
+        version="1.0",
+        description="",
+        homepage=None,
+        gecko_id=gecko_id,
+        chrome_permissions=("storage",),
+        chrome_host_permissions=(),
+    )
 
 
 def test_curated_map_loaded():
@@ -116,3 +137,128 @@ def test_load_curated_map_dedupes_collisions():
     slugs = list(flat.values())
     # uBlock Origin has multiple Chrome IDs all → ublock-origin slug.
     assert slugs.count("ublock-origin") >= 2
+
+
+def test_match_extensions_reloads_env_curated_map_each_call(tmp_path, monkeypatch):
+    """The active curated map is loaded per run, so overrides can hot-reload."""
+
+    map_path = tmp_path / "curated.json"
+    ext_id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    monkeypatch.setenv("FOXPORT_CURATED_MAP_PATH", str(map_path))
+
+    def write_map(slug: str) -> None:
+        map_path.write_text(json.dumps({
+            "_meta": {"last_verified": "2026-05-25"},
+            "custom": {ext_id: slug},
+        }), encoding="utf-8")
+
+    write_map("first-slug")
+    first = match_extensions([_extension(ext_id)], online=False)
+    assert first[0].amo_slug == "first-slug"
+
+    write_map("second-slug")
+    second = match_extensions([_extension(ext_id)], online=False)
+    assert second[0].amo_slug == "second-slug"
+
+
+def test_curated_map_age_days_uses_env_override(tmp_path, monkeypatch):
+    """Runtime warnings inspect the same active map used for matching."""
+
+    from foxport.migrate.extensions import _curated_map_age_days
+
+    map_path = tmp_path / "curated.json"
+    map_path.write_text(json.dumps({
+        "_meta": {"last_verified": "2026-05-25"},
+        "custom": {},
+    }), encoding="utf-8")
+    monkeypatch.setenv("FOXPORT_CURATED_MAP_PATH", str(map_path))
+
+    assert _curated_map_age_days() is not None
+
+
+class _FakeResponse:
+    def __init__(self, payload: dict):
+        self.status_code = 200
+        self._payload = payload
+
+    def json(self):
+        return self._payload
+
+
+class _FakeAmoSession:
+    def __init__(self, detail_payload: dict | None = None, search_payload: dict | None = None):
+        self.headers: dict[str, str] = {}
+        self.detail_payload = detail_payload
+        self.search_payload = search_payload
+        self.calls: list[tuple[str, dict | None]] = []
+        self.closed = False
+
+    def get(self, url: str, params: dict | None = None, timeout: int = 8):
+        self.calls.append((url, params))
+        if "/addons/addon/" in url:
+            assert self.detail_payload is not None
+            return _FakeResponse(self.detail_payload)
+        if "/addons/search/" in url:
+            assert self.search_payload is not None
+            return _FakeResponse(self.search_payload)
+        raise AssertionError(f"unexpected AMO URL: {url}")
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_match_extensions_caches_duplicate_gecko_detail_lookups(monkeypatch):
+    """Duplicate Gecko IDs within one run should only hit AMO once."""
+
+    from foxport.migrate import extensions as ext_mod
+
+    session = _FakeAmoSession(detail_payload={
+        "slug": "shared-addon",
+        "name": {"en-US": "Shared Add-on"},
+        "guid": "shared@example.test",
+        "average_daily_users": 10,
+        "ratings": {"average": 4.5},
+        "current_version": {"file": {"permissions": ["storage"], "host_permissions": []}},
+        "status": "public",
+        "is_disabled": False,
+    })
+    monkeypatch.setattr(ext_mod.requests, "Session", lambda: session)
+
+    matches = match_extensions([
+        _extension("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "One", gecko_id="shared@example.test"),
+        _extension("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Two", gecko_id="shared@example.test"),
+    ], online=True, curated_map={})
+
+    detail_calls = [call for call in session.calls if "/addons/addon/" in call[0]]
+    assert len(detail_calls) == 1
+    assert [m.amo_slug for m in matches] == ["shared-addon", "shared-addon"]
+    assert session.closed
+
+
+def test_match_extensions_caches_duplicate_name_searches(monkeypatch):
+    """Duplicate extension names within one run should share the AMO search."""
+
+    from foxport.migrate import extensions as ext_mod
+
+    session = _FakeAmoSession(search_payload={
+        "results": [{
+            "slug": "same-name",
+            "name": {"en-US": "Same Name"},
+            "guid": "same@example.test",
+            "average_daily_users": 20,
+            "ratings": {"average": 4.2},
+            "current_version": {"file": {"permissions": ["storage"], "host_permissions": []}},
+            "status": "public",
+            "is_disabled": False,
+        }],
+    })
+    monkeypatch.setattr(ext_mod.requests, "Session", lambda: session)
+
+    matches = match_extensions([
+        _extension("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Same Name"),
+        _extension("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Same Name"),
+    ], online=True, curated_map={})
+
+    search_calls = [call for call in session.calls if "/addons/search/" in call[0]]
+    assert len(search_calls) == 1
+    assert [m.amo_slug for m in matches] == ["same-name", "same-name"]
