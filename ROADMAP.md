@@ -214,9 +214,20 @@ the last P1 (conflict-review dialog) plus the P2/P3 follow-ons.
       Apple Developer ID + notarization for macOS; AppImage for Linux
       (bundle NSS or document `FOXPORT_NSS_PATH`).
 - [ ] **P3** Curated map hot-reload + in-run AMO cache
-- [ ] **P3** Profile detection test fixtures (Opera GX flat,
-       Thunderbird, portable Firefox)
-- [ ] **P3** macOS Keychain + Linux libsecret/kwallet test coverage
+- [x] **P3** Profile detection test fixtures
+       Seven new tests in `tests/test_detect_layouts.py` exercise
+       `_enumerate_profile_subdirs` (Default + Profile N, Guest
+       Profile, missing-marker rejection, non-profile-name filter)
+       and `_parse_profiles_ini` (Install-default promotion,
+       absolute-path / portable Firefox layout).
+- [x] **P3** macOS Keychain + Linux libsecret/kwallet test coverage
+       Nine new tests in `tests/crypto/test_keychain.py` mock the
+       per-platform CLIs (`security`, `secret-tool`, `kwallet-query`)
+       and pin the canonical happy paths, the Google-Chrome short-name
+       fallback, the `OSError`-on-missing-binary branch, the
+       multi-tool Linux degradation chain ending in `"peanuts"`, and
+       the per-platform PBKDF2 iteration counts (1003 mac vs 1
+       linux).
 - [ ] **P3** "Merge mode" for cookies/history direct-write
       Preserve target rows + add source rows by uniqueness key
       (cookies = `host_key+path+name`; history = URL+visit_time).
