@@ -557,6 +557,18 @@ def build_parser() -> argparse.ArgumentParser:
                           "from backup_path / labels in the on-disk manifest.json. "
                           "Use this when uploading the manifest for support so the "
                           "username doesn't leak. Backups themselves stay where they are.")
+    mig.add_argument("--direct-write-policy", default="apply",
+                     choices=("apply", "skip", "backup-only"),
+                     help="Per-category direct-write disposition applied to every "
+                          "enabled direct_write_* category: 'apply' (v1.3 default - "
+                          "merge passwords / replace cookies+history+open-tabs after "
+                          "backup), 'skip' (don't touch the target; staging only), "
+                          "or 'backup-only' (copy target file aside but don't write).")
+    mig.add_argument("--yes", action="store_true",
+                     help="Non-interactive mode: skip any future confirmation prompts "
+                          "for destructive direct-write paths. The CLI doesn't prompt "
+                          "today; this flag reserves the contract so a future addition "
+                          "doesn't surprise existing scripts.")
 
     snap = sub.add_parser("snapshot",
                           help="Bundle a previous output folder into a portable .fxport archive")

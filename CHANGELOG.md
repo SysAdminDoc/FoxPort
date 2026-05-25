@@ -7,6 +7,32 @@ All notable changes to FoxPort are documented here. Format roughly follows
 ## [Unreleased]
 
 ### Added
+- **Conflict-review dialog + per-category direct-write policy (the
+  last v1.3.3 P1 piece).** Closes the loop between the v1.3 pre-flight
+  analyzers (which already produced counts) and the user's ability to
+  pick a disposition. When the user enables any
+  `direct_write_*` checkbox and clicks Run Migration, a modal opens
+  between Preview and Run with:
+  - A card per enabled direct-write category showing the live
+    pre-flight count from `foxport.migrate.conflicts.analyze_*`
+    (e.g. "12 of 50 already in target; 38 new" for passwords,
+    "200 source rows would REPLACE 150 existing rows" for cookies).
+  - A dropdown of three policies per category:
+    - `apply` (default, v1.3 behavior — merge passwords / replace
+      cookies+history+open_tabs after backup)
+    - `skip` — leave the target untouched; staging output only.
+    - `backup-only` — copy the target file to a timestamped sibling
+      but don't write new content.
+  - "Continue with these policies" / Cancel buttons. Cancel returns
+    to Preview without starting the migration.
+  Worker reads `MigrationRequest.policy_{passwords,cookies,history,
+  open_tabs}` and branches per category. CLI gains
+  `--direct-write-policy {apply,skip,backup-only}` + `--yes` flags
+  reserved for the future direct-write CLI mode. Manifest schema
+  v1 grew an additive `RunArtifact.direct_write_policy` field;
+  legacy manifests default to empty so snapshot consumers stay
+  compatible. Seven new tests in
+  `tests/test_direct_write_policy.py` pin the wiring end-to-end.
 - **Curated-map staleness warning.** When the bundled
   `_meta.last_verified` is older than 90 days,
   `extensions._curated_map_warnings()` surfaces a single advisory in

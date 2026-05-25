@@ -473,6 +473,155 @@ class FirstRunDialog(QDialog):
         return self._settings
 
 
+class DirectWritePolicyDialog(QDialog):
+    """Conflict-review modal shown between Preview and Run.
+
+    Renders the pre-flight conflict counts (from
+    :mod:`foxport.migrate.conflicts`) for each direct-write category
+    the user enabled, alongside a dropdown of:
+
+    * ``apply``       — current behavior (merge for passwords, replace
+                        cookies/history/open_tabs after backup).
+    * ``skip``        — leave the target untouched; staging output only.
+    * ``backup-only`` — copy the target file aside but don't write new
+                        content.
+
+    Defaults to ``apply`` for every category so a user who clicks
+    through gets exactly the v1.3.0–v1.3.2 behavior. Cancelling the
+    dialog aborts the migration (returns to Preview); accepting writes
+    the chosen policies onto the :class:`MigrationContext` so
+    ``MainWindow._start_migration`` picks them up.
+
+    The dialog runs the analyzers on the GUI thread; for typical
+    profiles each call is a single read-only SQLite COUNT and finishes
+    in <100 ms.
+    """
+
+    def __init__(
+        self,
+        ctx,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Review direct-write changes")
+        self.setModal(True)
+        self.resize(680, 460)
+        self._ctx = ctx
+        self._dropdowns: dict[str, QComboBox] = {}
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(20, 18, 20, 16)
+        outer.setSpacing(12)
+
+        title = QLabel(
+            "You enabled direct-write for one or more categories. Pick a "
+            "policy per category — the default keeps the v1.3 behavior; "
+            "the other two are safer choices when you want to inspect "
+            "the target before committing."
+        )
+        title.setWordWrap(True)
+        title.setStyleSheet("color: #cdd6f4;")
+        outer.addWidget(title)
+
+        # Each enabled category gets a row: name + count summary + dropdown.
+        # The pre-flight analyzers are wrapped in try/except so a corrupt
+        # target file doesn't block the dialog — the dropdown still
+        # appears with a "(pre-flight unavailable)" subtitle.
+        from foxport.migrate.conflicts import (
+            DIRECT_WRITE_POLICIES,
+            DIRECT_WRITE_POLICY_LABELS,
+            analyze_cookies,
+            analyze_history,
+            analyze_open_tabs,
+            analyze_passwords,
+        )
+
+        enabled: list[tuple[str, str, str]] = []  # (key, label, ctx_attr)
+        if ctx.direct_write_passwords:
+            enabled.append(("passwords", "Passwords (logins.json)", "policy_passwords"))
+        if ctx.direct_write_cookies:
+            enabled.append(("cookies", "Cookies (cookies.sqlite)", "policy_cookies"))
+        if ctx.direct_write_history:
+            enabled.append(("history", "History (places.sqlite)", "policy_history"))
+        if ctx.direct_write_open_tabs:
+            enabled.append(("open_tabs", "Open tabs (recovery.jsonlz4)", "policy_open_tabs"))
+
+        analyzers = {
+            "passwords": analyze_passwords,
+            "cookies": analyze_cookies,
+            "history": analyze_history,
+            "open_tabs": analyze_open_tabs,
+        }
+
+        for key, label, attr in enabled:
+            row = QFrame()
+            row.setObjectName("Card")
+            row_layout = QVBoxLayout(row)
+            row_layout.setContentsMargins(14, 12, 14, 12)
+            row_layout.setSpacing(6)
+
+            name_label = QLabel(label)
+            name_label.setStyleSheet("font-weight: 600; color: #cdd6f4;")
+            row_layout.addWidget(name_label)
+
+            count_text = "(pre-flight unavailable)"
+            try:
+                conflicts = analyzers[key](ctx.source, ctx.target)
+                if key == "passwords":
+                    count_text = (
+                        f"{conflicts.duplicates} of {conflicts.source_total} "
+                        f"already in target; {conflicts.new} new would be merged."
+                    )
+                else:
+                    count_text = (
+                        f"{conflicts.source_total} source rows would REPLACE "
+                        f"{conflicts.duplicates} existing rows."
+                    )
+                if conflicts.failures:
+                    count_text += f" ({len(conflicts.failures)} pre-flight warning(s))"
+            except Exception:  # noqa: BLE001
+                pass
+            count_label = QLabel(count_text)
+            count_label.setStyleSheet("color: #a6adc8;")
+            count_label.setWordWrap(True)
+            row_layout.addWidget(count_label)
+
+            dropdown = QComboBox()
+            for policy in DIRECT_WRITE_POLICIES:
+                dropdown.addItem(DIRECT_WRITE_POLICY_LABELS[policy], userData=policy)
+            current = getattr(ctx, attr, "apply") or "apply"
+            try:
+                idx = list(DIRECT_WRITE_POLICIES).index(current)
+            except ValueError:
+                idx = 0
+            dropdown.setCurrentIndex(idx)
+            dropdown.setAccessibleName(f"{label} direct-write policy")
+            row_layout.addWidget(dropdown)
+
+            self._dropdowns[attr] = dropdown
+            outer.addWidget(row)
+
+        outer.addStretch(1)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        accept_btn = QPushButton("Continue with these policies")
+        accept_btn.setObjectName("PrimaryButton")
+        accept_btn.setDefault(True)
+        accept_btn.clicked.connect(self._save_and_accept)  # type: ignore[arg-type]
+        buttons.addButton(accept_btn, QDialogButtonBox.ButtonRole.AcceptRole)
+        buttons.rejected.connect(self.reject)  # type: ignore[arg-type]
+        outer.addWidget(buttons)
+
+    def _save_and_accept(self) -> None:
+        for attr, dropdown in self._dropdowns.items():
+            chosen = dropdown.currentData()
+            if isinstance(chosen, str):
+                setattr(self._ctx, attr, chosen)
+        self.accept()
+
+
 def prompt_master_password(parent: QWidget | None, profile_label: str) -> str | None:
     """Show a one-shot password dialog. Returns the entered string, or None on Cancel."""
     text, ok = QInputDialog.getText(

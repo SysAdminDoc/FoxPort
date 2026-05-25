@@ -285,12 +285,49 @@ class MainWindow(QMainWindow):
                 self._start_migration()
             return
         if idx == len(STEP_NAMES) - 2:
-            # Preview step → advance into Run AND start the migration.
+            # Preview step → show the conflict-review modal first when
+            # any direct-write category is on (the v1.3.3 P1
+            # deliverable). Cancelling the modal keeps the user on
+            # Preview; accepting advances into Run and starts the
+            # migration with the chosen per-category policies.
+            if not self._maybe_show_direct_write_policy_dialog():
+                return
             self._show_step(idx + 1)
             self._start_migration()
             return
         # Going from Items (index 2) to Preview — populate counts on enter.
         self._show_step(idx + 1)
+
+    def _maybe_show_direct_write_policy_dialog(self) -> bool:
+        """Open the conflict-review modal when at least one direct-write
+        category is enabled and the run is destructive.
+
+        Returns ``True`` when the user proceeded (no dialog needed, OR
+        accepted), ``False`` when they cancelled. The dialog writes its
+        chosen policies onto ``self._ctx`` so ``_start_migration``
+        picks them up via the existing ``MigrationRequest`` plumbing.
+
+        Skipped for: dry-run mode, reverse direction (no direct-write
+        target), no direct-write categories enabled.
+        """
+
+        ctx = self._ctx
+        if ctx.dry_run:
+            return True
+        if ctx.direction != "forward":
+            return True
+        if ctx.target is None:
+            return True
+        if not any((
+            ctx.direct_write_passwords,
+            ctx.direct_write_cookies,
+            ctx.direct_write_history,
+            ctx.direct_write_open_tabs,
+        )):
+            return True
+        from foxport.gui.dialogs import DirectWritePolicyDialog
+        dialog = DirectWritePolicyDialog(ctx, parent=self)
+        return bool(dialog.exec())
 
     # --------------------------------------------------------------- Detection
 
@@ -389,6 +426,10 @@ class MainWindow(QMainWindow):
             direct_write_cookies=self._ctx.direct_write_cookies,
             direct_write_history=self._ctx.direct_write_history,
             direct_write_open_tabs=self._ctx.direct_write_open_tabs,
+            policy_passwords=self._ctx.policy_passwords,
+            policy_cookies=self._ctx.policy_cookies,
+            policy_history=self._ctx.policy_history,
+            policy_open_tabs=self._ctx.policy_open_tabs,
             hibp_scan=self._ctx.hibp_scan,
             direction=self._ctx.direction,
             master_password=self._ctx.master_password,

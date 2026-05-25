@@ -83,6 +83,19 @@ class RunArtifact:
     callers reconstruct an absolute path by joining with the output dir.
     ``count`` is optional because not every category has a meaningful count
     (e.g. ``search_engines`` ships an inventory plus XML files).
+
+    ``direct_write_policy`` records which conflict-review policy was
+    applied to this category when ``direct_write=True``:
+
+    * ``"apply"`` — current v1.3 behavior (merge passwords / replace
+      cookies+history+open_tabs after backup).
+    * ``"skip"`` — target file was NOT modified; staging-only output.
+    * ``"backup-only"`` — target file was copied to a timestamped
+      sibling but the new content was NOT written.
+
+    Empty string for categories that didn't go through the direct-write
+    path (the field is additive on the v1.3.0 schema; readers are
+    expected to default-to-apply when missing).
     """
 
     key: str
@@ -95,6 +108,7 @@ class RunArtifact:
     direct_write: bool = False
     backup_path: str | None = None
     notes: str | None = None
+    direct_write_policy: str = ""
 
 
 @dataclass
@@ -134,6 +148,7 @@ def build_artifact(
     direct_write: bool = False,
     backup_path: Path | None = None,
     notes: str | None = None,
+    direct_write_policy: str = "",
 ) -> RunArtifact:
     """Hash + size an emitted file and wrap it in a :class:`RunArtifact`.
 
@@ -141,6 +156,12 @@ def build_artifact(
     ``search-engines/google.xml`` under the run's output folder). It must
     exist; callers that want manifest entries for missing files should
     catch the FileNotFoundError and decide whether the omission is fatal.
+
+    ``direct_write_policy`` is the per-category policy chosen via the
+    conflict-review dialog / CLI flag ("apply", "skip", or
+    "backup-only"). Empty for categories that didn't go through the
+    direct-write path; consumers should treat empty as ``"apply"`` for
+    backward compatibility with v1.3.0–v1.3.2 manifests.
     """
 
     rel = abs_path.relative_to(out_dir).as_posix()
@@ -164,6 +185,7 @@ def build_artifact(
         direct_write=direct_write,
         backup_path=backup_str,
         notes=notes,
+        direct_write_policy=direct_write_policy,
     )
 
 
@@ -260,6 +282,7 @@ def redact_manifest(manifest: RunManifest) -> RunManifest:
             backup_path=(_redact_path(art.backup_path, prefixes)
                          if art.backup_path else None),
             notes=art.notes,
+            direct_write_policy=art.direct_write_policy,
         ))
     return RunManifest(
         schema_version=manifest.schema_version,

@@ -70,6 +70,16 @@ class MigrationRequest:
     direct_write_cookies: bool = False
     direct_write_history: bool = False
     direct_write_open_tabs: bool = False
+    # Per-category policy applied when the matching direct_write_* flag
+    # is True. See foxport.migrate.conflicts.DirectWritePolicy for the
+    # three values. ``apply`` is the v1.3 default; ``skip`` and
+    # ``backup-only`` were added in v1.3.3 via the conflict-review
+    # dialog so the user can choose a safer disposition without
+    # un-toggling the whole category.
+    policy_passwords: str = "apply"
+    policy_cookies: str = "apply"
+    policy_history: str = "apply"
+    policy_open_tabs: str = "apply"
     hibp_scan: bool = False
     direction: str = "forward"      # "forward" (chromium->firefox) or "reverse"
     master_password: str = ""
@@ -170,38 +180,70 @@ class MigrationWorker(QObject):
                     row_filter = lambda r: f"{r.origin_url}\x00{r.username}" in keep  # noqa: E731
 
                 if req.direct_write_passwords and req.target and not req.dry_run:
-                    # Pre-flight conflict analysis — non-mutating count of
-                    # how many source logins already exist in the target.
-                    # Surfaces the skip number BEFORE we hit NSS so the
-                    # user sees "12 of 50 already exist; will write 38".
-                    try:
-                        from foxport.migrate.conflicts import analyze_passwords
-                        conflicts = analyze_passwords(req.source, req.target)
+                    policy = req.policy_passwords
+                    if policy == "skip":
                         self.log.emit(
-                            f"  Pre-flight: {conflicts.duplicates} of {conflicts.source_total} "
-                            f"already in target, {conflicts.new} new."
+                            "  Direct-write policy = SKIP — leaving target logins.json "
+                            "untouched; staging CSV still produced."
                         )
-                    except Exception as exc:  # noqa: BLE001 — informational
-                        self.log.emit(f"  Pre-flight skipped: {exc}")
-                    self.log.emit("  Direct-write mode: encrypting via target profile's NSS...")
-                    try:
-                        nss_result = migrate_passwords_via_nss(req.source, req.target)
-                    except ProfileLockedError as exc:
-                        self.log.emit(f"  Direct-write aborted: {exc}")
-                    except Exception as exc:  # noqa: BLE001
-                        self.log.emit(f"  Direct-write failed: {exc} — falling back to CSV.")
                     else:
-                        self.log.emit(
-                            f"  Wrote {nss_result.written} new login(s) into {nss_result.target_logins_json}; "
-                            f"{nss_result.skipped_existing} already present, {nss_result.failed} failed."
-                        )
-                        if nss_result.backup_file is not None:
-                            self.log.emit(f"  Previous logins.json backed up to {nss_result.backup_file.name}")
-                        direct_write_backups["passwords"] = nss_result.backup_file
-                        nss_version = getattr(nss_result, "nss_version", "")
-                        if nss_version:
-                            self.log.emit(f"  NSS version: {nss_version}")
-                        # Also emit CSV alongside for safety/audit.
+                        # Pre-flight conflict analysis — non-mutating count of
+                        # how many source logins already exist in the target.
+                        # Surfaces the skip number BEFORE we hit NSS so the
+                        # user sees "12 of 50 already exist; will write 38".
+                        try:
+                            from foxport.migrate.conflicts import analyze_passwords
+                            conflicts = analyze_passwords(req.source, req.target)
+                            self.log.emit(
+                                f"  Pre-flight: {conflicts.duplicates} of {conflicts.source_total} "
+                                f"already in target, {conflicts.new} new."
+                            )
+                        except Exception as exc:  # noqa: BLE001 — informational
+                            self.log.emit(f"  Pre-flight skipped: {exc}")
+                    if policy == "backup-only":
+                        try:
+                            from foxport.fileops import timestamped_backup_path
+                            logins_json = req.target.profile_dir / "logins.json"
+                            backup = timestamped_backup_path(logins_json)
+                            if backup is not None:
+                                import shutil as _shutil
+                                _shutil.copy2(logins_json, backup)
+                                direct_write_backups["passwords"] = backup
+                                self.log.emit(
+                                    f"  Direct-write policy = BACKUP-ONLY — copied "
+                                    f"logins.json to {backup.name}; not writing new entries."
+                                )
+                            else:
+                                self.log.emit(
+                                    "  Direct-write policy = BACKUP-ONLY — target had "
+                                    "no logins.json to back up."
+                                )
+                        except Exception as exc:  # noqa: BLE001
+                            self.log.emit(f"  Backup-only failed: {exc}")
+                    elif policy == "skip":
+                        pass  # Pre-flight already emitted; nothing to do.
+                    else:
+                        self.log.emit("  Direct-write mode: encrypting via target profile's NSS...")
+                        try:
+                            nss_result = migrate_passwords_via_nss(req.source, req.target)
+                        except ProfileLockedError as exc:
+                            self.log.emit(f"  Direct-write aborted: {exc}")
+                            nss_result = None
+                        except Exception as exc:  # noqa: BLE001
+                            self.log.emit(f"  Direct-write failed: {exc} — falling back to CSV.")
+                            nss_result = None
+                        if nss_result is not None:
+                            self.log.emit(
+                                f"  Wrote {nss_result.written} new login(s) into {nss_result.target_logins_json}; "
+                                f"{nss_result.skipped_existing} already present, {nss_result.failed} failed."
+                            )
+                            if nss_result.backup_file is not None:
+                                self.log.emit(f"  Previous logins.json backed up to {nss_result.backup_file.name}")
+                            direct_write_backups["passwords"] = nss_result.backup_file
+                            nss_version = getattr(nss_result, "nss_version", "")
+                            if nss_version:
+                                self.log.emit(f"  NSS version: {nss_version}")
+                            # Also emit CSV alongside for safety/audit.
                 try:
                     result = migrate_passwords(
                         req.source, out_dir, dry_run=req.dry_run, row_filter=row_filter,
@@ -323,31 +365,59 @@ class MigrationWorker(QObject):
                         f"out of {cookie_result.total} total."
                     )
                     if req.direct_write_cookies and req.target and not req.dry_run:
-                        try:
-                            from foxport.migrate.conflicts import analyze_cookies
-                            ck_conflicts = analyze_cookies(req.source, req.target)
+                        policy = req.policy_cookies
+                        if policy != "skip":
+                            try:
+                                from foxport.migrate.conflicts import analyze_cookies
+                                ck_conflicts = analyze_cookies(req.source, req.target)
+                                self.log.emit(
+                                    f"  Pre-flight: {ck_conflicts.source_total} source cookies will "
+                                    f"REPLACE {ck_conflicts.duplicates} existing rows in target."
+                                )
+                            except Exception as exc:  # noqa: BLE001
+                                self.log.emit(f"  Pre-flight skipped: {exc}")
+                        if policy == "skip":
                             self.log.emit(
-                                f"  Pre-flight: {ck_conflicts.source_total} source cookies will "
-                                f"REPLACE {ck_conflicts.duplicates} existing rows in target."
+                                "  Direct-write policy = SKIP — target cookies.sqlite "
+                                "untouched; staging file still produced."
                             )
-                        except Exception as exc:  # noqa: BLE001
-                            self.log.emit(f"  Pre-flight skipped: {exc}")
-                        try:
-                            cdw = write_cookies_into_target(req.source, req.target, out_dir)
-                        except ProfileLockedError as exc:
-                            self.log.emit(f"  Cookies direct-write aborted: {exc}")
+                        elif policy == "backup-only":
+                            try:
+                                from foxport.fileops import timestamped_backup_path
+                                import shutil as _shutil
+                                target_db = req.target.profile_dir / "cookies.sqlite"
+                                backup = timestamped_backup_path(target_db)
+                                if backup is not None:
+                                    _shutil.copy2(target_db, backup)
+                                    direct_write_backups["cookies"] = backup
+                                    self.log.emit(
+                                        f"  Direct-write policy = BACKUP-ONLY — copied "
+                                        f"cookies.sqlite to {backup.name}; not replacing."
+                                    )
+                                else:
+                                    self.log.emit(
+                                        "  Direct-write policy = BACKUP-ONLY — target had "
+                                        "no cookies.sqlite to back up."
+                                    )
+                            except Exception as exc:  # noqa: BLE001
+                                self.log.emit(f"  Backup-only failed: {exc}")
                         else:
-                            direct_write_backups["cookies"] = cdw.backup_path
-                            if cdw.backup_path is not None:
-                                self.log.emit(
-                                    f"  Wrote cookies.sqlite into {cdw.target_path}; "
-                                    f"previous backed up as {cdw.backup_path.name}"
-                                )
+                            try:
+                                cdw = write_cookies_into_target(req.source, req.target, out_dir)
+                            except ProfileLockedError as exc:
+                                self.log.emit(f"  Cookies direct-write aborted: {exc}")
                             else:
-                                self.log.emit(
-                                    f"  Wrote cookies.sqlite into {cdw.target_path} "
-                                    "(no previous file to back up)"
-                                )
+                                direct_write_backups["cookies"] = cdw.backup_path
+                                if cdw.backup_path is not None:
+                                    self.log.emit(
+                                        f"  Wrote cookies.sqlite into {cdw.target_path}; "
+                                        f"previous backed up as {cdw.backup_path.name}"
+                                    )
+                                else:
+                                    self.log.emit(
+                                        f"  Wrote cookies.sqlite into {cdw.target_path} "
+                                        "(no previous file to back up)"
+                                    )
 
             if req.do_history:
                 current += 1
@@ -369,36 +439,64 @@ class MigrationWorker(QObject):
                     f"({len(history_result.failures)} failed)."
                 )
                 if req.direct_write_history and req.target and not req.dry_run:
-                    try:
-                        from foxport.migrate.conflicts import analyze_history
-                        h_conflicts = analyze_history(req.source, req.target)
-                        self.log.emit(
-                            f"  Pre-flight: {h_conflicts.source_total} source URLs will "
-                            f"REPLACE {h_conflicts.duplicates} existing places.sqlite rows."
-                        )
-                    except Exception as exc:  # noqa: BLE001
-                        self.log.emit(f"  Pre-flight skipped: {exc}")
-                    try:
-                        hdw = write_history_into_target(req.source, req.target, out_dir)
-                    except ProfileLockedError as exc:
-                        self.log.emit(f"  History direct-write aborted: {exc}")
-                    else:
-                        direct_write_backups["history"] = hdw.backup_path
-                        if hdw.backup_path is not None:
-                            places_note = f"previous backed up as {hdw.backup_path.name}"
-                        else:
-                            places_note = "no previous places.sqlite to back up"
-                        if hdw.favicons_backup_path is not None:
-                            favicons_note = (
-                                f" favicons.sqlite moved aside to "
-                                f"{hdw.favicons_backup_path.name} (Firefox will rebuild)."
+                    policy = req.policy_history
+                    if policy != "skip":
+                        try:
+                            from foxport.migrate.conflicts import analyze_history
+                            h_conflicts = analyze_history(req.source, req.target)
+                            self.log.emit(
+                                f"  Pre-flight: {h_conflicts.source_total} source URLs will "
+                                f"REPLACE {h_conflicts.duplicates} existing places.sqlite rows."
                             )
-                        else:
-                            favicons_note = ""
+                        except Exception as exc:  # noqa: BLE001
+                            self.log.emit(f"  Pre-flight skipped: {exc}")
+                    if policy == "skip":
                         self.log.emit(
-                            f"  Wrote places.sqlite into {hdw.target_path}; "
-                            f"{places_note}.{favicons_note}"
+                            "  Direct-write policy = SKIP — target places.sqlite "
+                            "untouched; staging file still produced."
                         )
+                    elif policy == "backup-only":
+                        try:
+                            from foxport.fileops import timestamped_backup_path
+                            import shutil as _shutil
+                            target_db = req.target.profile_dir / "places.sqlite"
+                            backup = timestamped_backup_path(target_db)
+                            if backup is not None:
+                                _shutil.copy2(target_db, backup)
+                                direct_write_backups["history"] = backup
+                                self.log.emit(
+                                    f"  Direct-write policy = BACKUP-ONLY — copied "
+                                    f"places.sqlite to {backup.name}; not replacing."
+                                )
+                            else:
+                                self.log.emit(
+                                    "  Direct-write policy = BACKUP-ONLY — target had "
+                                    "no places.sqlite to back up."
+                                )
+                        except Exception as exc:  # noqa: BLE001
+                            self.log.emit(f"  Backup-only failed: {exc}")
+                    else:
+                        try:
+                            hdw = write_history_into_target(req.source, req.target, out_dir)
+                        except ProfileLockedError as exc:
+                            self.log.emit(f"  History direct-write aborted: {exc}")
+                        else:
+                            direct_write_backups["history"] = hdw.backup_path
+                            if hdw.backup_path is not None:
+                                places_note = f"previous backed up as {hdw.backup_path.name}"
+                            else:
+                                places_note = "no previous places.sqlite to back up"
+                            if hdw.favicons_backup_path is not None:
+                                favicons_note = (
+                                    f" favicons.sqlite moved aside to "
+                                    f"{hdw.favicons_backup_path.name} (Firefox will rebuild)."
+                                )
+                            else:
+                                favicons_note = ""
+                            self.log.emit(
+                                f"  Wrote places.sqlite into {hdw.target_path}; "
+                                f"{places_note}.{favicons_note}"
+                            )
 
             if req.do_autofill:
                 current += 1
@@ -470,33 +568,63 @@ class MigrationWorker(QObject):
                 if not req.dry_run and ot_result.tabs > 0:
                     exports["open_tabs"] = ot_result.out_path
                 if req.direct_write_open_tabs and req.target and not req.dry_run and ot_result.tabs > 0:
-                    try:
-                        from foxport.migrate.conflicts import analyze_open_tabs
-                        ot_conflicts = analyze_open_tabs(req.source, req.target)
+                    policy = req.policy_open_tabs
+                    if policy != "skip":
+                        try:
+                            from foxport.migrate.conflicts import analyze_open_tabs
+                            ot_conflicts = analyze_open_tabs(req.source, req.target)
+                            self.log.emit(
+                                f"  Pre-flight: {ot_conflicts.source_total} source tabs will "
+                                f"REPLACE {ot_conflicts.duplicates} existing session tab(s)."
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            self.log.emit(f"  Pre-flight skipped: {exc}")
+                    if policy == "skip":
                         self.log.emit(
-                            f"  Pre-flight: {ot_conflicts.source_total} source tabs will "
-                            f"REPLACE {ot_conflicts.duplicates} existing session tab(s)."
+                            "  Direct-write policy = SKIP — target recovery.jsonlz4 "
+                            "untouched; staging file still produced."
                         )
-                    except Exception as exc:  # noqa: BLE001
-                        self.log.emit(f"  Pre-flight skipped: {exc}")
-                    try:
-                        ot_install = write_session_into_target(
-                            req.source, req.target, out_dir,
-                        )
-                    except ProfileLockedError as exc:
-                        self.log.emit(f"  Open-tabs direct-write aborted: {exc}")
+                    elif policy == "backup-only":
+                        try:
+                            from foxport.fileops import timestamped_backup_path
+                            import shutil as _shutil
+                            target_recovery = (
+                                req.target.profile_dir / "sessionstore-backups" / "recovery.jsonlz4"
+                            )
+                            backup = timestamped_backup_path(target_recovery)
+                            if backup is not None:
+                                _shutil.copy2(target_recovery, backup)
+                                direct_write_backups["open_tabs"] = backup
+                                self.log.emit(
+                                    f"  Direct-write policy = BACKUP-ONLY — copied "
+                                    f"recovery.jsonlz4 to {backup.name}; not replacing."
+                                )
+                            else:
+                                self.log.emit(
+                                    "  Direct-write policy = BACKUP-ONLY — target had "
+                                    "no recovery.jsonlz4 to back up."
+                                )
+                        except Exception as exc:  # noqa: BLE001
+                            self.log.emit(f"  Backup-only failed: {exc}")
                     else:
-                        direct_write_backups["open_tabs"] = ot_install.backup_path
-                        if ot_install.backup_path is not None:
-                            self.log.emit(
-                                f"  Wrote recovery.jsonlz4 to {ot_install.target_path}; "
-                                f"previous backed up as {ot_install.backup_path.name}"
+                        try:
+                            ot_install = write_session_into_target(
+                                req.source, req.target, out_dir,
                             )
+                        except ProfileLockedError as exc:
+                            self.log.emit(f"  Open-tabs direct-write aborted: {exc}")
                         else:
-                            self.log.emit(
-                                f"  Wrote recovery.jsonlz4 to {ot_install.target_path} "
-                                "(no previous file to back up)"
-                            )
+                            direct_write_backups["open_tabs"] = ot_install.backup_path
+                            if ot_install.backup_path is not None:
+                                self.log.emit(
+                                    f"  Wrote recovery.jsonlz4 to {ot_install.target_path}; "
+                                    f"previous backed up as {ot_install.backup_path.name}"
+                                )
+                            else:
+                                self.log.emit(
+                                    f"  Wrote recovery.jsonlz4 to {ot_install.target_path} "
+                                    "(no previous file to back up)"
+                                )
 
             if not req.dry_run:
                 instructions_path = out_dir / "README.txt"
@@ -632,14 +760,22 @@ def _write_run_manifest(
 
     target_label = req.target.label if req.target else ""
     direct_write_keys = set()
+    # Per-category policy lookup matches what the worker actually
+    # applied; empty string for categories that didn't go through the
+    # direct-write path so the manifest stays accurate.
+    direct_write_policy: dict[str, str] = {}
     if req.direct_write_passwords:
         direct_write_keys.add("passwords")
+        direct_write_policy["passwords"] = req.policy_passwords
     if req.direct_write_cookies:
         direct_write_keys.add("cookies")
+        direct_write_policy["cookies"] = req.policy_cookies
     if req.direct_write_history:
         direct_write_keys.add("history")
+        direct_write_policy["history"] = req.policy_history
     if req.direct_write_open_tabs:
         direct_write_keys.add("open_tabs")
+        direct_write_policy["open_tabs"] = req.policy_open_tabs
 
     artifacts = []
     for key, path in exports.items():
@@ -651,6 +787,7 @@ def _write_run_manifest(
                 count=counts.get(key),
                 direct_write=key in direct_write_keys,
                 backup_path=direct_write_backups.get(key),
+                direct_write_policy=direct_write_policy.get(key, ""),
             )
         except (OSError, ValueError):
             # File missing or outside out_dir; skip rather than fail the

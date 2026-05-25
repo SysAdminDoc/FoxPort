@@ -95,12 +95,20 @@ the GUI + CLI + parser surfaces. See CHANGELOG.md for details.
 Phase C of the v1.3 plan — most of it shipped in v1.3.0, these are the
 follow-ons.
 
-- [ ] **P1** Conflict review dialog + per-category direct-write policy
-      Pre-flight analyzers (`foxport/migrate/conflicts.py`) already produce
-      counts; add a modal between Preview and Run when direct-write is on
-      for any category. Per-category policy: skip / overwrite / backup-only
-      (merge defers to v1.4). CLI: `--direct-write-policy=... --yes`.
-      Manifest records the chosen policy per category.
+- [x] **P1** Conflict review dialog + per-category direct-write policy
+      `DirectWritePolicyDialog` opens between Preview and Run (gated on
+      `forward + non-dry-run + target + any direct_write_*`). Each
+      enabled category gets a card with pre-flight counts + a dropdown
+      of `{apply, skip, backup-only}`. Default is `apply` (v1.3
+      behavior). Worker reads the policy per category and branches:
+      `skip` leaves the target untouched, `backup-only` takes the
+      timestamped backup but doesn't write the new content, `apply`
+      runs the existing nss_*_into_target paths. Manifest records the
+      policy verbatim in `RunArtifact.direct_write_policy` (additive
+      to schema v1; legacy manifests default to empty). CLI
+      `--direct-write-policy {apply,skip,backup-only}` + `--yes` flags
+      reserved. Seven new tests in
+      `tests/test_direct_write_policy.py`.
 - [x] **P1** Snapshot inspect reads inner `RunManifest`
       `RestoreInspectDialog` now picks up the bundled per-run manifest
       (when present) and renders direction / items / network / warnings

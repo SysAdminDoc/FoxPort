@@ -25,6 +25,7 @@ import sqlite3
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 from foxport.browsers.chromium import (
     PasswordRow,
@@ -33,6 +34,41 @@ from foxport.browsers.chromium import (
 )
 from foxport.browsers.detect import ChromiumProfile, FirefoxProfile
 from foxport.migrate.passwords import _FOXPORT_LOGIN_NAMESPACE
+
+
+# Per-category direct-write policy. Values land in MigrationRequest fields
+# (policy_passwords / policy_cookies / policy_history / policy_open_tabs)
+# and in the manifest's RunArtifact.direct_write_policy for the record.
+#
+#   "apply"       — current v1.3 behavior. For passwords: NSS merge by
+#                   deterministic GUID. For cookies / history /
+#                   open_tabs: replace the target file wholesale after
+#                   backing it up to a timestamped sibling. This is the
+#                   safest non-trivial choice and stays the default.
+#   "skip"        — don't run the direct-write at all. Staging output
+#                   is still written to the run's output folder so the
+#                   user can manually import it later via Firefox's UI.
+#                   The target file is untouched.
+#   "backup-only" — take the timestamped backup of the existing target
+#                   file (the same one "apply" would produce), but do
+#                   NOT actually write the new content. Useful when the
+#                   user wants to snapshot Firefox's current state before
+#                   making any decisions.
+DirectWritePolicy = Literal["apply", "skip", "backup-only"]
+
+
+DIRECT_WRITE_POLICIES: tuple[str, ...] = ("apply", "skip", "backup-only")
+DIRECT_WRITE_POLICY_DEFAULT: DirectWritePolicy = "apply"
+
+
+# Human-readable explanation per policy — surfaced by the
+# DirectWritePolicyDialog so the user sees the consequence next to the
+# dropdown without having to re-read the ROADMAP.
+DIRECT_WRITE_POLICY_LABELS: dict[str, str] = {
+    "apply": "Apply (default — merge passwords, replace cookies/history/open-tabs after backup)",
+    "skip": "Skip (don't touch the target profile; staging output only)",
+    "backup-only": "Backup only (timestamp-copy the target file but don't write new content)",
+}
 
 
 @dataclass
