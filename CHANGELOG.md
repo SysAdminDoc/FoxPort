@@ -6,6 +6,21 @@ All notable changes to FoxPort are documented here. Format roughly follows
 
 ## [Unreleased]
 
+### Added
+- **Raster logo / favicon set.** `assets/icon.ico` now ships a
+  multi-resolution Windows ICO (16/24/32/48/64/128/256 px) plus
+  `assets/icon-256.png`, `assets/icon-32.png`, and `assets/icon-16.png`
+  PNG favicons. The artwork is two opposing arrows on a Catppuccin Mocha
+  rounded panel — the visual shorthand for FoxPort's bidirectional
+  Chromium ↔ Firefox migration. `scripts/generate_icon.py` rebuilds
+  every frame deterministically from code, `foxport.spec` already picks
+  up `assets/icon.ico` for the Windows EXE resource, the spec also
+  bundles the ICO as a runtime data file, and `foxport.app` calls
+  `QApplication.setWindowIcon()` so the title bar + taskbar pick up
+  the same artwork in both dev runs and signed installs. Closes the
+  v1.3.2 P0 icon gate (only the code-signing cert remains). Seven new
+  tests in `tests/test_app_icon.py`.
+
 ### Changed
 - **Curated extension map hot-reload + AMO cache.** Extension matching now
   reloads the active curated map for each run instead of relying on

@@ -33,16 +33,17 @@ bump. See CHANGELOG.md.
 - [x] **P1** Bump `__version__` 1.3.0 → 1.3.1
 - [x] **P2** Refresh CLAUDE.md status block
 
-## v1.3.2 — Distribution path  ⏸ blocked on cert + icon
+## v1.3.2 — Distribution path  ⏸ blocked on cert
 
-Requires a human-provisioned signing cert and a real `assets/icon.ico`.
-The release workflow is already wired (`release.yml:107-133` + signing
-secrets); these two are the only remaining gates.
+Requires a human-provisioned signing cert. The release workflow is
+already wired (`release.yml:107-133` + signing secrets); `assets/icon.ico`
+landed with the v1.4 P3 raster-logo task. The signing cert is the only
+remaining gate.
 
 - [ ] **P0** Signed Windows release
       Set `WINDOWS_CERT_BASE64` / `WINDOWS_CERT_PASSWORD` org secrets
-      (SignPath OSS program recommended). Drop `assets/icon.ico` (raster +
-      favicon). Run `workflow_dispatch v1.3.2-rc1` and verify.
+      (SignPath OSS program recommended). `assets/icon.ico` already
+      ships. Run `workflow_dispatch v1.3.2-rc1` and verify.
 - [ ] **P0** Bundle the ABE sidecar in the release
       `foxport/data/foxport_abe.exe` ships only when the MSVC step has
       already produced it locally; the release workflow does build it.
@@ -296,8 +297,20 @@ the last P1 (conflict-review dialog) plus the P2/P3 follow-ons.
       continue to grow, but the yield-and-banner pattern delivers the
       perceived responsiveness win with zero invasive churn to the
       tested code paths.
-- [ ] **P3** Raster logo / favicon set
-      Banner is SVG only; signed release expects an `.ico`.
+- [x] **P3** Raster logo / favicon set
+      `assets/icon.ico` ships a multi-resolution Windows ICO
+      (16/24/32/48/64/128/256 px); `assets/icon-256.png` +
+      `assets/icon-32.png` + `assets/icon-16.png` cover PNG favicons.
+      `scripts/generate_icon.py` renders every frame deterministically
+      from code (two opposing arrows on a Catppuccin Mocha rounded
+      panel — the visual shorthand for bidirectional migration).
+      `foxport.spec` picks the ICO up for the EXE resource *and*
+      bundles it as a runtime data file; `foxport.app` resolves the
+      bundled path through `resolve_app_icon_path()` and calls
+      `QApplication.setWindowIcon()` so dev runs and signed installs
+      both show the icon. Seven new tests in
+      `tests/test_app_icon.py`. The v1.3.2 distribution gate now
+      depends only on the code-signing cert.
 
 ## Open items inherited from earlier roadmaps
 

@@ -31,6 +31,12 @@ if _abe.is_file():
 _changelog = Path("CHANGELOG.md")
 if _changelog.is_file():
     datas.append((str(_changelog), "."))
+# Bundle the runtime window icon. The EXE resource icon is set below via
+# `exe_kwargs["icon"]`; this entry is what foxport.app.resolve_app_icon_path
+# loads at runtime so the title bar + taskbar pick up the same artwork
+# inside a packaged install.
+if _icon.is_file():
+    datas.append((str(_icon), "assets"))
 
 a = Analysis(
     ["foxport/__main__.py"],
