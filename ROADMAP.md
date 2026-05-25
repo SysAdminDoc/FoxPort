@@ -67,10 +67,12 @@ follow-ons.
       bundles without an inner manifest fall back to today's behavior.
       Untrusted fields are HTML-escaped. Four tests in
       `tests/test_restore_inspect_inner_manifest.py`.
-- [ ] **P1** CLI `--json` on migrate / migrate-reverse / diff / snapshot / restore
-      `list --json` is the precedent. Same shape as `manifest.json` for
-      migrate/migrate-reverse; command-specific schema_versioned payloads
-      for diff/snapshot/restore. No secrets in output.
+- [x] **P1** CLI `--json` on migrate / migrate-reverse / diff / snapshot / restore
+      `--json` now suppresses per-category text output and emits a
+      schema-versioned payload on stdout for every subcommand that
+      supports it. Errors stay on stderr. `_JSON_SCHEMA_VERSIONS`
+      constant + 5 new tests in `tests/test_cli_json.py` exercise the
+      shapes end-to-end via `main()`.
 - [x] **P1** HIBP tri-state ("checked-clean" vs "checked-hits" vs
       "network-error" vs "disabled")
       `scan_passwords` now returns `HibpScanResult` with hits + queries +

@@ -62,6 +62,20 @@ that prevents the curated-map drift recurring.
   Windows-first with macOS / Linux supported via the same steps.
 
 ### Added
+- **`--json` on every action subcommand.** `list --json` shipped in
+  v1.3.0; this batch extends the same pattern to `migrate`,
+  `migrate-reverse`, `diff`, `snapshot`, and `restore`. When `--json`
+  is set, per-category text output is suppressed and a single
+  schema-versioned JSON object is emitted on stdout (errors stay on
+  stderr). For `migrate` / `migrate-reverse` the shape mirrors the
+  on-disk `manifest.json` plus an `out_dir` pointer; for `diff`,
+  `snapshot`, `restore` it's a small command-specific payload with
+  command-name + schema_version + the relevant labels / counts /
+  paths. `_JSON_SCHEMA_VERSIONS` constant lists every command's
+  current version so a stray bump surfaces in one place. Five new
+  end-to-end tests in `tests/test_cli_json.py` drive every shape
+  through `main()`. Guard test ensures no plaintext appears in the
+  diff JSON output.
 - **HIBP tri-state status** distinguishing "scan ran, no hits"
   ("checked-clean") from "scan never actually ran" ("network-error")
   and from "user opted in and breaches were found" ("checked-hits") /

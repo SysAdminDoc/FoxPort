@@ -67,6 +67,33 @@ ALL_ITEMS = (
 REVERSE_ITEMS = ("passwords", "bookmarks", "extensions")
 
 
+# Stable JSON schema versions per command. Bump additively — readers
+# pin schema_version, so a new optional field is safe to add but a
+# rename or removal is not. List used by the docs + tests so a stray
+# bump shows up in CI.
+_JSON_SCHEMA_VERSIONS = {
+    "list": 1,
+    "migrate": 1,
+    "migrate-reverse": 1,
+    "diff": 1,
+    "snapshot": 1,
+    "restore": 1,
+}
+
+
+def _emit_json(payload: dict) -> None:
+    """Print ``payload`` to stdout as JSON. Single shared shape:
+    ``schema_version`` + ``foxport_version`` keys at the root, command-
+    specific fields alongside. Never includes plaintext secrets — that's
+    the caller's invariant (mirrored in ``test_cli_json_no_secrets`` for
+    migrate, and the per-command schema snapshots).
+    """
+
+    import json as _json
+    payload.setdefault("foxport_version", __version__)
+    print(_json.dumps(payload, indent=2, default=str))
+
+
 class AmbiguousProfileMatch(SystemExit):
     """Raised when a CLI ``--source``/``--target`` substring matches >1 profile.
 
@@ -241,6 +268,16 @@ def _profile_detail_counts(profile: ChromiumProfile) -> list[tuple[str, int]]:
 
 
 def _cmd_migrate(args: argparse.Namespace) -> int:
+    # --json mode silences all per-category text output so callers can
+    # pipe stdout straight into a JSON parser. Errors still go to
+    # stderr (text), preserving the typical "stdout is the contract,
+    # stderr is the chatter" CLI shape.
+    json_mode = getattr(args, "json", False)
+
+    def _log(msg: str) -> None:
+        if not json_mode:
+            print(msg)
+
     chromium = detect_chromium()
     firefox = detect_firefox()
     source = _find_chromium(args.source, chromium)
@@ -264,119 +301,137 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
     if args.dry_run:
         target_label += "_dryrun"
     out_dir = make_export_dir(out_root, source.label, target_label)
-    print(f"Source: {source.label}")
-    print(f"Target: {target.label if target else '(none - files only)'}")
-    print(f"Items:  {', '.join(sorted(items))}")
-    print(f"Output: {out_dir}")
+    _log(f"Source: {source.label}")
+    _log(f"Target: {target.label if target else '(none - files only)'}")
+    _log(f"Items:  {', '.join(sorted(items))}")
+    _log(f"Output: {out_dir}")
     if args.dry_run:
-        print("Mode:   DRY RUN")
+        _log("Mode:   DRY RUN")
 
     already_installed: set[str] = set()
     if target and not args.dry_run:
         already_installed = read_installed_firefox_extensions(target)
 
     exports: dict[str, Path] = {}
+    # Per-category counts surfaced in the --json payload so callers
+    # don't have to parse the human-readable lines. Stays an empty dict
+    # in text mode (zero overhead).
+    json_counts: dict[str, int] = {}
+    hibp_status_for_network = "enabled" if args.hibp else "disabled"
 
     if "passwords" in items:
-        print("\n[passwords]")
+        _log("\n[passwords]")
         try:
             r = migrate_passwords(source, out_dir, dry_run=args.dry_run, hibp_scan=args.hibp)
         except DecryptionError as exc:
-            print(f"  FAILED: {exc}")
+            _log(f"  FAILED: {exc}")
         else:
-            print(f"  {r.decrypted} decrypted, {r.skipped_empty} empty, "
-                  f"{r.failed} failed of {r.total} total")
+            _log(f"  {r.decrypted} decrypted, {r.skipped_empty} empty, "
+                 f"{r.failed} failed of {r.total} total")
+            json_counts["passwords"] = r.decrypted
             if args.hibp:
-                print(f"  HIBP: {r.hibp_hits} compromised passwords"
-                      + (f" - see {r.hibp_report_path.name}" if r.hibp_report_path else ""))
+                _log(f"  HIBP: {r.hibp_hits} compromised passwords"
+                     + (f" - see {r.hibp_report_path.name}" if r.hibp_report_path else ""))
                 if r.hibp_report_path and not args.dry_run:
                     exports["hibp"] = r.hibp_report_path
+                json_counts["hibp"] = r.hibp_hits
+                hibp_status_for_network = getattr(r, "hibp_status", "enabled")
             if not args.dry_run:
                 exports["passwords"] = r.csv_path
 
     if "bookmarks" in items:
-        print("\n[bookmarks]")
+        _log("\n[bookmarks]")
         r = migrate_bookmarks(source, out_dir, dry_run=args.dry_run)
-        print(f"  {r.urls} URLs across {r.folders} folders")
+        _log(f"  {r.urls} URLs across {r.folders} folders")
+        json_counts["bookmarks"] = r.urls
         if not args.dry_run:
             exports["bookmarks"] = r.html_path
 
     if "extensions" in items:
-        print("\n[extensions]")
+        _log("\n[extensions]")
         r = migrate_extensions(
             source, out_dir,
             online=not args.no_online,
             already_installed_guids=already_installed,
             dry_run=args.dry_run,
         )
-        print(f"  {r.matched} matched ({r.already_installed} already installed), "
-              f"{r.unmatched} unmatched of {len(r.matches)} installed")
+        _log(f"  {r.matched} matched ({r.already_installed} already installed), "
+             f"{r.unmatched} unmatched of {len(r.matches)} installed")
+        json_counts["extensions"] = len(r.matches)
         if not args.dry_run:
             exports["extensions"] = r.html_path
 
     if "cookies" in items:
-        print("\n[cookies]")
+        _log("\n[cookies]")
         try:
             r = migrate_cookies(source, out_dir, dry_run=args.dry_run)
         except DecryptionError as exc:
-            print(f"  FAILED: {exc}")
+            _log(f"  FAILED: {exc}")
         else:
-            print(f"  {r.decrypted} decrypted, {r.failed} failed of {r.total} total")
+            _log(f"  {r.decrypted} decrypted, {r.failed} failed of {r.total} total")
+            json_counts["cookies"] = r.decrypted
             if not args.dry_run:
                 exports["cookies"] = r.sqlite_path
 
     if "history" in items:
-        print("\n[history]")
+        _log("\n[history]")
         r = migrate_history(source, out_dir, dry_run=args.dry_run)
-        print(f"  {r.urls} URLs / {r.visits} visits ({len(r.failures)} failed)")
+        _log(f"  {r.urls} URLs / {r.visits} visits ({len(r.failures)} failed)")
+        json_counts["history"] = r.visits
         if not args.dry_run:
             exports["history"] = r.sqlite_path
 
     if "autofill" in items:
-        print("\n[autofill]")
+        _log("\n[autofill]")
         r = migrate_autofill(source, out_dir, dry_run=args.dry_run)
-        print(f"  {r.written} field/value pairs ({r.skipped} skipped, {len(r.failures)} failed)")
+        _log(f"  {r.written} field/value pairs ({r.skipped} skipped, {len(r.failures)} failed)")
+        json_counts["autofill"] = r.written
         if not args.dry_run:
             exports["autofill"] = r.sqlite_path
 
     if "cards" in items:
-        print("\n[cards]")
+        _log("\n[cards]")
         try:
             r = migrate_cards(source, out_dir, dry_run=args.dry_run)
         except DecryptionError as exc:
-            print(f"  FAILED: {exc}")
+            _log(f"  FAILED: {exc}")
         else:
-            print(f"  {r.decrypted} decrypted, {r.failed} failed of {r.total} total")
+            _log(f"  {r.decrypted} decrypted, {r.failed} failed of {r.total} total")
+            json_counts["cards"] = r.decrypted
             if not args.dry_run and r.decrypted > 0:
                 exports["cards"] = r.csv_path
 
     if "search_engines" in items:
-        print("\n[search_engines]")
+        _log("\n[search_engines]")
         r = migrate_search_engines(source, out_dir, dry_run=args.dry_run)
-        print(f"  {r.written} OpenSearch XML files written ({r.total} total entries)")
+        _log(f"  {r.written} OpenSearch XML files written ({r.total} total entries)")
+        json_counts["search_engines"] = r.total
         if not args.dry_run:
             exports["search_engines"] = r.json_path
 
     if "open_tabs" in items:
-        print("\n[open_tabs]")
+        _log("\n[open_tabs]")
         r = migrate_open_tabs(source, out_dir, dry_run=args.dry_run)
-        print(f"  {r.tabs} URL(s) recovered ({len(r.failures)} failure(s))")
+        _log(f"  {r.tabs} URL(s) recovered ({len(r.failures)} failure(s))")
+        json_counts["open_tabs"] = r.tabs
         if not args.dry_run and r.tabs > 0:
             exports["open_tabs"] = r.out_path
 
     if "downloads" in items:
-        print("\n[downloads]")
+        _log("\n[downloads]")
         r = migrate_downloads(source, out_dir, dry_run=args.dry_run)
-        print(f"  {r.written} of {r.total} download(s) exported")
+        _log(f"  {r.written} of {r.total} download(s) exported")
+        json_counts["downloads"] = r.written
         if not args.dry_run and r.written > 0:
             exports["downloads"] = r.csv_path
 
+    manifest_path: Path | None = None
     if exports:
         instructions_path = out_dir / "README.txt"
         instructions_path.write_text(
             import_instructions(target, exports), encoding="utf-8"
         )
-        print(f"\nInstructions: {instructions_path}")
+        _log(f"\nInstructions: {instructions_path}")
         manifest_path = _write_cli_manifest(
             out_dir=out_dir,
             source_label=source.label,
@@ -387,10 +442,33 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
             exports=exports,
             network={
                 "addons.mozilla.org": "disabled" if args.no_online else "enabled",
-                "api.pwnedpasswords.com": "enabled" if args.hibp else "disabled",
+                "api.pwnedpasswords.com": hibp_status_for_network,
             },
         )
-        print(f"Manifest:     {manifest_path}")
+        _log(f"Manifest:     {manifest_path}")
+    if json_mode:
+        # Mirror the on-disk manifest into stdout — same shape as
+        # `RunManifest`, plus an `out_dir` pointer so callers can find
+        # the artifacts. Never includes plaintext (manifest layer
+        # already enforces that — see foxport/manifest.py).
+        payload = {
+            "schema_version": _JSON_SCHEMA_VERSIONS["migrate"],
+            "command": "migrate",
+            "out_dir": str(out_dir),
+            "source": source.label,
+            "target": target.label if target else "",
+            "direction": "forward",
+            "dry_run": bool(args.dry_run),
+            "items_requested": sorted(items),
+            "counts": json_counts,
+            "exports": {k: str(v) for k, v in exports.items()},
+            "manifest_path": str(manifest_path) if manifest_path else "",
+            "network": {
+                "addons.mozilla.org": "disabled" if args.no_online else "enabled",
+                "api.pwnedpasswords.com": hibp_status_for_network,
+            },
+        }
+        _emit_json(payload)
     return 0
 
 
@@ -462,6 +540,10 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Skip AMO online lookup for unknown extensions")
     mig.add_argument("--hibp", action="store_true",
                      help="Check decrypted passwords against haveibeenpwned.com (k-anonymity API)")
+    mig.add_argument("--json", action="store_true",
+                     help="Suppress per-category text output and emit a schema-versioned "
+                          "JSON payload on stdout instead (same shape as the on-disk "
+                          "manifest.json plus an out_dir pointer). Errors still print to stderr.")
 
     snap = sub.add_parser("snapshot",
                           help="Bundle a previous output folder into a portable .fxport archive")
@@ -474,6 +556,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Human label for the target profile")
     snap.add_argument("--passphrase", default="",
                      help="If set, encrypt the bundle with PBKDF2 + AES-256-GCM")
+    snap.add_argument("--json", action="store_true",
+                     help="Emit a schema-versioned JSON payload instead of human text")
 
     restore = sub.add_parser("restore",
                               help="Unpack a .fxport bundle back into a folder")
@@ -483,6 +567,8 @@ def build_parser() -> argparse.ArgumentParser:
                          help="Passphrase for encrypted bundles (omit for plain ones)")
     restore.add_argument("--overwrite", action="store_true",
                          help="Allow restore into a non-empty output directory")
+    restore.add_argument("--json", action="store_true",
+                         help="Emit a schema-versioned JSON payload instead of human text")
 
     diff = sub.add_parser("diff",
                            help="Show what's in the source that the target doesn't have yet")
@@ -490,6 +576,8 @@ def build_parser() -> argparse.ArgumentParser:
     diff.add_argument("--target", required=True, help="Firefox target profile")
     diff.add_argument("--master-password", default="",
                        help="Master password for the target Firefox profile, if set")
+    diff.add_argument("--json", action="store_true",
+                       help="Emit a schema-versioned JSON payload instead of human text")
 
     imp = sub.add_parser("import-bookmarks",
                           help="Convert a Pocket / Pinboard / OPML / Netscape bookmark export to Firefox-importable HTML")
@@ -514,10 +602,18 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Decrypt and count, write nothing")
     rev.add_argument("--out", default=None,
                      help="Output root directory (default: ~/Documents/FoxPort)")
+    rev.add_argument("--json", action="store_true",
+                     help="Emit a schema-versioned JSON payload instead of human text")
     return parser
 
 
 def _cmd_migrate_reverse(args: argparse.Namespace) -> int:
+    json_mode = getattr(args, "json", False)
+
+    def _log(msg: str) -> None:
+        if not json_mode:
+            print(msg)
+
     firefox = detect_firefox()
     source = _find_firefox(args.source, firefox)
     if not source:
@@ -535,37 +631,42 @@ def _cmd_migrate_reverse(args: argparse.Namespace) -> int:
     out_root = Path(args.out) if args.out else Path.home() / "Documents" / "FoxPort"
     label = f"{source.label}_reverse" + ("_dryrun" if args.dry_run else "")
     out_dir = make_export_dir(out_root, label, "chrome")
-    print(f"Source: {source.label}")
-    print(f"Items:  {', '.join(sorted(items))}")
-    print(f"Output: {out_dir}")
+    _log(f"Source: {source.label}")
+    _log(f"Items:  {', '.join(sorted(items))}")
+    _log(f"Output: {out_dir}")
     exports: dict[str, Path] = {}
+    json_counts: dict[str, int] = {}
 
     if "passwords" in items:
-        print("\n[passwords]")
+        _log("\n[passwords]")
         r = migrate_passwords_reverse(source, out_dir,
                                        master_password=args.master_password,
                                        dry_run=args.dry_run)
-        print(f"  {r.written} written, {len(r.failures)} failed of {r.total} total")
+        _log(f"  {r.written} written, {len(r.failures)} failed of {r.total} total")
+        json_counts["passwords"] = r.written
         if not args.dry_run and r.written > 0:
             exports["passwords"] = r.csv_path
     if "bookmarks" in items:
-        print("\n[bookmarks]")
+        _log("\n[bookmarks]")
         r = migrate_bookmarks_reverse(source, out_dir, dry_run=args.dry_run)
-        print(f"  {r.urls} URLs across {r.folders} folders")
+        _log(f"  {r.urls} URLs across {r.folders} folders")
+        json_counts["bookmarks"] = r.urls
         if not args.dry_run and r.urls > 0:
             exports["bookmarks"] = r.html_path
     if "extensions" in items:
-        print("\n[extensions]")
+        _log("\n[extensions]")
         r = migrate_extensions_reverse(source, out_dir, dry_run=args.dry_run)
-        print(f"  {r.matched} matched, {r.unmatched} unmatched of {len(r.matches)} installed")
+        _log(f"  {r.matched} matched, {r.unmatched} unmatched of {len(r.matches)} installed")
+        json_counts["extensions"] = len(r.matches)
         if not args.dry_run and r.matches:
             exports["extensions"] = r.html_path
+    manifest_path: Path | None = None
     if exports:
         instructions_path = out_dir / "README.txt"
         instructions_path.write_text(
             import_instructions(None, exports), encoding="utf-8"
         )
-        print(f"\nInstructions: {instructions_path}")
+        _log(f"\nInstructions: {instructions_path}")
         manifest_path = _write_cli_manifest(
             out_dir=out_dir,
             source_label=source.label,
@@ -579,11 +680,25 @@ def _cmd_migrate_reverse(args: argparse.Namespace) -> int:
                 "api.pwnedpasswords.com": "disabled",
             },
         )
-        print(f"Manifest:     {manifest_path}")
+        _log(f"Manifest:     {manifest_path}")
+    if json_mode:
+        _emit_json({
+            "schema_version": _JSON_SCHEMA_VERSIONS["migrate-reverse"],
+            "command": "migrate-reverse",
+            "out_dir": str(out_dir),
+            "source": source.label,
+            "direction": "reverse",
+            "dry_run": bool(args.dry_run),
+            "items_requested": sorted(items),
+            "counts": json_counts,
+            "exports": {k: str(v) for k, v in exports.items()},
+            "manifest_path": str(manifest_path) if manifest_path else "",
+        })
     return 0
 
 
 def _cmd_diff(args: argparse.Namespace) -> int:
+    json_mode = getattr(args, "json", False)
     chromium = detect_chromium()
     firefox = detect_firefox()
     source = _find_chromium(args.source, chromium)
@@ -596,6 +711,30 @@ def _cmd_diff(args: argparse.Namespace) -> int:
         return 2
     from foxport.diff import diff_profiles
     d = diff_profiles(source, target, master_password=args.master_password)
+    if json_mode:
+        _emit_json({
+            "schema_version": _JSON_SCHEMA_VERSIONS["diff"],
+            "command": "diff",
+            "source": source.label,
+            "target": target.label,
+            "passwords": {
+                "only_in_source": d.passwords_only_in_source,
+                "in_both": d.passwords_in_both,
+                # Sample URL + username only — never any plaintext.
+                "samples": d.samples.get("passwords", []),
+            },
+            "bookmarks": {
+                "only_in_source": d.bookmark_urls_only_in_source,
+                "in_both": d.bookmark_urls_in_both,
+                "samples": d.samples.get("bookmarks", []),
+            },
+            "extensions": {
+                "only_in_source": d.extensions_only_in_source,
+                "in_both": d.extensions_in_both,
+                "samples": d.samples.get("extensions", []),
+            },
+        })
+        return 0
     print(f"Diff: {source.label} -> {target.label}")
     print()
     print(f"Passwords:  +{d.passwords_only_in_source} new, "
@@ -615,6 +754,7 @@ def _cmd_diff(args: argparse.Namespace) -> int:
 
 def _cmd_snapshot(args: argparse.Namespace) -> int:
     from foxport.snapshot import create_snapshot
+    json_mode = getattr(args, "json", False)
     in_dir = Path(args.input_dir)
     out_path = Path(args.out)
     if not in_dir.is_dir():
@@ -630,6 +770,18 @@ def _cmd_snapshot(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    if json_mode:
+        _emit_json({
+            "schema_version": _JSON_SCHEMA_VERSIONS["snapshot"],
+            "command": "snapshot",
+            "out_path": str(out_path),
+            "source": manifest.source_label,
+            "target": manifest.target_label,
+            "encrypted": manifest.encrypted,
+            "created_iso": manifest.created_iso,
+            "files_count": len(manifest.files),
+        })
+        return 0
     print(f"Bundled {len(manifest.files)} file(s) into {out_path}")
     print(f"  Source: {manifest.source_label}")
     print(f"  Target: {manifest.target_label}")
@@ -639,6 +791,7 @@ def _cmd_snapshot(args: argparse.Namespace) -> int:
 
 def _cmd_restore(args: argparse.Namespace) -> int:
     from foxport.snapshot import restore_snapshot
+    json_mode = getattr(args, "json", False)
     bundle = Path(args.snapshot)
     out_dir = Path(args.out_dir)
     if not bundle.is_file():
@@ -654,6 +807,20 @@ def _cmd_restore(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    if json_mode:
+        _emit_json({
+            "schema_version": _JSON_SCHEMA_VERSIONS["restore"],
+            "command": "restore",
+            "out_dir": str(out_dir),
+            "bundle": str(bundle),
+            "source": manifest.source_label,
+            "target": manifest.target_label,
+            "encrypted": manifest.encrypted,
+            "created_iso": manifest.created_iso,
+            "files_count": len(manifest.files),
+            "overwrite": bool(args.overwrite),
+        })
+        return 0
     print(f"Restored {len(manifest.files)} file(s) into {out_dir}")
     print(f"  Source: {manifest.source_label}")
     print(f"  Target: {manifest.target_label}")
