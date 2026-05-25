@@ -46,10 +46,15 @@ for the full list.
       `MigrationContext.counts` replaces the five positional fields.
       Five new GUI smoke tests in `tests/test_gui_run_actions.py`
       (under `QT_QPA_PLATFORM=offscreen`) pin both surfaces.
-- [ ] **P0** Emit `manifest.json` per non-dry-run migration. Single
-      registry consumed by Done UI, generated README, snapshot, future
-      `--json` CLI, and support diagnostics. Schema-versioned, no
-      plaintext secrets.
+- [x] **P0** Emit `manifest.json` per non-dry-run migration.
+      `foxport/manifest.py` ships `RunManifest`, `RunArtifact`,
+      `build_artifact()`, `write_manifest()`, and `load_manifest()`
+      (forward-compatible). GUI worker + CLI forward + CLI reverse
+      paths all emit it alongside `README.txt`. Network-call status
+      recorded; per-artifact SHA-256 + size + sensitivity; direct-
+      write backups captured for passwords / cookies / history.
+      Guard test ensures plaintext secrets never appear in the
+      serialized form.
 
 ### Phase C — Trust + release path
 - [ ] **P0** Signed Windows release with bundled signed ABE sidecar,

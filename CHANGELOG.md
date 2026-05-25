@@ -83,7 +83,24 @@ hardens the surfaces that the v1.3 GUI and release work will land on.
 - `tests/test_gui_run_actions.py` — 5 new tests covering
   `ItemsPage.set_counts(dict)`, unknown-key resilience, Done-screen
   button generation order, signal closure binding, reset cleanup,
-  and failure-state action hiding. **102 tests pass.**
+  and failure-state action hiding.
+
+### Per-run manifest (Phase B)
+- `foxport/manifest.py` — schema-versioned `RunManifest` /
+  `RunArtifact` dataclasses, `build_artifact()` (hashes + sizes +
+  sensitivity labels per artifact key), `write_manifest()`,
+  `load_manifest()` (forward-compatible — unknown top-level and
+  per-artifact keys drop instead of TypeError'ing).
+- GUI worker + both CLI subcommands (`migrate`, `migrate-reverse`)
+  now write `manifest.json` next to `README.txt`. Records source +
+  target labels, direction, dry-run flag, requested items, allowed
+  network endpoints (AMO + HIBP), and per-artifact path / size /
+  SHA-256 / count / sensitivity / direct-write backup path.
+- `tests/test_manifest.py` — 8 tests covering build, write/load
+  round-trip, reveal-vs-open action mapping, direct-write backup
+  recording, relative paths through subdirectories, forward-compat
+  for unknown manifest keys, and a guard that plaintext password
+  bodies never leak into the serialized manifest. **110 tests pass.**
 
 ## [1.2.1] — 2026-05-24
 

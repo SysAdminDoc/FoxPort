@@ -16,6 +16,12 @@ from foxport.browsers.detect import (
 )
 from foxport.browsers.firefox import import_instructions, make_export_dir
 from foxport.crypto.dpapi import DecryptionError
+from foxport.manifest import (
+    RunManifest,
+    build_artifact,
+    now_iso,
+    write_manifest,
+)
 from foxport.migrate.autofill import migrate_autofill
 from foxport.migrate.bookmarks import migrate_bookmarks
 from foxport.migrate.cards import migrate_cards
@@ -116,6 +122,11 @@ class MigrationWorker(QObject):
             self.log.emit("DRY RUN — counts and decrypt tests only; no files will be written.")
         current = 0
         exports: dict[str, Path] = {}
+        # Per-key count + backup tracking for the run manifest. Workers fill
+        # these in as each category finishes; the manifest writer below
+        # consumes the snapshot at the end of the try/except block.
+        counts: dict[str, int] = {}
+        direct_write_backups: dict[str, Path | None] = {}
 
         already_installed: set[str] = set()
         if req.target and not req.dry_run:
@@ -156,6 +167,7 @@ class MigrationWorker(QObject):
                         )
                         if nss_result.backup_file is not None:
                             self.log.emit(f"  Previous logins.json backed up to {nss_result.backup_file.name}")
+                        direct_write_backups["passwords"] = nss_result.backup_file
                         # Also emit CSV alongside for safety/audit.
                 try:
                     result = migrate_passwords(
@@ -167,6 +179,7 @@ class MigrationWorker(QObject):
                 else:
                     if not req.dry_run:
                         exports["passwords"] = result.csv_path
+                    counts["passwords"] = result.decrypted
                     self.log.emit(
                         f"  {result.decrypted} decrypted, {result.skipped_empty} empty, "
                         f"{result.failed} failed out of {result.total} total."
@@ -183,6 +196,7 @@ class MigrationWorker(QObject):
                                 f"— see {result.hibp_report_path.name}"
                             )
                             exports["hibp"] = result.hibp_report_path
+                            counts["hibp"] = result.hibp_hits
                         else:
                             self.log.emit("  HIBP: no passwords found in known breaches.")
 
@@ -210,6 +224,7 @@ class MigrationWorker(QObject):
                 )
                 if not req.dry_run:
                     exports["bookmarks"] = bookmark_result.html_path
+                counts["bookmarks"] = bookmark_result.urls
                 self.log.emit(
                     f"  {bookmark_result.urls} URLs across {bookmark_result.folders} folders."
                 )
@@ -228,6 +243,7 @@ class MigrationWorker(QObject):
                 )
                 if not req.dry_run:
                     exports["extensions"] = ext_result.html_path
+                counts["extensions"] = len(ext_result.matches)
                 if already_installed:
                     self.log.emit(
                         f"  {ext_result.matched} matched ({ext_result.already_installed} already installed), "
@@ -250,6 +266,7 @@ class MigrationWorker(QObject):
                 else:
                     if not req.dry_run:
                         exports["cookies"] = cookie_result.sqlite_path
+                    counts["cookies"] = cookie_result.decrypted
                     self.log.emit(
                         f"  {cookie_result.decrypted} decrypted, {cookie_result.failed} failed "
                         f"out of {cookie_result.total} total."
@@ -260,6 +277,7 @@ class MigrationWorker(QObject):
                         except ProfileLockedError as exc:
                             self.log.emit(f"  Cookies direct-write aborted: {exc}")
                         else:
+                            direct_write_backups["cookies"] = cdw.backup_path
                             if cdw.backup_path is not None:
                                 self.log.emit(
                                     f"  Wrote cookies.sqlite into {cdw.target_path}; "
@@ -285,6 +303,7 @@ class MigrationWorker(QObject):
                 )
                 if not req.dry_run:
                     exports["history"] = history_result.sqlite_path
+                counts["history"] = history_result.visits
                 self.log.emit(
                     f"  {history_result.urls} URLs / {history_result.visits} visits "
                     f"({len(history_result.failures)} failed)."
@@ -295,6 +314,7 @@ class MigrationWorker(QObject):
                     except ProfileLockedError as exc:
                         self.log.emit(f"  History direct-write aborted: {exc}")
                     else:
+                        direct_write_backups["history"] = hdw.backup_path
                         if hdw.backup_path is not None:
                             places_note = f"previous backed up as {hdw.backup_path.name}"
                         else:
@@ -318,6 +338,7 @@ class MigrationWorker(QObject):
                 autofill_result = migrate_autofill(req.source, out_dir, dry_run=req.dry_run)
                 if not req.dry_run:
                     exports["autofill"] = autofill_result.sqlite_path
+                counts["autofill"] = autofill_result.written
                 self.log.emit(
                     f"  {autofill_result.written} field/value pairs written, "
                     f"{autofill_result.skipped} skipped, "
@@ -335,6 +356,7 @@ class MigrationWorker(QObject):
                 else:
                     if not req.dry_run and cards_result.decrypted > 0:
                         exports["cards"] = cards_result.csv_path
+                    counts["cards"] = cards_result.decrypted
                     self.log.emit(
                         f"  {cards_result.decrypted} cards decrypted, "
                         f"{cards_result.failed} failed of {cards_result.total} total."
@@ -347,6 +369,7 @@ class MigrationWorker(QObject):
                 se_result = migrate_search_engines(req.source, out_dir, dry_run=req.dry_run)
                 if not req.dry_run:
                     exports["search_engines"] = se_result.json_path
+                counts["search_engines"] = se_result.total
                 self.log.emit(
                     f"  {se_result.written} OpenSearch XML files written, "
                     f"{se_result.total} total entries."
@@ -359,6 +382,7 @@ class MigrationWorker(QObject):
                 dl_result = migrate_downloads(req.source, out_dir, dry_run=req.dry_run)
                 if not req.dry_run and dl_result.written > 0:
                     exports["downloads"] = dl_result.csv_path
+                counts["downloads"] = dl_result.written
                 self.log.emit(
                     f"  {dl_result.written} download(s) written of "
                     f"{dl_result.total} total."
@@ -369,6 +393,7 @@ class MigrationWorker(QObject):
                 self.step.emit(current, steps)
                 self.log.emit("Reconstructing open tabs from Chromium session...")
                 ot_result = migrate_open_tabs(req.source, out_dir, dry_run=req.dry_run)
+                counts["open_tabs"] = ot_result.tabs
                 self.log.emit(
                     f"  {ot_result.tabs} tab URL(s) recovered "
                     f"({len(ot_result.failures)} failure(s))."
@@ -389,6 +414,14 @@ class MigrationWorker(QObject):
                     import_instructions(req.target, exports), encoding="utf-8"
                 )
                 self.log.emit(f"Instructions written to {instructions_path.name}")
+                manifest_path = _write_run_manifest(
+                    out_dir=out_dir,
+                    req=req,
+                    exports=exports,
+                    direct_write_backups=direct_write_backups,
+                    counts=counts,
+                )
+                self.log.emit(f"Manifest written to {manifest_path.name}")
             else:
                 self.log.emit("Dry-run complete. No files were written.")
             self.finished.emit(True, str(out_dir), {k: str(v) for k, v in exports.items()})
@@ -448,10 +481,99 @@ class MigrationWorker(QObject):
                     import_instructions(req.target, exports), encoding="utf-8"
                 )
                 self.log.emit(f"Instructions: {instructions_path}")
+                # Reverse path uses str-keyed exports; pass them through
+                # build_artifact via the same writer for consistency.
+                _write_run_manifest(
+                    out_dir=out_dir,
+                    req=req,
+                    exports={k: Path(v) for k, v in exports.items()},
+                    direct_write_backups={},
+                    counts={},
+                )
             self.finished.emit(True, str(out_dir), exports)
         except Exception as exc:  # noqa: BLE001
             self.log.emit(f"FATAL: {exc}")
             self.finished.emit(False, str(exc), {})
+
+
+def _selected_items(req: MigrationRequest) -> list[str]:
+    """Return the artifact slugs selected by the user, in canonical order."""
+
+    candidates = [
+        ("passwords", req.do_passwords),
+        ("bookmarks", req.do_bookmarks),
+        ("extensions", req.do_extensions),
+        ("cookies", req.do_cookies),
+        ("history", req.do_history),
+        ("autofill", req.do_autofill),
+        ("cards", req.do_cards),
+        ("search_engines", req.do_search_engines),
+        ("open_tabs", req.do_open_tabs),
+        ("downloads", req.do_downloads),
+    ]
+    return [key for key, enabled in candidates if enabled]
+
+
+def _write_run_manifest(
+    *,
+    out_dir: Path,
+    req: MigrationRequest,
+    exports: dict[str, Path],
+    direct_write_backups: dict[str, Path | None],
+    counts: dict[str, int],
+) -> Path:
+    """Hash every emitted file and write the run manifest next to README.txt.
+
+    Direct-write target paths live outside ``out_dir`` (they're inside the
+    target Firefox profile), so we don't relativize them — they're recorded
+    as absolute backup_path strings so a user can locate the rollback
+    point from a copy of the manifest alone.
+    """
+
+    target_label = req.target.label if req.target else ""
+    direct_write_keys = set()
+    if req.direct_write_passwords:
+        direct_write_keys.add("passwords")
+    if req.direct_write_cookies:
+        direct_write_keys.add("cookies")
+    if req.direct_write_history:
+        direct_write_keys.add("history")
+    if req.direct_write_open_tabs:
+        direct_write_keys.add("open_tabs")
+
+    artifacts = []
+    for key, path in exports.items():
+        try:
+            artifact = build_artifact(
+                key,
+                Path(path),
+                out_dir,
+                count=counts.get(key),
+                direct_write=key in direct_write_keys,
+                backup_path=direct_write_backups.get(key),
+            )
+        except (OSError, ValueError):
+            # File missing or outside out_dir; skip rather than fail the
+            # whole run. The README.txt still references it for the user.
+            continue
+        artifacts.append(artifact)
+
+    network = {
+        "addons.mozilla.org": "enabled" if req.extensions_online and req.do_extensions else "disabled",
+        "api.pwnedpasswords.com": "enabled" if req.hibp_scan and req.do_passwords else "disabled",
+    }
+
+    manifest = RunManifest(
+        created_iso=now_iso(),
+        source_label=req.source.label if req.source else "",
+        target_label=target_label,
+        direction=req.direction,
+        dry_run=req.dry_run,
+        items_requested=_selected_items(req),
+        network=network,
+        artifacts=artifacts,
+    )
+    return write_manifest(manifest, out_dir)
 
 
 def make_thread(worker: QObject) -> QThread:

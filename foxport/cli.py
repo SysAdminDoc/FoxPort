@@ -27,6 +27,12 @@ import sys
 from pathlib import Path
 
 from foxport import __app_name__, __version__
+from foxport.manifest import (
+    RunManifest,
+    build_artifact,
+    now_iso,
+    write_manifest,
+)
 from foxport.browsers.detect import (
     ChromiumProfile,
     FirefoxProfile,
@@ -292,7 +298,57 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
             import_instructions(target, exports), encoding="utf-8"
         )
         print(f"\nInstructions: {instructions_path}")
+        manifest_path = _write_cli_manifest(
+            out_dir=out_dir,
+            source_label=source.label,
+            target_label=target.label if target else "",
+            direction="forward",
+            dry_run=args.dry_run,
+            items=sorted(items),
+            exports=exports,
+            network={
+                "addons.mozilla.org": "disabled" if args.no_online else "enabled",
+                "api.pwnedpasswords.com": "enabled" if args.hibp else "disabled",
+            },
+        )
+        print(f"Manifest:     {manifest_path}")
     return 0
+
+
+def _write_cli_manifest(
+    *,
+    out_dir: Path,
+    source_label: str,
+    target_label: str,
+    direction: str,
+    dry_run: bool,
+    items: list[str],
+    exports: dict[str, Path],
+    network: dict[str, str],
+) -> Path:
+    """CLI-side helper that mirrors the worker's manifest emission.
+
+    Lives next to README.txt; consumed by the snapshot bundler, the future
+    ``--json`` CLI, and support diagnostics.
+    """
+
+    artifacts = []
+    for key, path in exports.items():
+        try:
+            artifacts.append(build_artifact(key, Path(path), out_dir))
+        except (OSError, ValueError):
+            continue
+    manifest = RunManifest(
+        created_iso=now_iso(),
+        source_label=source_label,
+        target_label=target_label,
+        direction=direction,
+        dry_run=dry_run,
+        items_requested=items,
+        network=network,
+        artifacts=artifacts,
+    )
+    return write_manifest(manifest, out_dir)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -415,6 +471,20 @@ def _cmd_migrate_reverse(args: argparse.Namespace) -> int:
             import_instructions(None, exports), encoding="utf-8"
         )
         print(f"\nInstructions: {instructions_path}")
+        manifest_path = _write_cli_manifest(
+            out_dir=out_dir,
+            source_label=source.label,
+            target_label="",
+            direction="reverse",
+            dry_run=args.dry_run,
+            items=sorted(items),
+            exports=exports,
+            network={
+                "addons.mozilla.org": "disabled",
+                "api.pwnedpasswords.com": "disabled",
+            },
+        )
+        print(f"Manifest:     {manifest_path}")
     return 0
 
 
