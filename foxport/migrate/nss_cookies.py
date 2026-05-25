@@ -18,6 +18,7 @@ from foxport.browsers.detect import (
     FirefoxProfile,
     is_firefox_profile_locked,
 )
+from foxport.fileops import replace_file_atomic
 from foxport.migrate.cookies import CookieResult, migrate_cookies
 
 
@@ -70,7 +71,7 @@ def write_cookies_into_target(
                 except OSError:
                     # WAL on a network share can be locked; non-fatal.
                     pass
-    shutil.copy2(cookies_result.sqlite_path, target_path)
+    replace_file_atomic(cookies_result.sqlite_path, target_path)
     return CookieDirectWriteResult(
         target_path=target_path,
         backup_path=backup_path,

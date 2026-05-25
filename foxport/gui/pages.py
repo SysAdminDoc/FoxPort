@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -42,6 +43,7 @@ from foxport.crypto.dpapi import inspect_local_state
 from foxport.gui.widgets import (
     Banner,
     CountBadge,
+    OptionRow,
     Tile,
     WizardPage,
 )
@@ -81,7 +83,9 @@ class MigrationContext:
         self.direct_write_passwords: bool = False
         self.direct_write_cookies: bool = False
         self.direct_write_history: bool = False
+        self.direct_write_open_tabs: bool = False
         self.hibp_scan: bool = False
+        self.mask_passwords_in_preview: bool = True
         self.out_root: Path = Path.home() / "Documents" / "FoxPort"
         # Preview counts
         self.password_count: int = 0
@@ -448,6 +452,7 @@ class TargetPage(WizardPage):
             busy_msg = ("One or more Firefox profiles are currently open. "
                         "Close them before importing — Firefox won't open the import "
                         "dialog otherwise.")
+        self._banner.setVisible(False)
         if not profiles:
             self._banner.setVisible(True)
             self._banner.set_text(empty_msg)
@@ -505,45 +510,58 @@ class ItemsPage(WizardPage):
     def __init__(self, ctx: MigrationContext, parent: QWidget | None = None) -> None:
         super().__init__(
             "Choose what to migrate",
-            "Each category produces a file in the output folder that you import in Firefox.",
+            "Select the data to export. FoxPort keeps the source profile read-only.",
             parent,
         )
         self._ctx = ctx
+        self._body = QWidget()
+        body_layout = QVBoxLayout(self._body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(12)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(self._body)
+        self.add_content(scroll, stretch=1)
 
         card = QFrame()
         card.setObjectName("Card")
+        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(20, 18, 20, 18)
-        card_layout.setSpacing(14)
+        card_layout.setContentsMargins(12, 12, 12, 12)
+        card_layout.setSpacing(6)
         self._passwords_row = self._make_row("Passwords",
-            "Decrypt every saved login with DPAPI and write a CSV your target browser imports via about:logins.",
-            customize_callback=self._customize_passwords)
+            "Export saved logins to a CSV for Firefox about:logins import.",
+            customize_callback=self._customize_passwords,
+            customize_label="Review")
         self._bookmarks_row = self._make_row("Bookmarks",
-            "Convert the entire bookmark tree to Netscape HTML for Library → Import Bookmarks from HTML.",
-            customize_callback=self._customize_bookmarks)
+            "Create a Netscape HTML file for Firefox Library import.",
+            customize_callback=self._customize_bookmarks,
+            customize_label="Folders")
         self._extensions_row = self._make_row("Extensions",
-            "Map each installed Chrome extension to its closest Firefox AMO equivalent and emit a one-click install page.")
+            "Map installed Chrome extensions to Firefox Add-ons install links.")
         self._cookies_row = self._make_row("Cookies",
-            "Decrypt all cookies and emit a fresh Firefox cookies.sqlite. Drop it into a closed Firefox profile.",
+            "Create a Firefox cookies.sqlite for a closed target profile.",
             default_checked=False)
         self._history_row = self._make_row("Browsing history",
-            "Convert the source URL+visit log to a fresh Firefox places.sqlite for swap-in.",
+            "Create a Firefox places.sqlite from source URLs and visits.",
             default_checked=False,
-            customize_callback=self._customize_history)
+            customize_callback=self._customize_history,
+            customize_label="Range")
         self._autofill_row = self._make_row("Form autofill",
-            "Translate Chromium's Web Data.autofill into Firefox's formhistory.sqlite.",
+            "Translate saved form entries into Firefox formhistory.sqlite.",
             default_checked=False)
         self._cards_row = self._make_row("Saved credit cards (CSV)",
-            "Decrypt card numbers and write a CSV. Firefox has no native store; import into a password manager.",
+            "Write card records to CSV for password-manager import.",
             default_checked=False)
         self._search_engines_row = self._make_row("Search engines",
-            "Export every Chromium search engine as OpenSearch XML the user can drag-install in Firefox.",
+            "Export custom search engines as Firefox-installable OpenSearch XML.",
             default_checked=False)
         self._open_tabs_row = self._make_row("Open tabs",
-            "Recover the URL list from Chromium's latest session and emit a Firefox recovery.jsonlz4.",
+            "Recover current session URLs into Firefox recovery.jsonlz4.",
             default_checked=False)
         self._downloads_row = self._make_row("Downloads (CSV)",
-            "Export Chromium's downloads history (source URL, target path, completion time) as CSV.",
+            "Export download history with source URL, path, and completion time.",
             default_checked=False)
         card_layout.addWidget(self._passwords_row[0])
         card_layout.addWidget(self._bookmarks_row[0])
@@ -555,54 +573,63 @@ class ItemsPage(WizardPage):
         card_layout.addWidget(self._search_engines_row[0])
         card_layout.addWidget(self._open_tabs_row[0])
         card_layout.addWidget(self._downloads_row[0])
-        self.add_content(card)
+        body_layout.addWidget(card)
 
         # Online lookup checkbox
-        self._online_cb = QCheckBox("Allow online AMO lookup for unknown extensions  (recommended)")
+        self._online_cb = QCheckBox("Allow online Add-ons lookup for unknown extensions")
         self._online_cb.setChecked(True)
-        self.add_content(self._online_cb)
+        self._online_cb.setToolTip("Looks up public Firefox Add-ons metadata. Passwords and profile data stay local.")
+        self._online_cb.stateChanged.connect(self._sync)  # type: ignore[arg-type]
+        body_layout.addWidget(self._online_cb)
 
         # HIBP scan checkbox — opt-in; sends 5-char SHA-1 prefix only.
         self._hibp_cb = QCheckBox(
-            "Check passwords against haveibeenpwned.com (5-char SHA-1 prefix; "
-            "passwords never leave this machine)"
+            "Check passwords for known breaches (k-anonymity; no plaintext leaves this machine)"
         )
         self._hibp_cb.setChecked(False)
         self._hibp_cb.stateChanged.connect(self._sync)  # type: ignore[arg-type]
-        self.add_content(self._hibp_cb)
+        body_layout.addWidget(self._hibp_cb)
 
         # Direct-write password checkbox (NSS)
         self._direct_cb = QCheckBox(
-            "Direct-write passwords into the target profile (close Firefox first; uses target's NSS)"
+            "Write passwords directly into the target profile"
         )
         self._direct_cb.setChecked(False)
         self._direct_cb.stateChanged.connect(self._sync)  # type: ignore[arg-type]
-        self.add_content(self._direct_cb)
+        body_layout.addWidget(self._direct_cb)
 
         # Direct-write cookies/history into the target profile.
         self._direct_cookies_cb = QCheckBox(
-            "Direct-write cookies.sqlite into the target profile (close Firefox first)"
+            "Write cookies.sqlite directly into the target profile"
         )
         self._direct_cookies_cb.setChecked(False)
         self._direct_cookies_cb.stateChanged.connect(self._sync)  # type: ignore[arg-type]
-        self.add_content(self._direct_cookies_cb)
+        body_layout.addWidget(self._direct_cookies_cb)
 
         self._direct_history_cb = QCheckBox(
-            "Direct-write places.sqlite (history) into the target profile (close Firefox first)"
+            "Write places.sqlite directly into the target profile"
         )
         self._direct_history_cb.setChecked(False)
         self._direct_history_cb.stateChanged.connect(self._sync)  # type: ignore[arg-type]
-        self.add_content(self._direct_history_cb)
+        body_layout.addWidget(self._direct_history_cb)
+
+        self._direct_open_tabs_cb = QCheckBox(
+            "Write open tabs directly into the target profile"
+        )
+        self._direct_open_tabs_cb.setChecked(False)
+        self._direct_open_tabs_cb.stateChanged.connect(self._sync)  # type: ignore[arg-type]
+        body_layout.addWidget(self._direct_open_tabs_cb)
 
         # Dry-run checkbox
-        self._dry_cb = QCheckBox("Dry run — count items and test decryption, but do not write any files")
+        self._dry_cb = QCheckBox("Dry run: count and test decryption without writing files")
         self._dry_cb.setChecked(False)
         self._dry_cb.stateChanged.connect(self._sync)  # type: ignore[arg-type]
-        self.add_content(self._dry_cb)
+        body_layout.addWidget(self._dry_cb)
 
         # Output folder picker
         out_card = QFrame()
         out_card.setObjectName("Card")
+        out_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         out_layout = QHBoxLayout(out_card)
         out_layout.setContentsMargins(20, 14, 20, 14)
         out_layout.setSpacing(10)
@@ -614,40 +641,58 @@ class ItemsPage(WizardPage):
         self._out_btn = QPushButton("Change…")
         self._out_btn.clicked.connect(self._pick_dir)
         out_layout.addWidget(self._out_btn)
-        self.add_content(out_card)
+        body_layout.addWidget(out_card)
 
-        self.add_stretch(1)
+        body_layout.addStretch(1)
 
     def _make_row(self, title: str, subtitle: str, *,
                    default_checked: bool = True,
-                   customize_callback=None):
-        row = QFrame()
+                   customize_callback=None,
+                   customize_label: str = "Customize"):
+        row = OptionRow()
+        row.setAccessibleName(title)
+        row.setAccessibleDescription(subtitle)
         layout = QHBoxLayout(row)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(14)
         cb = QCheckBox()
         cb.setChecked(default_checked)
-        cb.stateChanged.connect(self._sync)  # type: ignore[arg-type]
+        cb.setToolTip(f"Include {title.lower()} in this migration.")
         layout.addWidget(cb)
         text_box = QVBoxLayout()
         text_box.setContentsMargins(0, 0, 0, 0)
         text_box.setSpacing(2)
         title_label = QLabel(title)
-        title_label.setStyleSheet("color: #cdd6f4; font-size: 14px; font-weight: 700;")
+        title_label.setObjectName("OptionTitle")
         subtitle_label = QLabel(subtitle)
-        subtitle_label.setStyleSheet("color: #a6adc8; font-size: 12px;")
-        subtitle_label.setWordWrap(True)
+        subtitle_label.setObjectName("OptionSubtitle")
+        subtitle_label.setWordWrap(False)
         text_box.addWidget(title_label)
         text_box.addWidget(subtitle_label)
         layout.addLayout(text_box, 1)
         badge = CountBadge("—")
+        badge.setVisible(False)
         layout.addWidget(badge)
+        customize_btn = None
         if customize_callback is not None:
-            customize_btn = QPushButton("Customize…")
-            customize_btn.setFlat(False)
+            customize_btn = QPushButton(customize_label)
+            customize_btn.setObjectName("QuietButton")
+            customize_btn.setToolTip(f"Adjust {title.lower()} before export.")
             customize_btn.clicked.connect(customize_callback)  # type: ignore[arg-type]
             layout.addWidget(customize_btn)
-        return row, cb, badge
+
+        def toggle_from_row() -> None:
+            if cb.isEnabled():
+                cb.toggle()
+
+        def on_checkbox_changed(_state: int) -> None:
+            row.set_checked(cb.isChecked())
+            self._sync()
+
+        row.clicked.connect(toggle_from_row)  # type: ignore[arg-type]
+        cb.stateChanged.connect(on_checkbox_changed)  # type: ignore[arg-type]
+        row.set_checked(default_checked)
+        return row, cb, badge, customize_btn
 
     def _pick_dir(self) -> None:
         chosen = QFileDialog.getExistingDirectory(self, "Output folder", str(self._ctx.out_root))
@@ -656,6 +701,7 @@ class ItemsPage(WizardPage):
             self._out_label.setText(str(self._ctx.out_root))
 
     def _sync(self) -> None:
+        self._refresh_dependent_options()
         self._ctx.do_passwords = self._passwords_row[1].isChecked()
         self._ctx.do_bookmarks = self._bookmarks_row[1].isChecked()
         self._ctx.do_extensions = self._extensions_row[1].isChecked()
@@ -671,23 +717,102 @@ class ItemsPage(WizardPage):
         self._ctx.direct_write_passwords = self._direct_cb.isChecked()
         self._ctx.direct_write_cookies = self._direct_cookies_cb.isChecked()
         self._ctx.direct_write_history = self._direct_history_cb.isChecked()
+        self._ctx.direct_write_open_tabs = self._direct_open_tabs_cb.isChecked()
         self._ctx.hibp_scan = self._hibp_cb.isChecked()
         self.canAdvanceChanged.emit(self.can_advance())
 
     def set_counts(self, passwords: int, bookmarks: int, extensions: int,
                    cookies: int = 0, history: int = 0) -> None:
-        self._passwords_row[2].setText(f"{passwords:,}")
-        self._bookmarks_row[2].setText(f"{bookmarks:,}")
-        self._extensions_row[2].setText(f"{extensions:,}")
-        self._cookies_row[2].setText(f"{cookies:,}")
-        self._history_row[2].setText(f"{history:,}")
+        self._set_badge(self._passwords_row[2], f"{passwords:,} found")
+        self._set_badge(self._bookmarks_row[2], f"{bookmarks:,} found")
+        self._set_badge(self._extensions_row[2], f"{extensions:,} found")
+        self._set_badge(self._cookies_row[2], f"{cookies:,} found")
+        self._set_badge(self._history_row[2], f"{history:,} visits")
         if self._ctx.source_uses_abe and not self._ctx.source_has_classic_key:
-            self._passwords_row[1].setChecked(False)
-            self._passwords_row[1].setEnabled(False)
-            self._passwords_row[1].setToolTip("Disabled — source profile uses App-Bound Encryption only.")
-            self._cookies_row[1].setChecked(False)
-            self._cookies_row[1].setEnabled(False)
-            self._cookies_row[1].setToolTip("Disabled — source profile uses App-Bound Encryption only.")
+            self._set_row_available(
+                self._passwords_row,
+                False,
+                "Disabled because this source profile only exposes App-Bound Encryption.",
+            )
+            self._set_row_available(
+                self._cookies_row,
+                False,
+                "Disabled because this source profile only exposes App-Bound Encryption.",
+            )
+
+    @staticmethod
+    def _set_badge(badge: CountBadge, text: str) -> None:
+        badge.setText(text)
+        badge.setVisible(True)
+
+    def _set_row_available(self, row_tuple, enabled: bool, tooltip: str = "") -> None:
+        row, cb = row_tuple[0], row_tuple[1]
+        row.set_enabled_state(enabled, tooltip)
+        cb.blockSignals(True)
+        if not enabled:
+            cb.setChecked(False)
+        cb.setEnabled(enabled)
+        cb.blockSignals(False)
+        cb.setToolTip(tooltip or f"Include {row.accessibleName().lower()} in this migration.")
+        row.set_checked(cb.isChecked())
+        if len(row_tuple) > 3 and row_tuple[3] is not None:
+            row_tuple[3].setEnabled(enabled)
+
+    @staticmethod
+    def _set_checkbox_available(cb: QCheckBox, enabled: bool, tooltip: str = "") -> None:
+        cb.blockSignals(True)
+        if not enabled:
+            cb.setChecked(False)
+        cb.setEnabled(enabled)
+        cb.blockSignals(False)
+        cb.setToolTip(tooltip)
+
+    def _refresh_dependent_options(self) -> None:
+        reverse = self._ctx.direction == MigrationContext.DIRECTION_REVERSE
+        hibp_enabled = self._passwords_row[1].isChecked() and not reverse
+        if not self._passwords_row[1].isChecked():
+            hibp_tooltip = "Select passwords first."
+        elif reverse:
+            hibp_tooltip = "Reverse mode exports Firefox passwords without the breach check."
+        else:
+            hibp_tooltip = "Checks only the SHA-1 prefix through the k-anonymity API."
+        self._set_checkbox_available(
+            self._hibp_cb,
+            hibp_enabled,
+            hibp_tooltip,
+        )
+        self._online_cb.setEnabled(self._extensions_row[1].isChecked())
+        self._online_cb.setToolTip(
+            "Looks up public Firefox Add-ons metadata. Passwords and profile data stay local."
+            if self._extensions_row[1].isChecked()
+            else "Select extensions first."
+        )
+        direct_tooltip = (
+            "Requires the matching category and a closed Firefox target profile."
+        )
+        reverse_tooltip = (
+            "Reverse direction currently writes export files only; direct-write is disabled."
+        )
+        self._set_checkbox_available(
+            self._direct_cb,
+            self._passwords_row[1].isChecked() and not reverse,
+            direct_tooltip if not reverse else reverse_tooltip,
+        )
+        self._set_checkbox_available(
+            self._direct_cookies_cb,
+            self._cookies_row[1].isChecked() and not reverse,
+            direct_tooltip if not reverse else reverse_tooltip,
+        )
+        self._set_checkbox_available(
+            self._direct_history_cb,
+            self._history_row[1].isChecked() and not reverse,
+            direct_tooltip if not reverse else reverse_tooltip,
+        )
+        self._set_checkbox_available(
+            self._direct_open_tabs_cb,
+            self._open_tabs_row[1].isChecked() and not reverse,
+            direct_tooltip if not reverse else reverse_tooltip,
+        )
 
     def can_advance(self) -> bool:
         return any([
@@ -713,6 +838,7 @@ class ItemsPage(WizardPage):
         self._online_cb.setChecked(self._ctx.extensions_online)
         self._dry_cb.setChecked(self._ctx.dry_run)
         self._hibp_cb.setChecked(self._ctx.hibp_scan)
+        self._refresh_dependent_options()
 
     def on_enter(self) -> None:
         self._sync()
@@ -722,22 +848,15 @@ class ItemsPage(WizardPage):
                     self._cards_row, self._search_engines_row, self._open_tabs_row,
                     self._downloads_row):
             if reverse:
-                row[1].setChecked(False)
-                row[1].setEnabled(False)
-                row[1].setToolTip("Not yet supported in Firefox → Chromium direction "
-                                  "(passwords/bookmarks/extensions only for now).")
+                self._set_row_available(
+                    row,
+                    False,
+                    "Not yet supported in Firefox to Chromium direction (passwords, bookmarks, and extensions only).",
+                )
             else:
-                row[1].setEnabled(True)
-                row[1].setToolTip("")
-        # Direct-write only makes sense forward right now too.
-        for cb in (self._direct_cb, self._direct_cookies_cb, self._direct_history_cb):
-            cb.setEnabled(not reverse)
-            if reverse:
-                cb.setChecked(False)
-                cb.setToolTip("Reverse direction uses CSV/HTML only — direct-write into "
-                              "Chrome's profile is on the v1.2 roadmap.")
-            else:
-                cb.setToolTip("")
+                self._set_row_available(row, True)
+        self._refresh_dependent_options()
+        self._sync()
 
     def _customize_passwords(self) -> None:
         if not self._ctx.source:
@@ -746,6 +865,7 @@ class ItemsPage(WizardPage):
         dlg = PasswordPreviewDialog(
             self._ctx.source,
             selected_keys=self._ctx.password_include_keys,
+            mask_passwords=self._ctx.mask_passwords_in_preview,
             parent=self,
         )
         if dlg.exec():
@@ -790,10 +910,9 @@ class PreviewPage(WizardPage):
         self._tree = QTreeWidget()
         self._tree.setHeaderLabels(["Item", "Detail"])
         self._tree.setColumnWidth(0, 320)
+        self._tree.setAlternatingRowColors(True)
         self.add_content(self._tree, stretch=1)
-        self._note = QLabel("")
-        self._note.setStyleSheet("color: #a6adc8; font-size: 12px;")
-        self._note.setWordWrap(True)
+        self._note = Banner("", variant="info")
         self.add_content(self._note)
 
     def on_enter(self) -> None:
@@ -838,7 +957,8 @@ class PreviewPage(WizardPage):
                     "chrome-extensions.html → click each Install on Chrome link",
                 ]))
             source_node.setExpanded(True)
-            self._note.setText(
+            self._note.set_variant("warn")
+            self._note.set_text(
                 "Counts will appear in the Run log. The source Firefox profile must be "
                 "closed (NSS holds the same lock Firefox does)."
             )
@@ -884,19 +1004,63 @@ class PreviewPage(WizardPage):
                      "places.sqlite → swap into closed Firefox profile"],
                 )
                 self._tree.addTopLevelItem(node)
+            if ctx.do_autofill:
+                count = self._count_web_data(ctx.source, (
+                    "SELECT COUNT(*) FROM autofill WHERE name <> '' AND value <> ''",
+                ))
+                self._tree.addTopLevelItem(QTreeWidgetItem([
+                    f"Form autofill ({count:,})",
+                    "formhistory.sqlite -> closed Firefox profile",
+                ]))
+            if ctx.do_cards:
+                count = self._count_web_data(ctx.source, (
+                    "SELECT COUNT(*) FROM credit_cards",
+                ))
+                self._tree.addTopLevelItem(QTreeWidgetItem([
+                    f"Saved cards ({count:,})",
+                    "saved-cards.csv -> password-manager review/import",
+                ]))
+            if ctx.do_search_engines:
+                count = self._count_web_data(ctx.source, (
+                    "SELECT COUNT(*) FROM keywords WHERE keyword IS NOT NULL AND keyword <> ''",
+                ))
+                self._tree.addTopLevelItem(QTreeWidgetItem([
+                    f"Search engines ({count:,})",
+                    "search-engines.json + OpenSearch XML files",
+                ]))
+            if ctx.do_open_tabs:
+                tabs, failures = self._count_open_tabs(ctx.source)
+                detail = "recovery.jsonlz4 -> Firefox session restore"
+                if failures:
+                    detail += f" ({failures} warning(s))"
+                self._tree.addTopLevelItem(QTreeWidgetItem([
+                    f"Open tabs ({tabs:,})",
+                    detail,
+                ]))
+            if ctx.do_downloads:
+                count = self._count_downloads(ctx.source)
+                self._tree.addTopLevelItem(QTreeWidgetItem([
+                    f"Downloads ({count:,})",
+                    "downloads.csv -> portable reference",
+                ]))
 
         source_node.setExpanded(True)
         notes: list[str] = []
+        has_warning = False
         if ctx.source_uses_abe:
             notes.append(
                 "App-Bound Encryption detected on source — some newer passwords/cookies may fail to decrypt."
             )
+            has_warning = True
         if ctx.target and is_firefox_profile_locked(ctx.target):
             notes.append("Target Firefox profile is locked — close Firefox before importing.")
+            has_warning = True
         if ctx.do_cookies or ctx.do_history:
             notes.append("cookies.sqlite / places.sqlite must be swapped into a CLOSED Firefox profile.")
+            has_warning = True
         notes.append("The source browser will not be modified.")
-        self._note.setText("  ·  ".join(notes))
+        self._note.set_variant("warn" if has_warning else "info")
+        self._note.set_text("  ·  ".join(notes))
 
     def _count_cookies(self, profile: ChromiumProfile) -> int:
         for path in (profile.profile_dir / "Network" / "Cookies", profile.profile_dir / "Cookies"):
@@ -917,6 +1081,29 @@ class PreviewPage(WizardPage):
         if len(rows) < 2:
             return 0, 0
         return rows[0], rows[1]
+
+    def _count_web_data(self, profile: ChromiumProfile, queries: tuple[str, ...]) -> int:
+        path = profile.profile_dir / "Web Data"
+        if not path.is_file():
+            return 0
+        rows = _safe_sqlite_count(path, queries)
+        return rows[0] if rows else 0
+
+    def _count_downloads(self, profile: ChromiumProfile) -> int:
+        path = profile.profile_dir / "History"
+        if not path.is_file():
+            return 0
+        rows = _safe_sqlite_count(path, ("SELECT COUNT(*) FROM downloads",))
+        return rows[0] if rows else 0
+
+    def _count_open_tabs(self, profile: ChromiumProfile) -> tuple[int, int]:
+        import tempfile
+
+        from foxport.migrate.open_tabs import migrate_open_tabs
+
+        with tempfile.TemporaryDirectory(prefix="foxport_tabs_preview_") as tmp:
+            result = migrate_open_tabs(profile, Path(tmp), dry_run=True)
+        return result.tabs, len(result.failures)
 
 
 # ----------------------------------------------------------- Step 5: Run
@@ -942,14 +1129,21 @@ class RunPage(WizardPage):
         )
         self._dry_banner.setVisible(False)
         self.add_content(self._dry_banner)
+        self._status = QLabel("Ready to run")
+        self._status.setObjectName("RunStatus")
+        self.add_content(self._status)
         self._progress = QProgressBar()
         self._progress.setRange(0, 1)
         self._progress.setFormat("Ready")
         self.add_content(self._progress)
 
+        self._summary = Banner("", variant="info")
+        self._summary.setVisible(False)
+        self.add_content(self._summary)
+
         self._log = QPlainTextEdit()
         self._log.setReadOnly(True)
-        self._log.setPlaceholderText("Activity will appear here once you press Start.")
+        self._log.setPlaceholderText("Migration details will appear here as each category completes.")
         self.add_content(self._log, stretch=1)
 
         # Done-screen button bar (hidden until done).
@@ -981,6 +1175,8 @@ class RunPage(WizardPage):
         self._progress.setRange(0, 1)
         self._progress.setValue(0)
         self._progress.setFormat("Ready")
+        self._status.setText("Ready to run")
+        self._summary.setVisible(False)
         self._actions.setVisible(False)
         # Re-sync the dry-run banner in case the user changed the setting
         # between runs without leaving the Run page (rare but possible via
@@ -990,6 +1186,7 @@ class RunPage(WizardPage):
     def set_busy(self) -> None:
         self._progress.setRange(0, 0)
         self._progress.setFormat("Working…")
+        self._status.setText("Preparing migration...")
 
     def set_step(self, current: int, total: int) -> None:
         if total <= 0:
@@ -998,15 +1195,23 @@ class RunPage(WizardPage):
         self._progress.setRange(0, total)
         self._progress.setValue(current)
         self._progress.setFormat(f"Step {current} of {total}")
+        self._status.setText(f"Running step {current} of {total}")
 
     def set_done(self, ok: bool, summary: str, exports: dict[str, Path]) -> None:
         self._progress.setRange(0, 1)
         if ok:
             self._progress.setValue(1)
             self._progress.setFormat("Done")
+            self._status.setText("Migration complete")
+            self._summary.set_variant("success")
+            self._summary.set_text(f"Export complete. Output folder: {summary}")
         else:
             self._progress.setValue(0)
             self._progress.setFormat("Failed")
+            self._status.setText("Migration failed")
+            self._summary.set_variant("error")
+            self._summary.set_text(f"Migration failed: {summary}")
+        self._summary.setVisible(True)
         self._actions.setVisible(ok and bool(exports))
         # Show/hide per-file buttons based on what got produced.
         self.open_pw_btn.setVisible("passwords" in exports)

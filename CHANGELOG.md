@@ -4,6 +4,62 @@ All notable changes to FoxPort are documented here. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/), versioning per
 [SemVer](https://semver.org/).
 
+## [1.3.0] — 2026-05-24
+
+Trust + completeness pass — Phase A of the v1.3 roadmap. Atomic
+fileops, ASCII-safe CLI help, generalized import instructions,
+snapshot overwrite policy, open-tabs direct-write wiring. **97 tests
+pass** (up from 89). No new user-facing features yet; this batch
+hardens the surfaces that the v1.3 GUI and release work will land on.
+
+### Added
+- `foxport/fileops.py` — `write_bytes_atomic()` and
+  `replace_file_atomic()` helpers. Sibling temp file + `fsync` +
+  `Path.replace` so an interrupted write can't leave a half-finished
+  file at the target name.
+- `tests/test_fileops.py` — coverage for the atomic helpers,
+  including the source-missing-on-replace case (target must remain
+  intact, no orphan temp files).
+- `tests/test_cli_help.py` — recursively walks every subparser and
+  asserts the help text is ASCII-safe. Catches the cp1252 regression
+  before it ships.
+- `tests/test_import_instructions.py` — pins generated README
+  coverage for every emitted artifact (passwords, HIBP, bookmarks,
+  extensions, cookies, history, autofill, cards, search engines,
+  open tabs, downloads) and the reverse-direction Chrome
+  workflows.
+- `snapshot restore --overwrite` flag — restore into a non-empty
+  output directory only with explicit opt-in.
+
+### Changed
+- `foxport/cli.py` — top-level argparse description swapped the
+  Unicode arrow for ` - ` so the help command runs cleanly under
+  cp1252. Subcommand descriptions stay ASCII too.
+- `foxport/browsers/firefox.py:import_instructions()` rewritten as a
+  data-driven generator that covers every artifact key forward and
+  reverse. Says favicons.sqlite is **moved aside** (the v1.2.1
+  behavior), no longer "deleted".
+- `foxport/snapshot.py:create_snapshot()` writes through
+  `write_bytes_atomic()`; refuses an output path inside the input
+  directory.
+- `foxport/snapshot.py:restore_snapshot()` refuses non-empty output
+  directories unless `overwrite=True`; the SHA-256 integrity check
+  runs before the atomic write so a tampered manifest fails fast.
+- `foxport/migrate/nss_cookies.py`, `nss_history.py`, `open_tabs.py`
+  — direct-write paths use `replace_file_atomic()` so the target
+  cookies.sqlite / places.sqlite / recovery.jsonlz4 file can never
+  end up half-written after the backup is taken.
+- `MigrationContext.direct_write_open_tabs` is now wired end-to-end:
+  Items checkbox → MigrationContext → MigrationRequest → worker.
+  The previously hidden flag is reachable from the GUI with locked-
+  profile, reverse-mode, and category-dependency guards.
+
+### Internal
+- `foxport/__init__.py` bumped to `1.3.0`.
+- ROADMAP.md reorganized as the single to-do file; historical
+  milestones collapsed; v1.3 phases A–D promoted from
+  RESEARCH_FEATURE_PLAN.md.
+
 ## [1.2.1] — 2026-05-24
 
 Extreme hardening pass — five batches of audit fixes across correctness,

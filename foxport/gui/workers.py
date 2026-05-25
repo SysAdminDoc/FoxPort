@@ -442,6 +442,12 @@ class MigrationWorker(QObject):
                 )
                 if not req.dry_run:
                     exports["extensions"] = str(r.html_path)
+            if exports and not req.dry_run:
+                instructions_path = out_dir / "README.txt"
+                instructions_path.write_text(
+                    import_instructions(req.target, exports), encoding="utf-8"
+                )
+                self.log.emit(f"Instructions: {instructions_path}")
             self.finished.emit(True, str(out_dir), exports)
         except Exception as exc:  # noqa: BLE001
             self.log.emit(f"FATAL: {exc}")

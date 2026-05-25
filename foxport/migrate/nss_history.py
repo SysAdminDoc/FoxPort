@@ -21,6 +21,7 @@ from foxport.browsers.detect import (
     FirefoxProfile,
     is_firefox_profile_locked,
 )
+from foxport.fileops import replace_file_atomic
 from foxport.migrate.history import HistoryResult, migrate_history
 from foxport.migrate.nss_cookies import ProfileLockedError
 
@@ -75,7 +76,7 @@ def write_history_into_target(
                 except OSError:
                     # WAL on a network share can be locked; non-fatal.
                     pass
-    shutil.copy2(history_result.sqlite_path, target_path)
+    replace_file_atomic(history_result.sqlite_path, target_path)
 
     favicons = target.profile_dir / "favicons.sqlite"
     favicons_backup: Path | None = None

@@ -35,6 +35,48 @@ def test_plain_snapshot_round_trips(tmp_path):
     assert len(manifest.files) == 2
 
 
+def test_create_snapshot_refuses_to_write_inside_input_dir(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    _populate(src)
+
+    with pytest.raises(ValueError, match="inside its own input directory"):
+        create_snapshot(src, src / "nested.fxport", source_label="x", target_label="y")
+
+
+def test_restore_refuses_non_empty_output_without_overwrite(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    _populate(src)
+    bundle = tmp_path / "out.fxport"
+    create_snapshot(src, bundle, source_label="x", target_label="y")
+
+    restored = tmp_path / "restored"
+    restored.mkdir()
+    (restored / "keep.txt").write_text("existing", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="output directory is not empty"):
+        restore_snapshot(bundle, restored)
+
+
+def test_restore_overwrite_allows_non_empty_output(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    _populate(src)
+    bundle = tmp_path / "out.fxport"
+    create_snapshot(src, bundle, source_label="x", target_label="y")
+
+    restored = tmp_path / "restored"
+    restored.mkdir()
+    (restored / "keep.txt").write_text("existing", encoding="utf-8")
+
+    manifest = restore_snapshot(bundle, restored, overwrite=True)
+
+    assert manifest.source_label == "x"
+    assert (restored / "keep.txt").read_text(encoding="utf-8") == "existing"
+    assert (restored / "passwords.csv").exists()
+
+
 def test_encrypted_snapshot_round_trips(tmp_path):
     src = tmp_path / "src"
     src.mkdir()

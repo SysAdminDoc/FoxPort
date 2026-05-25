@@ -31,6 +31,7 @@ from hashlib import sha256
 from pathlib import Path
 
 from foxport import __version__
+from foxport.fileops import write_bytes_atomic
 
 
 _MAGIC_ENCRYPTED = b"FXP\x00enc\x00v1\x00"
@@ -166,13 +167,22 @@ def create_snapshot(
     layout (magic + iterations + salt + nonce + AES-GCM ciphertext);
     otherwise it's a plain ZIP.
     """
+    input_resolved = input_dir.expanduser().resolve()
+    out_resolved = out_path.expanduser().resolve()
+    try:
+        out_resolved.relative_to(input_resolved)
+    except ValueError:
+        pass
+    else:
+        raise ValueError("refusing to write a snapshot inside its own input directory")
+
     manifest = _build_manifest(input_dir, source_label, target_label,
                                 encrypted=bool(passphrase))
     inner = _zip_bytes(input_dir, manifest)
     if passphrase:
-        out_path.write_bytes(_encrypt_bundle(inner, passphrase))
+        write_bytes_atomic(out_path, _encrypt_bundle(inner, passphrase))
     else:
-        out_path.write_bytes(inner)
+        write_bytes_atomic(out_path, inner)
     return manifest
 
 
@@ -181,6 +191,7 @@ def restore_snapshot(
     out_dir: Path,
     *,
     passphrase: str | None = None,
+    overwrite: bool = False,
 ) -> SnapshotManifest:
     """Unpack a ``.fxport`` bundle into ``out_dir``. Returns the manifest.
 
@@ -195,11 +206,15 @@ def restore_snapshot(
     else:
         inner = blob
 
-    out_dir.mkdir(parents=True, exist_ok=True)
     out_dir_resolved = out_dir.resolve()
     buf = io.BytesIO(inner)
     with zipfile.ZipFile(buf) as zf:
         manifest_data = json.loads(zf.read("manifest.json").decode("utf-8"))
+        if out_dir.exists() and any(out_dir.iterdir()) and not overwrite:
+            raise ValueError(
+                "output directory is not empty; pass overwrite=True or CLI --overwrite to restore there"
+            )
+        out_dir.mkdir(parents=True, exist_ok=True)
         for entry in manifest_data.get("files", []):
             rel = entry["path"]
             # Reject absolute paths, drive letters, and any "..": Path / parts
@@ -223,9 +238,9 @@ def restore_snapshot(
                 if actual != expected:
                     raise ValueError(
                         f"snapshot integrity check failed for {rel}: "
-                        f"manifest says {expected[:12]}…, archive has {actual[:12]}…"
+                        f"manifest says {expected[:12]}..., archive has {actual[:12]}..."
                     )
-            target.write_bytes(payload)
+            write_bytes_atomic(target, payload)
     # SnapshotManifest is a fixed-shape dataclass; drop unknown keys defensively
     # rather than letting a tampered manifest blow up the call with TypeError.
     allowed = {"foxport_version", "created_iso", "source_label",

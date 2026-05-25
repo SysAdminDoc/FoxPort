@@ -1,838 +1,861 @@
 # Project Research and Feature Plan
 
-> Companion to `ROADMAP.md`. This file is **research output**, not an
-> execution checklist — items here have evidence + acceptance criteria
-> wired up so a coding agent can implement them later without redoing the
-> investigation. The existing `ROADMAP.md` keeps tracking *current
-> implementation status*; new items added here should be promoted into
-> `ROADMAP.md` only after triage.
+Generated: 2026-05-24 (refresh pass over the v1.2.1 baseline + uncommitted polish working tree).
 
----
+Status baseline: `main` at `069a057` (v1.2.1) plus the in-progress working tree that adds `foxport/fileops.py`, atomic snapshot/direct-write paths, the ASCII-safe CLI help, a generalized `import_instructions()`, and three new test files. `pytest` reports **97 passed in 1.60s**; `python -m foxport.cli --help` and `--version` both succeed under default Windows PowerShell encoding.
+
+This file replaces the previous plan, which was authored against the v1.2.1 baseline and is now stale because the working tree has already shipped roughly the first half of its P0/P1 list.
 
 ## Executive Summary
 
-FoxPort is a PyQt6 desktop tool (+ CLI + reverse direction) that migrates
-**every storable bit of browser state** between Chromium-family and
-Firefox-family browsers across Windows/macOS/Linux. After v1.1.0 it
-covers 9 data categories, has a 5-step wizard, DPAPI/Keychain/secret-store
-decrypt paths, NSS direct-write, an App-Bound Encryption sidecar (source
-only), a four-stage extension matcher with a curated map, dry-run mode, a
-profile-diff CLI, and a release pipeline. **No competitor on GitHub does
-all of this in one tool** — Mozilla's own ChromeProfileMigrator now ships
-*worse* on Windows/Linux for passwords as of Firefox 140 (mid-2025), and
-HackBrowserData is extract-only.
+FoxPort is a Windows-first but cross-platform Python/PyQt6 desktop and CLI tool for moving browser data between Chromium-family and Firefox-family profiles. The product has matured fast: ten forward export categories, three reverse categories, direct-write into closed Firefox profiles for passwords/cookies/history/open-tabs, encrypted `.fxport` snapshots, an HIBP scan, settings persistence, three docs files, and a 67-entry curated AMO map (recently grown from 63). The strongest current shape is a privacy-oriented migration assistant with serious data-safety thinking — backups instead of deletes, atomic replacement on the riskiest paths, accounting invariants, deterministic GUIDs, ABE awareness, and a closeEvent guard mid-migration.
 
-The strongest current shape is "the migration tool Mozilla didn't ship."
-The highest-value direction is to **stop drifting against Firefox's
-internal schemas**, **fix the two silent-failure features**
-(`open_tabs` extracts 0 URLs from real Chrome sessions; `places.sqlite`
-is 9 schema versions behind and uses a fabricated `url_hash` algorithm),
-and **lean into trust** — HIBP scan, FIDO CXF passkey export, browser
-snapshot bundle, opt-in Glean telemetry.
+The highest-value direction is **finishing the trust-and-completeness arc** that the working tree started, then turning the app into something a non-developer can confidently install and rely on. Concretely:
 
-### Top 10 opportunities in priority order
+1. **Land the working tree.** It already addresses last pass's P0s (CLI help crash, README parity, atomic snapshot, atomic direct-write, open-tabs direct-write wiring, snapshot overwrite policy). Commit and tag v1.3.0-rc.
+2. **Make the Done screen and Items badges match the ten categories the wizard actually offers.** [`foxport/gui/main_window.py:114-121`](foxport/gui/main_window.py#L114-L121) still wires only five hardcoded buttons; [`foxport/gui/pages.py:724-742`](foxport/gui/pages.py#L724-L742) accepts only five counts.
+3. **Emit `manifest.json` per run** — a single structured registry that Done screen, generated README, snapshot bundling, support diagnostics, and a future `--json` CLI can all read from.
+4. **Ship a signed Windows release with the ABE sidecar bundled.** [`foxport.spec:11`](foxport.spec#L11) conditionally bundles `foxport_abe.exe` but the binary is absent locally and CI doesn't sign it.
+5. **Atomic-replace the rest of the writers** that produce sensitive on-disk artifacts (`passwords.csv`, `cookies.sqlite`, `places.sqlite`, etc. into the staging folder). Today only the *target-profile* paths got the atomic helper; the *staging* outputs that snapshot later bundles still write directly.
+6. **Add NSS `nss3.dll` version-skew protection** before any direct-write into `logins.json`. The current ctypes loader has no version validation.
+7. **Surface external bookmark adapters and `.fxport` snapshot from the GUI**, not only via CLI.
+8. **First-run trust dialog + Network Activity preview row.** Optional AMO and HIBP calls exist; future Sentry/Glean/update calls are roadmap'd. Consent has to land before any of them ship.
+9. **Conflict review and rollback manifest for direct-write paths.** The product's highest data-safety risk is target replacement; the user currently can't preview what will be overwritten.
+10. **Refresh docs + screenshots.** README claims 63 curated entries (it is now 67); CLAUDE.md repeats the stale figure; `assets/screenshots/` predates the downloads row added on the Items page.
 
-1. **P0 — Fix `places.sqlite` schema drift + `url_hash` algorithm.** Verified against `mozilla-central` tip: FoxPort writes v77, Firefox is on v86; `url_hash` uses MD5 + a fabricated scheme-tag table when Firefox uses `mfbt::HashString`. History migration risks a `replaceDatabaseOnStartup` wipe on next Firefox launch.
-2. **P0 — Fix `open_tabs` SNSS extractor.** Live run against a real Chrome Default profile returned 0 URLs from a 2754-byte session file. The UTF-16LE regex assumption was wrong; need a real Pickle / SNSS command parser or to read `Tabs/Tabs_*` instead.
-3. **P0 — Add a test suite.** Zero `test_*.py` files exist. Every regression we just found would have been caught by one fixture-based round-trip test per migrator.
-4. **P1 — Drop `PERSONAL_TOOLBAR_FOLDER` reliance in `bookmarks.html`.** `BookmarkHTMLUtils.sys.mjs` only honors that attribute on `_isImportDefaults=true` (Firefox bootstrap), not on user-triggered "Import from HTML". Toolbar items currently land in "Other Bookmarks" under a nested folder. Promote toolbar contents to the root or use the Places-API path.
-5. **P1 — Filter `chrome://`, `chrome-extension://`, `edge://`, `brave://`, `about:` URLs out of bookmark + history exports.** Live diff against a real Brave profile surfaced `chrome://gpu/` in the bookmark output — Firefox can't navigate to it.
-6. **P1 — `cookies.sqlite` missing `updateTime` column.** Schema v17 added it; FoxPort omits it.
-7. **P1 — Diff CLI silently picks the wrong profile when the user has multiple Firefox profiles.** Live run reported "0 already in target" against a profile that actually had 10,314 bookmark rows in a sibling profile.
-8. **P1 — HIBP "compromised passwords" scan during migration.** Free, no key, k-anonymity API. Bitwarden + 1Password set this user expectation; FoxPort already decrypts the cleartext.
-9. **P2 — FIDO Credential Exchange Format (CXF) v1.0 passkey export.** Ratified Aug 2025; Bitwarden shipping CXP iOS 26. Chrome stores passkeys in `Web Data.webauthn_credentials`. First desktop tool to ship CXF emit wins the wedge.
-10. **P2 — Browser snapshot tarball** (`.fxport`) bundling every emitted artifact + manifest + version stamps. Restore = unpack + replay. No competitor does this.
-
----
+Five-to-ten top opportunities in priority order are detailed in the prioritized roadmap below.
 
 ## Evidence Reviewed
 
-### Local files and directories inspected
-- `foxport/` — full package: `__init__.py`, `__main__.py`, `app.py`, `cli.py`, `diff.py` (40 .py files, ~7842 LOC by `wc -l`).
-- `foxport/browsers/` — `detect.py`, `chromium.py`, `firefox.py`, `firefox_read.py` (per-platform browser registries + read paths).
-- `foxport/crypto/` — `dpapi.py`, `keychain.py`, `nss.py`, `abe.py` (master-key recovery across Windows DPAPI/ABE, macOS Keychain, Linux libsecret/kwallet/peanuts).
-- `foxport/migrate/` — `passwords.py`, `bookmarks.py`, `extensions.py`, `cookies.py`, `history.py`, `autofill.py`, `cards.py`, `search_engines.py`, `open_tabs.py`, `nss_passwords.py`, `nss_cookies.py`, `nss_history.py`.
-- `foxport/migrate_reverse/` — `passwords.py`, `bookmarks.py`, `extensions.py`.
-- `foxport/gui/` — `main_window.py` (355 LOC), `pages.py` (877 LOC), `widgets.py`, `theme.py`, `workers.py`, `dialogs.py`.
-- `foxport/data/curated_extension_map.json` — 63 verified Chrome ID → AMO slug entries across 14 categories.
-- `tools/abe_sidecar/` — `foxport_abe.cpp`, `CMakeLists.txt`, `foxport_abe.exe.manifest`, `README.md` (C++/MSVC sidecar source, **never compiled**).
-- `scripts/capture_screenshots.py`, `scripts/check_curated_map.py`.
-- `assets/banner.svg`, `assets/screenshots/{1-source,2-target,3-items,4-preview,5-run}.png`.
-- `.github/workflows/release.yml`, `.github/workflows/ci.yml`.
-- `foxport.spec` (PyInstaller).
-- Docs: `README.md` (16 KB), `CHANGELOG.md` (18 KB), `ROADMAP.md` (7 KB), `CLAUDE.md` (6.4 KB), `LICENSE` (MIT).
-- Memory: `~/.claude/projects/c--Users----repos/memory/foxport.md`.
+Local files and directories inspected (working tree state at the time of this pass, on `main` plus uncommitted polish edits):
 
-### Git history range reviewed
-- All 9 release commits from `1bc2151 Initial release: v0.1.0` through `a483edc v1.1.0`.
-- No CI history yet (workflows added in the distribution commit but not yet exercised by `workflow_dispatch`).
+- `README.md`, `CHANGELOG.md`, `ROADMAP.md`, `CLAUDE.md`
+- `docs/architecture.md`, `docs/file-formats.md`, `docs/troubleshooting.md`
+- `.github/workflows/ci.yml`, `release.yml`, `curated-map-audit.yml`
+- `foxport.spec`, `requirements.txt`, `pyproject.toml`, `assets/banner.svg`, `assets/screenshots/*.png`
+- `foxport/__init__.py`, `__main__.py`, `app.py`, `cli.py`, `config.py`, `diff.py`, `snapshot.py`, **new** `fileops.py`
+- `foxport/browsers/detect.py`, `chromium.py`, `firefox.py`, `firefox_read.py`
+- `foxport/crypto/abe.py`, `dpapi.py`, `hibp.py`, `keychain.py`, `mozhash.py`, `nss.py`
+- `foxport/gui/dialogs.py`, `main_window.py`, `pages.py`, `theme.py`, `widgets.py`, `workers.py`
+- `foxport/migrate/*.py` (10 emitters + nss_passwords/cookies/history)
+- `foxport/migrate_reverse/{bookmarks,extensions,passwords}.py`
+- `foxport/import_/adapters.py`
+- `foxport/data/curated_extension_map.json`
+- `scripts/capture_screenshots.py`, `check_curated_map.py`, `harvest_reverse_map.py`
+- `tools/abe_sidecar/README.md`, `CMakeLists.txt`, `foxport_abe.cpp`, `foxport_abe.exe.manifest`
+- `tests/conftest.py`, `tests/migrate/test_*.py`, `tests/crypto/test_*.py`, `tests/test_*.py`, **new** `test_cli_help.py`, `test_fileops.py`, `test_import_instructions.py`
 
-### Build / test / docs / release artifacts inspected
-- `requirements.txt` — PyQt6 6.8.0, cryptography 44.0.0, pywin32 308 (Windows), requests 2.32.3, lz4 4.3.3.
-- `foxport.spec` (PyInstaller --onedir) — Verified `datas` list and conditional ABE sidecar bundling.
-- `.github/workflows/release.yml` — `workflow_dispatch` only; builds ABE sidecar with MSVC, runs PyInstaller, creates GH release. **Never run.**
-- `.github/workflows/ci.yml` — Cross-platform AST+import+CLI smoke matrix. **Never run.**
-- **No tests folder, no `test_*.py`, no `pytest`/`unittest` runners anywhere.** `find . -name test_*.py` returns nothing.
-- `assets/screenshots/` — 5 PNGs, real wizard captures, DPI-aware.
+Git history reviewed:
 
-### External sources reviewed
-- `LoginCSVImport.sys.mjs` — `searchfox.org/mozilla-central/source/toolkit/components/passwordmgr/LoginCSVImport.sys.mjs`
-- `LoginHelper.sys.mjs` — same path.
-- `BookmarkHTMLUtils.sys.mjs` — `toolkit/components/places/BookmarkHTMLUtils.sys.mjs`
-- `CookiePersistentStorage.cpp` — `hg-edge.mozilla.org/mozilla-central/raw-file/tip/netwerk/cookie/CookiePersistentStorage.cpp` (current `COOKIES_SCHEMA_VERSION = 17`, includes `updateTime`)
-- `Database.cpp` / `nsPlacesTables.h` / `Helpers.cpp` — confirms Places schema **v86 in tip** (FoxPort writes 77) and the actual `url_hash` algorithm (Mozilla `HashString`, NOT MD5).
-- `FormHistory.sys.mjs` — `const DB_SCHEMA_VERSION = 5` (FoxPort writes 4).
-- `SessionFile.sys.mjs`, `SessionHistory.sys.mjs` — sessionstore IOUtils path and version handling.
-- `LoginStore.sys.mjs` — `kDataVersion = 3` (FoxPort matches).
-- `ChromeProfileMigrator.sys.mjs`, `MigrationUtils.sys.mjs` — Mozilla's own migrator scope as of Firefox 140.
-- `firefox_decrypt` (github.com/unode/firefox_decrypt) — last commit refs Firefox 144 / libnss3 3.113.
-- `HackBrowserData` v1.0.0 (April 2026) — feature matrix comparison.
-- `hindsight` v2026.04 — forensic-grade extractor.
-- FIDO Credential Exchange Specs — `fidoalliance.org/specifications-credential-exchange-specifications/` (CXF v1.0 ratified Aug 2025).
-- HIBP Pwned Passwords API v3 — `haveibeenpwned.com/API/v3`.
-- AMO API v5 docs — `mozilla.github.io/addons-server/topics/api/addons.html`.
-- Mozilla Glean Python SDK 67.1.0 (March 2026).
+- `git log --oneline` from `069a057 chore: bump to v1.2.1` back through v1.2.0, v1.1.0, v1.0.0, and the v0.x sprints. 22 commits total on `main`.
+- `git status` against working tree: 14 files modified + 4 new files (the polish-in-progress branch). No staged commits yet.
 
-### Areas that could not be verified
-- **Real Firefox 138/140 ingest** of FoxPort outputs end-to-end. The Firefox installed locally on this host is LibreWolf (Gecko-based but not authoritative); a clean Firefox 140 install would be needed to confirm `places.sqlite` direct-import behavior.
-- **macOS Keychain path** — code shells to `security find-generic-password` but no macOS host available for a live test. Marked Likely.
-- **Linux libsecret + kwallet** paths — same situation.
-- **ABE sidecar** — never compiled. C++ source has plausible CLSID/IID values per xaitax research but is **Assumption** until a release build runs in CI.
-- **Reverse-direction NSS path** — code binds `PK11SDR_Decrypt` inline; only verified parses, not that decrypted output is byte-equivalent to Firefox's exposed values.
+Build / test / release artifacts validated this pass:
 
----
+- `python -m pytest` → **97 passed in 1.60s** (up from the previous pass's 89; the new file adds suites for CLI help ASCII safety, atomic fileops, and import-instructions coverage).
+- `python -m foxport.cli --version` → `FoxPort 1.2.1`.
+- `python -m foxport.cli --help` → **succeeds under default PowerShell encoding** (the Unicode arrow in the description was replaced with ` - `).
+- `python -m foxport.cli list` → enumerates Chromium/Firefox profiles cleanly.
+- `foxport/data/foxport_abe.exe` → still absent locally; `foxport.spec:11-13` bundles it only if present.
+- `.github/workflows/ci.yml` runs AST parse + import smoke + CLI `--version`/`list` + `pytest -ra -q` on Windows/macOS/Linux × Python 3.11/3.12. GUI bootstrap skipped on Linux.
+- `.github/workflows/release.yml` builds MSVC v143 ABE sidecar, runs PyInstaller, zips, hashes via `Get-FileHash`, creates GH release. **No Authenticode signing step.**
+- `.github/workflows/curated-map-audit.yml` is the monthly cron + workflow_dispatch issue filer for the curated forward map.
+
+External sources reviewed:
+
+- Mozilla Firefox source docs, Migrators Reference: https://firefox-source-docs.mozilla.org/browser/components/migration/docs/migrators.html
+- Mozilla support, import data from another browser: https://support.mozilla.org/en-US/kb/import-data-another-browser
+- Mozilla Add-ons external API: https://mozilla.github.io/addons-server/topics/api/addons.html
+- Mozilla NSS reference (PK11SDR): https://firefox-source-docs.mozilla.org/security/nss/
+- Have I Been Pwned API v3: https://haveibeenpwned.com/API/V3 (Padding header, k-anonymity)
+- Google Chrome export: https://support.google.com/chrome/answer/10248834
+- Google Online Security Blog, Chrome App-Bound Encryption: https://security.googleblog.com/2024/07/improving-security-of-chrome-cookies-on.html
+- FIDO Credential Exchange Format (CXF) ready draft: https://fidoalliance.org/specs/cx/cxf-v1.0-rd-20250313.html
+- FIDO Credential Exchange Protocol (CXP) working draft: https://fidoalliance.org/specs/cx/cxp-v1.0-wd-20241003.html
+- HackBrowserData repo: https://github.com/moonD4rk/HackBrowserData
+- Hindsight forensic parser: https://github.com/RyanDFIR/hindsight
+- Mozilla Glean (Python): https://mozilla.github.io/glean/python/glean/index.html
+- Sentry Python SDK: https://docs.sentry.io/platforms/python/
+- WinSparkle (Windows AppCast updates): https://winsparkle.org/
+- PyInstaller versioning / icon / signing docs: https://pyinstaller.org/en/stable/usage.html
+- SignPath (open-source code signing path): https://signpath.org/
+- Microsoft SignTool documentation: https://learn.microsoft.com/en-us/dotnet/framework/tools/signtool-exe
+
+Areas not fully verified this pass:
+
+- Live Firefox import acceptance for every generated SQLite/JSONLZ4 artifact — no real Firefox profile was driven end-to-end.
+- ABE sidecar end-to-end (no binary built locally; no Chrome 127+ ABE-only profile under test on this VM).
+- AMO curated-map audit not re-run live (fans out across 67 entries; left to monthly cron).
+- Release workflow was inspected but not executed (no signing cert available).
+- Real-screen GUI render and keyboard navigation not piloted under accessibility tools; theme polish only inspected via QSS.
+- macOS Keychain / Linux libsecret paths exercised only via unit tests, not on real profiles.
 
 ## Current Product Map
 
 ### Core workflows
 
-1. **Forward migration (Chromium → Firefox)** via 5-step wizard:
-   Source → Target → Items → Preview → Run/Done.
-2. **Reverse migration (Firefox → Chromium)** via CLI subcommand
-   `python -m foxport.cli migrate-reverse`. GUI direction toggle on the
-   Source page since v1.1.0.
-3. **Profile diff** via CLI subcommand
-   `python -m foxport.cli diff --source ... --target ...`.
-4. **Dry-run** — checkbox on the Items step; counts and exercises decryption
-   without writing anything.
-5. **Direct-write** (passwords / cookies / history / open tabs) into a
-   *closed* target Firefox profile via NSS or schema-from-scratch sqlite,
-   with timestamped backups of the prior files.
+- **GUI forward migration**: detect Chromium + Firefox profiles → choose source → choose target or files-only → select categories → review preview → run → open generated artifacts. Five-step wizard with left-rail step indicator.
+- **GUI reverse migration**: direction toggle on Source page swaps source/target families; passwords/bookmarks/extensions supported.
+- **CLI**: `list`, `migrate`, `migrate-reverse`, `diff`, `snapshot`, `restore`. Substring-matched profile names with ambiguity refusal.
+- **Curated extension-map maintenance**: monthly cron auditor + `scripts/check_curated_map.py --strict-stale` + reverse harvester `harvest_reverse_map.py`.
+- **Snapshot/restore**: `.fxport` ZIP-or-PBKDF2-AES-GCM bundles with SHA-256-per-file integrity and (now) overwrite policy on restore.
+- **Release packaging**: `workflow_dispatch` Windows-only PyInstaller onedir ZIP via GitHub Actions.
 
-### Existing features (9 categories, 3 reverse)
+### Existing features (33 user-visible)
 
-Verified against `foxport/migrate/` and `foxport/migrate_reverse/`:
-passwords, bookmarks, extensions, cookies, browsing history, form
-autofill, saved credit cards (CSV), search engines (OpenSearch XML),
-open tabs (recovery.jsonlz4). Reverse: passwords (Chrome CSV), bookmarks
-(Netscape HTML), extensions (AMO GUID → Chrome ID matcher).
+1. Profile discovery for ~20 Chromium- and Firefox-family browsers, with running/locked surfacing.
+2. Direction toggle (forward / reverse).
+3. Manual source drag-and-drop (Chromium profile dir, User Data dir, or `Login Data` file → synthetic profile).
+4. Items step with ten categories: passwords, bookmarks, extensions, cookies, history, autofill, cards, search engines, open tabs, downloads.
+5. Allow-online-AMO toggle.
+6. HIBP opt-in scan.
+7. Direct-write checkboxes: passwords (NSS), cookies, history, open tabs.
+8. Dry-run mode (with persistent warn banner on the Run page).
+9. Output folder picker.
+10. Customize dialogs: password preview/filter (with mask), bookmark folder filter, history time-range filter.
+11. Preview tree with counts per category (passwords, bookmarks, extensions, cookies, history, autofill, cards, search engines, open tabs, downloads).
+12. ABE detection + downgrade with warning copy (passwords/cookies disabled when only ABE key present).
+13. Run page log + progress bar + dry-run banner.
+14. Done state with action buttons (currently only 5 categories; see gap below).
+15. Settings dialog with output-dir / mask-default / AMO-default / dry-run-default / HIBP-default + two disabled future flags.
+16. File menu: Rescan, Open output folder, Settings, Quit.
+17. Help menu: About.
+18. closeEvent guard mid-migration (3 s thread wait).
+19. Encrypted/plain `.fxport` snapshot creation (CLI).
+20. `.fxport` restore with overwrite policy (CLI).
+21. Profile diff CLI.
+22. Generated `README.txt` per migration (now covers all artifact keys + reverse).
+23. Curated extension map (67 Chrome IDs across 14 categories) — `_meta` block with version stamps.
+24. AMO Gecko-ID probe + name-search + permission-overlap scoring.
+25. Already-installed extension detection + collapsed `<details>` UI in `extensions.html`.
+26. NSS direct-write into `logins.json` + `logins-backup.json` with timestamped backup + corruption refusal.
+27. Cookies/history direct-write with WAL/SHM sibling clearing and timestamped backups.
+28. Open-tabs SNSS Pickle parser + UTF-8 regex fallback + mozLz40 recovery.jsonlz4 emit.
+29. Form autofill v5 schema with `moz_sources` + `moz_history_to_sources`.
+30. Saved cards CSV in 1Password-importable layout.
+31. Search engines OpenSearch XML per engine + JSON inventory.
+32. Downloads CSV export.
+33. External bookmark adapters (Pocket / Pinboard / OPML / Netscape) — present and tested but not surfaced.
 
 ### User personas
 
-- **The browser switcher.** Decided to leave Chrome/Brave/Edge for Firefox/LibreWolf, has years of state to move, runs the tool once.
-- **The sysadmin doing fleet migrations.** Uses the CLI to run dry-runs on a few profiles, then batch-processes. Cares about exit codes, logs, reproducibility.
-- **The forensic / IT investigator.** Cares about decrypt fidelity more than write fidelity. May want JSON dumps, not Firefox-import files. (Not currently a first-class persona — see Opportunity #11.)
-- **The privacy-leaver.** Switches *to* LibreWolf or Mullvad specifically. Cares about HIBP scan, that nothing phones home, that decrypted data doesn't leak.
+- Windows users migrating from a Chromium browser to Firefox-family.
+- Privacy-conscious users who want local-only operation and a clear network surface.
+- Power users with many profiles or portable Firefox installs.
+- IT/support operators who need repeatable migration output, logs, and snapshots.
+- Maintainers extending categories or browser support.
 
 ### Platforms and distribution
 
-- **Windows 10/11** — primary target. DPAPI + ABE sidecar (source-only).
-- **macOS 12+** — Keychain via `security` CLI. Live ingestion not verified.
-- **Linux** — libsecret / kwallet / "peanuts" plaintext fallback. Per-distro NSS path heuristics.
-- Distribution: **PyInstaller --onedir** ZIP via GH Actions workflow (`workflow_dispatch`, never run yet); CLI works from a checkout via `python -m foxport.cli`.
+- Runtime: Python 3.11+; CI matrix Windows/macOS/Linux × 3.11/3.12.
+- Distribution: GitHub Releases → Windows ZIP. macOS/Linux packaging not represented in `release.yml`.
+- Settings file: `%APPDATA%/FoxPort/config.json`, `~/Library/Application Support/FoxPort`, `$XDG_CONFIG_HOME/FoxPort` (per `foxport/config.py`).
 
-### Important integrations, permissions, storage, data flows
+### Integrations, permissions, storage, data flows
 
-- **External network calls** — Optional AMO search (`addons.mozilla.org/api/v5/addons/search/`) + AMO detail endpoint for the extension matcher. **Single User-Agent**, no rate limiting beyond `time.sleep` in the auditor script.
-- **Filesystem reads** — Per-platform Chromium + Firefox profile directories, read-only after copy-to-temp.
-- **Filesystem writes** — `~/Documents/FoxPort/<timestamp>_<src>__to__<dst>/` by default. Direct-write paths write into the target profile dir with timestamped backups.
-- **Process execution** — `tasklist` on Windows / `ps -axo comm=` on Unix for "browser running" detection; `security find-generic-password` on macOS; `secret-tool`/`kwallet-query` on Linux; `foxport_abe.exe` sidecar via `subprocess.run` on Windows (UAC-elevated by manifest).
-- **DLL loading via ctypes** — `nss3.dll`/`libnss3.dylib`/`libnss3.so` from the *target Firefox install path*.
-- **Persistent state** — None. The app holds no DB, no settings file, no auth state. Output folder is the only durable state.
-
----
+- Source profiles are read-only: SQLite is copied to a temp dir before connection; WAL/SHM siblings copied too.
+- Decrypt path: DPAPI on Windows (with ABE sidecar fallback for Chrome 127+), Keychain + PBKDF2-SHA1(1003) on macOS, libsecret/kwallet/peanuts + PBKDF2-SHA1(1) on Linux.
+- Firefox decrypt path: NSS via ctypes against the **target** install's `nss3.dll`; profile must be closed.
+- Optional network: `addons.mozilla.org/api/v5/...` for extension metadata; `api.pwnedpasswords.com/range/<5char>` for HIBP.
+- No telemetry, crash reporting, or update checks today; the Settings dialog has disabled placeholders for the first two.
+- Output: dated subdir under the configured output root containing per-category artifacts + `README.txt`.
+- Snapshot: separate `.fxport` file with ZIP + manifest, optionally encrypted.
 
 ## Feature Inventory
 
-> Maturity legend: **C**omplete · **P**artial · **H**idden · **S**tale · **B**roken · **U**ndocumented
+Each feature lists user value, entry point, main code locations, maturity, tests/docs, and improvement opportunities. Confidence labels: **Verified** (this pass), **Likely** (consistent with code but not exercised), **Assumption** (needs live validation).
 
-| # | Feature | User value | Entry point | Code | Maturity | Tests/docs | Improvement |
-|---|---|---|---|---|---|---|---|
-| 1 | Password CSV migration (forward) | Move every saved login | Items step checkbox | `migrate/passwords.py` | **C** | None / README + CHANGELOG | Verify timestamps real-world; add HIBP scan |
-| 2 | Password NSS direct-write | Skip CSV import step entirely | Items step "Direct-write passwords" checkbox | `migrate/nss_passwords.py`, `crypto/nss.py` | **P (Likely)** | None | No real-Firefox round-trip test |
-| 3 | Bookmarks (Netscape HTML) | Move bookmark tree | Items step | `migrate/bookmarks.py` | **B** | None | `PERSONAL_TOOLBAR_FOLDER` ignored on user import; chrome:// URLs not filtered |
-| 4 | Extension mapping (4-stage) | One-click install per Firefox equivalent | Items step | `migrate/extensions.py`, `data/curated_extension_map.json` | **C** | Auditor script `scripts/check_curated_map.py` / README | Add gecko.id → CWS for reverse; refresh map |
-| 5 | Cookies (`cookies.sqlite` v17) | Move login sessions | Items step | `migrate/cookies.py` | **P (schema gap)** | None | Missing `updateTime` column |
-| 6 | Cookies direct-write | One-step cookies install | Items step "Direct-write cookies" | `migrate/nss_cookies.py` | **P** | None | Same schema gap; no round-trip test |
-| 7 | History (`places.sqlite` v77) | Move URL+visit log | Items step | `migrate/history.py` | **B** | None | **Schema 9 versions behind**, **`url_hash` algorithm wrong** |
-| 8 | History direct-write | One-step history install | Items step | `migrate/nss_history.py` | **B** | None | Same gap; ALSO deletes `favicons.sqlite` unconditionally |
-| 9 | Form autofill (`formhistory.sqlite` v4) | Move typed-string history | Items step | `migrate/autofill.py` | **P (schema gap)** | None | Should be v5 + two new tables |
-| 10 | Saved cards CSV | Move credit card numbers to a password manager | Items step | `migrate/cards.py` | **C** | None / README | 1Password-shape only; consider Bitwarden JSON too |
-| 11 | Search engines (OpenSearch XML) | Move custom search keywords | Items step | `migrate/search_engines.py` | **C** | None | Doesn't import on Firefox without user-clicking each file |
-| 12 | Open tabs (SNSS → recovery.jsonlz4) | Restore browsing session | Items step | `migrate/open_tabs.py` | **B** | None | **Returns 0 URLs on real Chrome session — Verified live** |
-| 13 | Reverse: passwords | Move logins back to Chrome | CLI `migrate-reverse` | `migrate_reverse/passwords.py` | **P** | None | CSV only; no NSS verification |
-| 14 | Reverse: bookmarks | Move bookmark tree back | CLI `migrate-reverse` | `migrate_reverse/bookmarks.py` | **P** | None | Toolbar promotion via FF-only HTML attribute fails on Chrome too (Chrome looks for `H1 PERSONAL_TOOLBAR_FOLDER`) |
-| 15 | Reverse: extensions | Map AMO GUID → Chrome ID | CLI `migrate-reverse` | `migrate_reverse/extensions.py` | **P** | None | Inverted map has 13 hand-curated GUIDs; rest fall through to CWS text search |
-| 16 | Profile diff | "What will change?" preview | CLI `diff` | `diff.py` | **P** | None | Silently picks wrong profile when user has multiple FF profiles (live evidence) |
-| 17 | Dry-run | Test without writes | Items step checkbox | All migrators accept `dry_run=` | **C** | None | No "dry-run banner" persists into the Run page |
-| 18 | Drag-and-drop manual source | Migrate from a tarball / external drive | Source step "Drop a profile folder" tile | `gui/pages.py:SourcePage._on_drop` | **B** | None | Path is stored in `ctx.dropped_source_path` but **never read by migrators** — feature is wired up to the UI but disconnected from the pipeline |
-| 19 | Direction toggle (forward/reverse) | One GUI for both directions | Source step | `gui/pages.py:_set_direction` | **C** | None / CHANGELOG | Items step disables 5 categories in reverse — make a "what's not yet supported" tooltip explicit |
-| 20 | Browser-running detection | Stale-data warning | Source step banner | `browsers/detect.py:is_chromium_running` | **C** | None | Uses tasklist; consider `psutil` for richer signal |
-| 21 | Per-row password preview / filter | Pick what's exported | Items step "Customize…" | `gui/dialogs.py:PasswordPreviewDialog` | **C** | None | Shows plaintext passwords — no "hide passwords" toggle by default |
-| 22 | Per-folder bookmark filter | Skip noisy folders | Items step "Customize…" | `gui/dialogs.py:BookmarkFilterDialog` | **C** | None | Doesn't filter Chrome-internal URL leaves |
-| 23 | Already-installed detection | Don't re-install AMO add-ons | extensions report | `migrate/extensions.py` + `read_installed_firefox_extensions` | **C** | None | Strikes through but doesn't *hide* — user clicks them anyway |
-| 24 | App-Bound Encryption sidecar | Recover Chrome 127+ keys | `foxport_abe.exe` (auto-invoked) | `crypto/abe.py`, `tools/abe_sidecar/foxport_abe.cpp` | **P (source only)** | None | Never compiled or signed; sidecar requires admin |
-| 25 | Curated-map auditor | Find dead AMO entries | `scripts/check_curated_map.py` | same | **C** | None | Not wired to a CI cron schedule |
-| 26 | Screenshot capture | Re-shoot README assets | `scripts/capture_screenshots.py` | same | **C** | None | Hard-coded window size |
+### Profile Detection
+- Value: zero-config discovery of installed browsers.
+- Entry point: GUI startup `DetectWorker`; CLI `list`/`migrate`/`diff`/`migrate-reverse`.
+- Code: [`foxport/browsers/detect.py`](foxport/browsers/detect.py), [`foxport/gui/workers.py:72-86`](foxport/gui/workers.py#L72-L86).
+- Maturity: **Verified** complete across registered vendors; **Likely** brittle for user-installed portable variants and Thunderbird/SeaMonkey not covered.
+- Tests/docs: README + `docs/architecture.md`; no `tests/test_detect.py`.
+- Improvements: custom profile path entry; `list --detail` with per-category cheap counts; fixture tests for `profiles.ini` flat vs profile layout; Opera GX flat-layout regression test.
 
-### Hidden / undocumented behavior
+### Source / Target Wizard + Direction Toggle
+- Value: high-confidence picking + bi-directional support.
+- Entry point: `SourcePage`, `TargetPage`.
+- Code: [`foxport/gui/pages.py:163-503`](foxport/gui/pages.py#L163-L503), [`foxport/gui/main_window.py:83-99`](foxport/gui/main_window.py#L83-L99).
+- Maturity: **Verified** complete in working tree.
+- Tests/docs: README screenshots (stale); no GUI automation.
+- Improvements: refresh screenshots after downloads-row UI change; test direction switching; surface a "No profiles found, here's how to drop a folder" empty-state link.
 
-- **`FOXPORT_NSS_PATH` environment variable** — undocumented in README, only mentioned in `crypto/nss.py` docstring. Override for portable Firefox installs.
-- **`File` menu → "Open output folder"** — wired but only mentioned in About-dialog tour.
-- **Status bar messages** — only mentioned in CLAUDE.md, not user docs.
+### Manual Source Drag-and-Drop
+- Value: migrate from copied profiles + future external bookmark sources.
+- Entry point: manual tile on `SourcePage`.
+- Code: [`foxport/gui/pages.py:307-369`](foxport/gui/pages.py#L307-L369).
+- Maturity: **Verified** works for Chromium profile / User Data / `Login Data`; **Verified** *does not* accept external bookmark formats (Pocket/Pinboard/OPML/Netscape) despite their adapters existing.
+- Tests/docs: no GUI test; adapters tested in isolation.
+- Improvements: extend to dropped bookmark files via `foxport.import_.adapters`; route to a new "Import bookmarks only" path.
 
-### Stale / dead code
+### Category Selection (Items)
+- Value: scope control.
+- Entry point: `ItemsPage`, CLI `--items` / `--all`.
+- Code: [`foxport/gui/pages.py:507-895`](foxport/gui/pages.py#L507-L895), [`foxport/cli.py:120-133`](foxport/cli.py#L120-L133).
+- Maturity: **Verified** 10 categories selectable; **Verified** `set_counts()` only accepts five (passwords/bookmarks/extensions/cookies/history) — the other five badges never update on back-nav.
+- Tests/docs: no GUI test; mention in README.
+- Improvements: extend `set_counts()` to all 10; persist counts on `MigrationContext`; consider a `count_dict: dict[str, int]` instead of positional args.
 
-- `gui/pages.py:SourcePage._on_drop` stores the dropped path but no migrator reads `ctx.dropped_source_path`. (Item #18 above.)
-- `migrate_reverse/extensions.py:AMO_GUID_TO_CHROME` contains a `"{446900e4-…}"` placeholder entry with empty string value (`{"{446900e4-…}": ""}`) — vestigial demonstration row that never gets used productively.
-- `gui/theme.py:STYLESHEET` uses a `data:image/svg+xml` checkmark URL for `QCheckBox::indicator:checked` that **Qt renders as a blank background fill** (PyQt6 QSS doesn't render `image: url(data:...)` reliably). Live screenshot confirms: filled lavender square with no glyph. Cosmetic.
+### Password Export (CSV + Direct-Write via NSS)
+- Value: portable CSV + opt-in `logins.json` install.
+- Entry point: Items checkbox; "Review" customize; CLI `migrate`.
+- Code: [`foxport/migrate/passwords.py`](foxport/migrate/passwords.py), [`foxport/migrate/nss_passwords.py`](foxport/migrate/nss_passwords.py), [`foxport/crypto/dpapi.py`](foxport/crypto/dpapi.py), [`foxport/crypto/nss.py`](foxport/crypto/nss.py).
+- Maturity: **Verified** mature; deterministic GUIDs, accounting invariant, `LoginsCorruptError`, atomic `_atomic_write` in nss_passwords, refusal on locked target.
+- Tests/docs: `tests/migrate/test_passwords.py`, `test_nss_passwords.py`; docs/architecture.
+- Improvements: NSS version validation pre-encrypt; conflict review (skip/merge/overwrite per duplicate); manifest entry with sensitivity flag; CSV cleanup-after-import reminder copy already exists in instructions but not surfaced in GUI Done state.
 
----
+### HIBP Password Scan
+- Value: opt-in breach intelligence with no plaintext disclosure.
+- Entry point: Items checkbox, settings default, CLI `--hibp`.
+- Code: [`foxport/crypto/hibp.py`](foxport/crypto/hibp.py), passwords migrator integration.
+- Maturity: **Verified** complete; UA reflects `__version__`; `Add-Padding: true` honored.
+- Tests/docs: `tests/crypto/test_hibp.py`; README "What's new" but README "Security notes" still mention only AMO.
+- Improvements: distinguish "no hits" vs "unchecked due to network failure" in run log and manifest; expose offline corpus path for high-privacy users.
+
+### Bookmark Export
+- Value: durable Netscape HTML import path.
+- Entry point: Items + "Folders" customize; CLI.
+- Code: [`foxport/migrate/bookmarks.py`](foxport/migrate/bookmarks.py), [`foxport/gui/dialogs.py:258-345`](foxport/gui/dialogs.py#L258-L345).
+- Maturity: **Verified** complete forward; reverse via `migrate_reverse/bookmarks.py`.
+- Tests/docs: `tests/migrate/test_bookmarks.py`.
+- Improvements: external bookmark adapter surface; merged multi-source imports; pre-existing toolbar relocation note already in `import_instructions`.
+
+### Extension Mapping
+- Value: bridges Chrome IDs → AMO with confidence metadata.
+- Entry point: Items; monthly auditor.
+- Code: [`foxport/migrate/extensions.py`](foxport/migrate/extensions.py), `foxport/data/curated_extension_map.json` (67 Chrome IDs), `scripts/check_curated_map.py`, `scripts/harvest_reverse_map.py`.
+- Maturity: **Verified** strong; **Verified** curated map loaded at import time only (`extensions.py` module-level `load_curated_map()`).
+- Tests/docs: `tests/migrate/test_extensions.py`; CI monthly audit.
+- Improvements: in-process cache for AMO results within a single run; explicit "lookup unavailable" downgrade label distinct from "no match"; "Refresh curated map" action in Settings; correct README/CLAUDE.md "63 entries" claim (now 67).
+
+### Cookies Export and Direct-Write
+- Value: session continuity.
+- Entry point: Items checkbox + direct-write checkbox.
+- Code: [`foxport/migrate/cookies.py`](foxport/migrate/cookies.py), [`foxport/migrate/nss_cookies.py`](foxport/migrate/nss_cookies.py).
+- Maturity: **Verified** complete; **Verified** atomic replace into target; **Verified** WAL/SHM clean.
+- Tests/docs: `tests/migrate/test_cookies.py`.
+- Improvements: per-host conflict preview; rollback manifest; ensure SHA-256 HOST_KEY prefix strip path is gated on `Cookies.meta.version >= 24` not platform (current behavior is version-gated which is correct, but the comment in CLAUDE.md should reflect it).
+
+### History Export and Direct-Write
+- Value: Awesome Bar continuity post-migration.
+- Entry point: Items + "Range" customize + direct-write checkbox.
+- Code: [`foxport/migrate/history.py`](foxport/migrate/history.py), [`foxport/migrate/nss_history.py`](foxport/migrate/nss_history.py), [`foxport/crypto/mozhash.py`](foxport/crypto/mozhash.py).
+- Maturity: **Verified** strong after v1.2.0 schema/hash fixes; favicons backed up not deleted.
+- Tests/docs: `tests/migrate/test_history.py`, `test_mozhash.py`.
+- Improvements: integrate `downloads` into `moz_annos` when history direct-write is selected; surface time-range chip in Preview when active; rollback manifest.
+
+### Autofill Export
+- Value: form recall preservation.
+- Entry point: Items.
+- Code: [`foxport/migrate/autofill.py`](foxport/migrate/autofill.py).
+- Maturity: **Verified** complete (formhistory.sqlite v5 with new `moz_sources` tables).
+- Tests/docs: `tests/migrate/test_autofill.py`.
+- Improvements: optional direct-write toggle with locked-profile checks (currently CSV-shaped sqlite only ships to staging); preview count is wired.
+
+### Saved Cards Export
+- Value: recover plaintext card data into a password manager flow.
+- Entry point: Items.
+- Code: [`foxport/migrate/cards.py`](foxport/migrate/cards.py).
+- Maturity: **Verified** at CSV level; **Likely** redundant column (cardholder appears twice — Name and Cardholder name).
+- Tests/docs: **no `test_cards.py`**.
+- Improvements: add tests; clarify column duplication; sensitivity label in manifest; richer instructions for Bitwarden + 1Password import; cleanup reminder in Done UX.
+
+### Search Engines Export
+- Value: keep custom engines + keywords.
+- Entry point: Items.
+- Code: [`foxport/migrate/search_engines.py`](foxport/migrate/search_engines.py).
+- Maturity: **Verified** complete at file level.
+- Tests/docs: **no dedicated test**.
+- Improvements: add tests; validate generated OpenSearch XML; Done-screen "Reveal search-engines folder" action.
+
+### Open Tabs Export and Direct-Write
+- Value: recover the active session.
+- Entry point: Items + direct-write checkbox (newly wired in working tree).
+- Code: [`foxport/migrate/open_tabs.py`](foxport/migrate/open_tabs.py), [`foxport/gui/workers.py:367-384`](foxport/gui/workers.py#L367-L384), [`foxport/gui/main_window.py:317`](foxport/gui/main_window.py#L317).
+- Maturity: **Verified** working; **Likely** silent failure mode — if the structural Pickle parser returns *some* URLs but the regex fallback would have returned more, the fallback never fires.
+- Tests/docs: `tests/migrate/test_open_tabs.py`.
+- Improvements: emit a warning when structural parser yields suspiciously few URLs; add a sanity ratio check against regex output; expand SNSS test fixtures for new Chrome versions.
+
+### Downloads Export
+- Value: portable downloads inventory.
+- Entry point: Items.
+- Code: [`foxport/migrate/downloads.py`](foxport/migrate/downloads.py).
+- Maturity: **Verified** at CSV level; direct-write into `moz_annos` is queued but not implemented.
+- Tests/docs: **no dedicated test**.
+- Improvements: add tests; implement annotations write when history direct-write is selected.
+
+### Reverse Firefox → Chromium
+- Value: enable round-trips and seed Chromium profiles.
+- Entry point: direction toggle; CLI `migrate-reverse`.
+- Code: [`foxport/browsers/firefox_read.py`](foxport/browsers/firefox_read.py), [`foxport/migrate_reverse/*.py`](foxport/migrate_reverse/).
+- Maturity: **Verified** narrow by design (passwords/bookmarks/extensions); **Verified** no reverse-specific tests.
+- Tests/docs: README; no `tests/migrate_reverse/`.
+- Improvements: reverse-specific unit tests; reverse preview counts; future direct-write blocked behind conflict design.
+
+### Diff CLI
+- Value: pre-flight comparison.
+- Entry point: CLI `diff`.
+- Code: [`foxport/diff.py`](foxport/diff.py), [`foxport/cli.py:421-449`](foxport/cli.py#L421-L449).
+- Maturity: **Verified** useful; narrow scope.
+- Tests/docs: README; no `test_diff.py`.
+- Improvements: JSON output; cookies-by-host and history-by-day summary; GUI "Compare first" affordance.
+
+### Snapshot + Restore (`.fxport`)
+- Value: portable migration archive with passphrase.
+- Entry point: CLI `snapshot` / `restore`.
+- Code: [`foxport/snapshot.py`](foxport/snapshot.py), `tests/test_snapshot.py`.
+- Maturity: **Verified** good security baseline (PBKDF2-HMAC-SHA256 200k, AES-256-GCM, SHA-256-per-file); **Verified** atomic snapshot creation (uses `write_bytes_atomic`); **Verified** overwrite policy on restore.
+- Tests/docs: `tests/test_snapshot.py` (42 new lines added in working tree).
+- Improvements: GUI snapshot/restore; bundle contents preview before restore; PBKDF2 iteration count carried in the encrypted header is correct, but consider tracking schema-version of the manifest for forward compat; nested-`.fxport` detection.
+
+### Settings Dialog
+- Value: persisted defaults.
+- Entry point: File → Settings.
+- Code: [`foxport/config.py`](foxport/config.py), [`foxport/gui/dialogs.py:480-594`](foxport/gui/dialogs.py#L480-L594).
+- Maturity: **Verified** baseline; disabled telemetry/crash checkboxes still visible.
+- Tests/docs: `tests/test_config.py`.
+- Improvements: add NSS path override (currently env var only); "Reset to defaults"; move disabled future flags out of UI until they ship.
+
+### Release / Packaging
+- Value: non-developer install.
+- Entry point: GitHub Actions release workflow + `foxport.spec`.
+- Code: [`.github/workflows/release.yml`](.github/workflows/release.yml), [`foxport.spec`](foxport.spec).
+- Maturity: **Verified** partial. Builds + ABE compile + ZIP + GH release; **Verified** no Authenticode signing; no app icon; no version resource; no signed appcast.
+- Tests/docs: README install snippet.
+- Improvements: signing, icon, version resource, packaged smoke test, checksum file as separate artifact.
 
 ## Competitive and Ecosystem Research
 
-> Sourced from a fresh competitive landscape pass (May 2026). See "Evidence Reviewed" above.
+### Firefox built-in import wizard
+- Imports bookmarks/history/passwords/extensions/autofill from a small set of browsers; Mozilla now points Chrome users to CSV.
+- Learn: set expectations around closed-profile + checklist + reassurance copy.
+- Avoid: promising silent-import when platform restrictions force CSV.
 
-### moonD4rk/HackBrowserData
+### Google Chrome / Google Takeout export
+- Account-side archive of bookmarks/history/autofill/extensions/etc.
+- Learn: "archive" language + per-class manifests + dates.
+- Avoid: conflating account exports with local secrets — FoxPort's value is the local stuff.
 
-- 14.1k stars, v1.0.0 April 29 2026, actively maintained. CLI only.
-- **Has that FoxPort doesn't:** Safari extraction, **downloads** + **localStorage** + **sessionStorage**, 15+ Chromium variants (360, QQ, Sogou, etc.), ABE handling in core not a sidecar.
-- **Lacks vs FoxPort:** Entire write side. No Firefox target. No GUI. No reverse direction. No extension matching. No `cookies.sqlite` synthesis, no `places.sqlite` write.
-- **Lift:** downloads support (Chromium `History.downloads` table), localStorage migration as a v1.3 candidate.
+### HackBrowserData
+- Broad cross-browser local extraction (passwords/cookies/history/cards/etc.) with CSV/JSON/ZIP output and `list --detail`.
+- Learn: machine-readable output, custom profile path, ZIP bundling, per-vendor matrix.
+- Avoid: stealth-extraction framing; FoxPort is consent-driven migration, not exfil.
 
-### Mozilla `ChromeProfileMigrator.sys.mjs` (Firefox 140 source)
+### Hindsight
+- Forensic browser-artifact parser with strong provenance.
+- Learn: artifact provenance, schema version per parse, structured failure context.
+- Avoid: timeline UI; migration stays the product.
 
-- Continuously updated as part of Firefox.
-- **Has that FoxPort doesn't:** Hooks into `about:welcome`. Imports search-engine **keywords**, **toolbar ordering**, **zoom levels**, **pop-up settings**, **geolocation permissions**.
-- **Lacks vs FoxPort:** As of **Firefox 140 (mid-2025)**, Mozilla **disabled automated Chrome password import on Windows and Linux** — the wizard demands a CSV. FoxPort's NSS direct-write + DPAPI/Keychain decrypt is **strictly more capable** than the shipping migrator on those OSes. No ABE handling at all (zero references to `IElevator`/`v20`/`BrowserDecryptor` in `ChromeProfileMigrator.sys.mjs`). No reverse direction.
-- **Lift:** Mozilla's `MigrationUtils.resourceTypes` enum: `PAYMENT_METHODS (0x0100)` is a published category — FoxPort writes Saved-cards CSV but could also emit a Firefox `formautofill` Storage JSON the wizard would understand.
+### Mozilla Add-ons API (AMO)
+- Public detail + search endpoints, GUID/slug, ratings, permissions, statuses.
+- Learn: current use is appropriate; cache lookups per run; flag stale curated rows.
+- Avoid: auto-install; keep browser-mediated install consent.
 
-### unode/firefox_decrypt
+### Have I Been Pwned Pwned Passwords
+- Free k-anonymity prefix API + `Add-Padding`.
+- Learn: current usage is aligned; distinguish "not checked" from "no hits"; offline corpus integration possible.
+- Avoid: incremental / non-anonymized queries.
 
-- Active (Firefox 144 / libnss3 3.113 supported).
-- **Has that FoxPort doesn't:** Thunderbird, Waterfox, SeaMonkey profile support. `pass` (passwordstore.org) and JSON exporters.
-- **Lift:** Thunderbird profile detection is a low-cost add; same `profiles.ini` parsing as Firefox.
+### App-Bound Encryption (Chrome 127+)
+- New service-mediated key wrap on Windows for cookies/passwords.
+- Learn: sidecar must be signed and trust-messaged; explain elevation before use.
+- Avoid: shipping unsigned elevated helper as a default.
 
-### obsidianforensics/hindsight (v2026.04)
+### FIDO CXF / CXP
+- Emerging credential-exchange standard + protocol — currently the only credible path for passkey migration.
+- Learn: any passkey work should start as inventory + standards alignment; export only when the destination side supports it.
+- Avoid: inventing a proprietary passkey format.
 
-- Forensic-grade extractor.
-- **Has that FoxPort doesn't:** **Cache records**, **downloads**, **full `Preferences` JSON** dump.
-- **Lift:** downloads table import to Firefox `places.sqlite.moz_annos` (downloads-as-annotated-history).
-
-### KeePassXC / Bitwarden / 1Password
-
-- KeePassXC issue #11363 (CXP support) is still open targeting v2.8.0. Bitwarden shipped CXP iOS 26 in May 2026 — first major vendor.
-- **Lift:** FoxPort emits 1Password CSV today. Adding **KeePassXC `.kdbx` direct write via `pykeepass`** and **Bitwarden JSON** would close the password-manager triangle. CXF v1.0 emit (passkeys) is a future-proof play.
-
-### ArchiveBox
-
-- **Lift the pattern, not the feature.** ArchiveBox accepts **Netscape HTML / Pocket / Pinboard / Instapaper / Shaarli / Delicious / Wallabag / RSS / JSON / CSV / plaintext** via pluggable `--parser`. FoxPort could similarly accept **Pocket / Pinboard JSON** as a *source* alongside Chromium — broadens the inbound side without changing the outbound (Firefox).
-
-### What this project should intentionally avoid
-
-- **Don't become a forensic dumper.** Hindsight + HackBrowserData own that space and FoxPort would lose its identity.
-- **Don't bundle a custom password manager.** Stay an *interop* tool. Emit standard formats (CSV, JSON, KDBX, CXF) — let users pick their store.
-- **Don't ship telemetry without opt-in.** A Firefox-adjacent tool that phones home would be self-defeating. (See "Glean opt-in" in Larger Bets.)
-- **Don't try to keep `places.sqlite` schema drift in lock-step with Firefox forever.** Long-term the Places-API-via-WebExtension approach is more sustainable than the schema-from-scratch path.
-
----
+### Glean / Sentry / WinSparkle / PyInstaller
+- Patterns for declared metrics, error reporting, signed app-cast updates, packaged binaries.
+- Learn: consent + data dictionary + local off switch + signature verification are table stakes.
+- Avoid: silent enablement of any of the above.
 
 ## Highest-Value New Features
 
-### NF-1 — HIBP Pwned Passwords scan during migration
+Items the prior plan also flagged remain valid; the entries below either deepen them with new evidence or replace them where the working tree has overtaken them.
 
-- **User problem solved:** Bitwarden / 1Password trained users to expect a compromised-password report at import time. FoxPort decrypts cleartext on the way through — perfect surface.
-- **Evidence:** HIBP API v3 free, no key, k-anonymity SHA-1 prefix lookup ([haveibeenpwned.com/API/v3](https://haveibeenpwned.com/API/v3)). Live confirmation that FoxPort already has cleartext at `migrate/passwords.py:_decrypt_rows`.
-- **Proposed behavior:** Items-step opt-in checkbox "Check passwords against HIBP". After decrypt, hash each password to SHA-1, take first 5 chars, request `api.pwnedpasswords.com/range/<prefix>`, scan returned suffix list for the remaining 35 chars. Emit `compromised-passwords.txt` listing every match (URL + username, NOT the password) alongside the standard CSV. Show count on the Done screen.
-- **Implementation areas:** `migrate/passwords.py` (after decrypt, before write), new `crypto/hibp.py`, Items wizard step checkbox.
-- **Data model:** No persistent change. Per-run report file.
-- **Risks/edge cases:** Network failure shouldn't block migration — degrade to "skipped". User must explicitly opt in (privacy). Cache prefix→suffix-list within a session to avoid re-querying for shared prefixes.
-- **Verification plan:** Mock the HIBP endpoint in a unit test; manual run against a synthesized profile containing `password123` (always returns hits).
-- **Complexity:** S. **Priority:** P1.
+### 1. Done Screen + Items Badges Parity with All Ten Categories
+- User problem solved: A successful run may produce six artifacts the Done screen can't open, and the user's "back to Items" view shows count badges for only five of them.
+- Evidence: [`foxport/gui/main_window.py:114-121`](foxport/gui/main_window.py#L114-L121) hardcodes six buttons (output, passwords, bookmarks, extensions, cookies, history); [`foxport/gui/pages.py:1149-1165`](foxport/gui/pages.py#L1149-L1165) and `set_done()` toggles only those keys; [`foxport/gui/pages.py:724-742`](foxport/gui/pages.py#L724-L742) accepts five count args.
+- Proposed behavior: Replace the static button bar with a vertical list rendered from a `RunArtifact` data model (one row per produced artifact with title, path, action, sensitivity). Replace `set_counts(positional)` with `set_counts(dict[str, int])` and badge every selectable row.
+- Implementation areas: `foxport/gui/main_window.py`, `foxport/gui/pages.py`, `foxport/gui/widgets.py`, `foxport/gui/workers.py`.
+- Data model: `RunArtifact { key, path, kind, sensitivity, action (open|reveal), instructions_key }`.
+- Risks / edge cases: keep the existing Reveal-vs-Open distinction for `.sqlite` files; respect dry-run (no artifacts).
+- Verification: mock-run worker `finished` with all ten keys + `hibp`; manual GUI flow; tests asserting all keys produce a row.
+- Complexity: M
+- Priority: **P0**
 
-### NF-2 — FIDO Credential Exchange Format (CXF) v1.0 passkey export
+### 2. `manifest.json` per Migration Run
+- User problem solved: Support, rollback, snapshot, GUI Done screen, generated README, and a future JSON CLI all need one trustworthy artifact registry. Today the worker emits a `dict[str, Path]` consumed by README only.
+- Evidence: [`foxport/gui/workers.py:118`](foxport/gui/workers.py#L118), [`foxport/cli.py:193`](foxport/cli.py#L193); no `manifest.json` is written today.
+- Proposed behavior: Every non-dry-run run writes `manifest.json` next to `README.txt` containing schema version, FoxPort version, source/target labels, direction, items selected, per-artifact { key, relative path, byte size, SHA-256, count, sensitivity, import method, direct-write status, warnings }, network calls made (AMO yes/no, HIBP yes/no/unchecked), and dry-run flag.
+- Implementation: new `foxport/manifest.py`, integrate in worker + CLI + snapshot; add validation in tests; carry the manifest into `.fxport` bundle so snapshot has both per-file digests *and* artifact metadata.
+- Risks: never write plaintext passwords or cookie values; emit relative paths only; treat as the single source of truth for instructions/Done screen.
+- Verification: per-artifact-key fixture tests; manual all-items run inspection; snapshot/restore round-trip with manifest reuse.
+- Complexity: M
+- Priority: **P0**
 
-- **User problem solved:** Users with WebAuthn passkeys in Chrome can't move them today. Apple iOS 26 + Bitwarden ship CXP; desktop tooling is the gap.
-- **Evidence:** FIDO CXF v1.0 ratified Aug 2025 ([fidoalliance.org/specifications-credential-exchange-specifications/](https://fidoalliance.org/specifications-credential-exchange-specifications/)). Chrome stores passkeys in `Web Data.webauthn_credentials` (column schema visible in Chromium source). Firefox 138+ supports passkey auth but lacks an import path.
-- **Proposed behavior:** New `migrate/passkeys.py` reads `Web Data.webauthn_credentials`, emits a CXF v1.0 JSON file the user imports into Bitwarden / KeePassXC / Apple Passwords / future-Firefox.
-- **Implementation areas:** New module, new Items checkbox, new CLI item `passkeys`.
-- **Risks/edge cases:** Chrome `webauthn_credentials.private_key` is encrypted with the same AES key — works automatically once decrypted. Schema may drift; pin to current Chrome version and test fixture-based.
-- **Verification plan:** Test fixture with a known Web Data file (anonymized). CXF JSON validates against the schema published by FIDO.
-- **Complexity:** M. **Priority:** P2.
+### 3. Signed Windows Release with Bundled ABE Sidecar
+- User problem solved: Distribution is the wall between FoxPort and non-developers. Today no signed binary exists and `foxport_abe.exe` ships only if it happens to be present locally.
+- Evidence: `foxport.spec:11-13` conditional bundle; no signing step in `.github/workflows/release.yml`; no `assets/icon.ico`; no version resource in `EXE(...)`.
+- Proposed behavior: Release workflow builds `foxport_abe.exe` via MSVC v143 (already wired), Authenticode-signs both `FoxPort.exe` and `foxport_abe.exe` with a timestamp authority, embeds version + icon resources in `foxport.spec`, emits `FoxPort-vX.Y.Z-windows-x64.zip` plus a `*.sha256` file as a separate artifact, smoke-runs the packaged app to print `--version`, and uploads release notes derived from the matching `CHANGELOG.md` section instead of the whole file.
+- Implementation: `assets/icon.ico` + `assets/version_info.txt`, `foxport.spec` (add `icon=`, `version=` for `EXE()`), `release.yml` (add SignTool step + smoke step + per-section release notes), `tools/abe_sidecar/CMakeLists.txt` (consume `signtool` post-build if cert path env present).
+- Risks: cert availability; AV false positives; elevated helper trust copy must be visible *before* the sidecar runs.
+- Verification: `workflow_dispatch` on a prerelease tag; `Get-AuthenticodeSignature dist/FoxPort/FoxPort.exe`; manual elevation prompt under Chrome 127+.
+- Complexity: L
+- Priority: **P0**
 
-### NF-3 — Browser snapshot (`.fxport`) bundle
+### 4. NSS `nss3.dll` Version-Skew Guard
+- User problem solved: Direct-write into a target Firefox `logins.json` can corrupt the user's logins if the NSS library FoxPort loads is from a wildly different Firefox version than the profile expects. The current ctypes loader does no version check.
+- Evidence: [`foxport/crypto/nss.py`](foxport/crypto/nss.py); no `NSS_VersionCheck` / `NSS_GetVersion` call; the loader searches per-browser DLL paths and uses the first match.
+- Proposed behavior: On `open_session()`, capture `NSS_GetVersion` and `PK11_GetVersion`. Refuse if the major.minor differs from the Firefox profile's expected NSS pin by more than N (or if the version is missing). Log version into manifest. Allow override via env var for power users.
+- Implementation: `foxport/crypto/nss.py`, regression test against a mocked NSS library, `MigrationRequest.nss_version_warning` field threaded to GUI.
+- Risks: portable Firefox installs sometimes ship custom NSS; provide an override; do not block files-only / CSV mode.
+- Verification: test that monkeypatches `NSS_GetVersion` and asserts refusal; manual run against a mismatched Firefox.
+- Complexity: S/M
+- Priority: **P1**
 
-- **User problem solved:** Users want to back up their browser state once and restore later (after an OS reinstall, on a new machine, to send to themselves). No competitor does this.
-- **Evidence:** Pattern from Apple Migration Assistant (full Time Machine restore), Bitwarden export, Mozilla Sync. FoxPort already produces a single output folder per run with every artifact — formalizing it as a `.fxport` (zip) bundle with a `manifest.json` versioning each artifact is a free win.
-- **Proposed behavior:** A new "Save snapshot…" action on the Done page that zips the output dir into `<source>_<timestamp>.fxport`. A new CLI `python -m foxport.cli restore --snapshot foo.fxport --target Firefox/default-release` un-zips and applies every artifact via the direct-write paths.
-- **Implementation areas:** `foxport/snapshot.py`, CLI subcommand `restore`, GUI button on Done page.
-- **Risks/edge cases:** Snapshot contains cleartext passwords — encrypt with a user-supplied passphrase (PBKDF2 + AES-256-GCM) when "Encrypt" is checked.
-- **Verification plan:** Round-trip test: snapshot a fixture, restore into a clean target dir, diff outputs.
-- **Complexity:** M. **Priority:** P2.
+### 5. Direct-Write Conflict Review + Rollback Manifest
+- User problem solved: Today, cookies/history direct-write replaces target DBs wholesale (after backup) and passwords merge by deterministic GUID with no user-visible policy. The product's biggest data-safety risk is the target side.
+- Evidence: `nss_passwords` dedups by GUID; cookies/history replace; no preview shows target-side conflicts; rollback is implicit ("there's a backup somewhere").
+- Proposed behavior: A pre-write analysis pass returns conflict sets (per category) without mutation; a dialog presents counts + samples + per-category policy (skip / merge / overwrite / backup-only); post-write manifest lists every backup and exact restore steps. CLI gets `--direct-write-policy=skip|merge|overwrite|backup-only` and `--yes`.
+- Implementation: new `foxport/migrate/conflicts.py` (`analyze_passwords()`, `analyze_cookies()`, `analyze_history()`), new dialog, manifest entries.
+- Risks: large cookie/history sets — keep summaries by host/day; never log plaintext.
+- Verification: synthetic target fixtures; locked-profile failure case; GUI manual smoke.
+- Complexity: XL
+- Priority: **P1**
 
-### NF-4 — Downloads migration
+### 6. GUI Snapshot + Restore (with Bundle Inspect)
+- User problem solved: `.fxport` is one of FoxPort's highest-leverage features and CLI-only today.
+- Evidence: `snapshot.py` is tested; `RunPage` has no snapshot action; File menu has no Restore.
+- Proposed behavior: Done screen offers "Save as snapshot…" (passphrase optional, with strength meter). File menu adds "Restore from snapshot…": pick file → inspect (manifest + file list) → choose staging output dir (refuses non-empty unless user confirms) → run with integrity check and progress.
+- Implementation: `foxport/gui/dialogs.py` (passphrase dialog + bundle viewer), `foxport/gui/pages.py`, `foxport/gui/main_window.py`, `foxport/snapshot.py` (return file list pre-extract).
+- Risks: wrong-passphrase UX; nested `.fxport` exclusion; partial restore interruption.
+- Verification: GUI manual snapshot/restore using fixture output folder; encrypted/plain round-trip; large-bundle responsiveness.
+- Complexity: M
+- Priority: **P1**
 
-- **User problem solved:** Users with hundreds of downloads in their browser history lose them on migration. Hindsight surfaces this data; HackBrowserData reads it; FoxPort skips it.
-- **Evidence:** Chromium `History.downloads` table is well-known; Firefox stores downloads as annotated `moz_places` entries (`moz_annos.anno_attribute_id = "downloads/destinationFileURI"`).
-- **Proposed behavior:** New `migrate/downloads.py`. Items checkbox. Writes annotations into the `places.sqlite` already being emitted by history migration.
-- **Implementation areas:** New module, Items checkbox, CLI item `downloads`. **Depends on history-migration fix (P0 above) being done first** since it writes to the same DB.
-- **Risks/edge cases:** Local file URIs reference paths that won't exist on the target machine — flag them but include.
-- **Verification plan:** Test fixture; query the resulting `places.sqlite` for `moz_annos` entries.
-- **Complexity:** S. **Priority:** P2.
+### 7. External Bookmark Import Surface
+- User problem solved: Pocket/Pinboard/OPML/Netscape support exists in `foxport/import_/adapters.py` and is tested, but no user can reach it. The drag tile only accepts Chromium profiles.
+- Evidence: [`foxport/import_/adapters.py`](foxport/import_/adapters.py); `tests/test_import_adapters.py`; no production caller.
+- Proposed behavior: Two surfaces — (a) CLI `import-bookmarks --input <file> --out bookmarks.html [--format auto|pocket|pinboard|opml|netscape]`; (b) GUI manual drop tile detects bookmark file by suffix/content and routes to a "Convert bookmarks" path that writes a single-purpose Netscape HTML with folder paths preserved where the source had them.
+- Implementation: shared emitter (`bookmarks._write_netscape_html(roots)` could lift the inner emitter into a reusable function), new CLI subcommand, GUI drag handler branch, tests.
+- Risks: OPML is often feeds, not bookmarks — be explicit in UI.
+- Verification: CLI subcommand on every adapter fixture; GUI drop with each format; round-trip test.
+- Complexity: M
+- Priority: **P1**
 
-### NF-5 — History time-range filter
+### 8. First-Run Trust Dialog + Network Activity Preview Row
+- User problem solved: FoxPort markets local-only but optional AMO and HIBP calls exist, telemetry/crash/update are roadmap'd, and there's no centralized network disclosure.
+- Evidence: Settings has disabled telemetry/crash placeholders ([`foxport/gui/dialogs.py:550-563`](foxport/gui/dialogs.py#L550-L563)); README security notes only mention AMO; no first-run UX.
+- Proposed behavior: On first launch (no `first_run_acked: true` in `config.json`), show a modal that explains: source is read-only; sensitive outputs are listed; optional network calls are AMO + HIBP; future telemetry/crash/update are off and require opt-in. Add a "Network activity for this run" section to Preview listing every optional endpoint and what gets sent.
+- Implementation: `foxport/config.py` (consent timestamps + version), new `FirstRunDialog`, Preview page network section.
+- Risks: consent fatigue; do not block offline use.
+- Verification: fresh config flow; tests for consent persistence; no network calls when all toggles off.
+- Complexity: M
+- Priority: **P1**
 
-- **User problem solved:** Spring-cleaning migrators want the last 90 days, not 7 years of crufty URLs.
-- **Evidence:** Hindsight has this; the community explicitly asks for it on Codidact and Stack Exchange threads about Firefox imports.
-- **Proposed behavior:** New "Customize…" button on the History row (mirrors Passwords / Bookmarks). Dialog with two date pickers + "last N days" presets. Filter rows in `migrate/history.py:_iter_chromium_history` by `last_visit_time`.
-- **Implementation areas:** `gui/dialogs.py` (new `HistoryFilterDialog`), `gui/pages.py:ItemsPage._customize_history`, `migrate/history.py` (date-range param).
-- **Risks/edge cases:** Visits older than the cutoff for a URL whose latest visit is within the cutoff — keep the URL, drop the older visits.
-- **Verification plan:** Test fixture with known timestamps.
-- **Complexity:** S. **Priority:** P2.
+### 9. CLI `--json` and `list --detail`
+- User problem solved: IT/support automation can't parse human prints. HackBrowserData covers this idiom well.
+- Evidence: [`foxport/cli.py:136-516`](foxport/cli.py#L136-L516); no `--json` flag.
+- Proposed behavior: `--json` on `list`, `migrate`, `migrate-reverse`, `diff`, `snapshot`, `restore`. Stable schema with version. `list --detail` adds per-category cheap counts when achievable without decryption. Never include plaintext secrets.
+- Implementation: `foxport/cli.py`, count helpers reused from preview, schema test snapshots.
+- Risks: schema bumps must be additive; secret leakage prevention.
+- Verification: schema snapshot tests under pytest; manual PowerShell + Bash runs.
+- Complexity: M
+- Priority: **P2**
 
-### NF-6 — Brave / Vivaldi / Edge as a *target*
-
-- **User problem solved:** Reverse direction currently only writes Chrome-import-format files; users explicitly switching from Firefox to Brave/Vivaldi/Edge would want native import.
-- **Evidence:** All three are Chromium with the same SQLite schemas as Chrome. Reverse code already exists for Chrome target; parameterizing the path is mechanical.
-- **Proposed behavior:** Reverse-direction Target tile picker becomes generic — pick any Chromium-family target, FoxPort writes Brave-compatible CSV (same shape as Chrome's import).
-- **Implementation areas:** `gui/pages.py:TargetPage._render_for_direction` already handles this; verify CSV format identity with the three browsers.
-- **Risks/edge cases:** Some Chromium forks (Yandex, Opera) bundle their own bookmark/CSV import — verify.
-- **Verification plan:** Manual test against each target.
-- **Complexity:** S. **Priority:** P2.
-
-### NF-7 — Glean telemetry (strictly opt-in)
-
-- **User problem solved:** No usage signal today — can't tell which categories users actually pick, what fails most often.
-- **Evidence:** Mozilla Glean Python SDK 67.1.0 (March 2026). Standard Mozilla-ecosystem solution. Firefox-adjacent tool with Mozilla-native telemetry is a credibility signal.
-- **Proposed behavior:** First-run dialog asks "Send anonymous usage metrics to Mozilla Glean?" — default OFF. If enabled, send: which categories the user ticked, run duration per category, decrypt-failure counts (no URLs/usernames), Python/OS/Qt version. Honor `--no-telemetry` CLI flag unconditionally.
-- **Implementation areas:** New `foxport/telemetry.py`, first-run dialog on `gui/main_window.py`.
-- **Risks/edge cases:** Glean wants `allow_multiprocessing=False` for PyInstaller builds. Document opt-out clearly in README.
-- **Risks/edge cases (privacy):** Never send URLs, usernames, password hashes, profile names, or file paths. Only counts and timings.
-- **Verification plan:** Manual debug-mode run; inspect emitted metrics.
-- **Complexity:** M. **Priority:** P3.
-
-### NF-8 — Crash reporting via Sentry
-
-- **User problem solved:** Silent crashes today; the user just sees the GUI vanish.
-- **Evidence:** sentry-sdk has first-class PyQt6 support; self-hosted GlitchTip/Bugsink alternatives exist.
-- **Proposed behavior:** Same opt-in dialog as NF-7. On unhandled exception, send a stack trace + Python/OS/Qt version (no user data) to a `foxport.io`-controlled Sentry DSN.
-- **Implementation areas:** `foxport/app.py` (install handler), `foxport/telemetry.py`.
-- **Complexity:** S. **Priority:** P3.
-
-### NF-9 — Pocket / Pinboard / OPML bookmark *input*
-
-- **User problem solved:** Users with externally-stored bookmark sets want to import them into Firefox via FoxPort's already-polished pipeline.
-- **Evidence:** ArchiveBox's pluggable `--parser` model; users will mention "I have a Pinboard export from 2018".
-- **Proposed behavior:** New "Manual source" tile already exists in the GUI; wire it to accept Pocket JSON, Pinboard JSON, OPML, and Netscape HTML in addition to Chromium User Data dirs.
-- **Implementation areas:** `gui/pages.py:SourcePage._on_drop` — currently dead code (item #18); a new `foxport/import_/` package with one module per source format.
-- **Complexity:** M. **Priority:** P2.
-
-### NF-10 — Auto-update via WinSparkle / Sparkle
-
-- **User problem solved:** Users on v0.4 still don't know v1.1 exists.
-- **Evidence:** fman.io's PyQt Sparkle guide is the canonical 2026 reference; `pywinsparkle` PyPI package wraps WinSparkle for Windows; macOS Sparkle framework loads via pyobjc.
-- **Proposed behavior:** Check `foxport.io/appcast.xml` on launch (or once-per-week). Show a non-modal banner when an update is available. EdDSA-signed updates.
-- **Implementation areas:** `foxport/updater.py`, `gui/main_window.py` (banner widget on launch).
-- **Risks/edge cases:** Don't auto-update without user consent; show the changelog before installing.
-- **Complexity:** L. **Priority:** P3.
-
----
+### 10. Passkey Inventory Prototype + Extension Settings Allowlist
+- User problem solved: Passwords aren't the whole identity story anymore (passkeys), and extension *settings* are higher-effort than mere reinstall.
+- Evidence: ROADMAP mentions FIDO CXF + extension-settings best-effort.
+- Proposed behavior: Two narrow, opt-in tracks — a `passkeys inventory` CLI that detects `Web Data.webauthn_credentials` presence + counts and emits a feasibility report (no export until CXF/CXP destination support); an `extension-settings` allowlist for ~2 high-value extensions (e.g. uBlock Origin filter lists; Stylus userstyles) where the format is stable and consent is explicit.
+- Implementation: `foxport/migrate/passkeys.py` (inventory only), `foxport/migrate/extension_settings.py` (allowlist with per-extension exporter), docs, tests.
+- Risks: passkey private key material may not be exportable; extension storage may contain tokens; consent must be explicit per item.
+- Verification: synthetic `Web Data.webauthn_credentials` fixtures; fixture extension storage; review against FIDO drafts.
+- Complexity: XL (combined)
+- Priority: **P2** (passkey inventory) / **P2** (extension-settings allowlist)
 
 ## Existing Feature Improvements
 
-### EI-1 — `places.sqlite` schema gap (v77 → v86) and `url_hash` algorithm bug
+### Atomic-Replace for Staging Writers (not only target-profile writers)
+- Current behavior: The working tree introduced `foxport/fileops.py` and routed `nss_cookies`/`nss_history`/`open_tabs` direct-writes through `replace_file_atomic()`. But the **staging-folder** emitters (`passwords.py` → CSV, `bookmarks.py` → HTML, `cookies.py` → SQLite, `history.py` → SQLite, `autofill.py` → SQLite, `cards.py` → CSV, `downloads.py` → CSV, `search_engines.py` → JSON+XML, `open_tabs.py` non-direct-write recovery.jsonlz4) still write directly to the final filename.
+- Problem: A crash mid-write leaves a corrupt artifact at the final name; the README.txt then references it; snapshot bundles can include partially written files.
+- Recommended change: Either route every staging writer through `write_bytes_atomic()` (small overhead) or wrap each emitter in a tmpfile-then-replace helper.
+- Code locations: all of `foxport/migrate/*.py` non-`nss_*` emitters.
+- Backward compat: none (file names unchanged).
+- Verification: unit test with monkeypatched write failure; ensure no `.foxport-*` orphans remain.
+- Complexity: M
+- Priority: **P1**
 
-- **Current behavior:** `migrate/history.py:_FIREFOX_PLACES_SCHEMA` declares `PRAGMA user_version = 77` and a column set frozen at Firefox ~115. `_url_hash` builds the upper 16 bits from a hard-coded `{http: 130, https: 131, ftp: 129, file: 128, place: 132}` table and the lower 48 bits from `MD5(url)[:6]`.
-- **Problem:** Verified against `mozilla-central` tip (`toolkit/components/places/Database.cpp`, `nsPlacesTables.h`, `Helpers.cpp`): current Places schema is **v86**, not 77. Missing columns: `description`, `preview_image_url`, `site_name`, `alt_frecency`, `recalc_alt_frecency` on `moz_places`; `alt_frecency`, `recalc_alt_frecency`, `block_until_ms`, `block_pages_until_ms` on `moz_origins`; `source`, `triggeringPlaceId` on `moz_historyvisits`. **`url_hash` algorithm is wrong** — Firefox uses `mfbt::HashString` (a non-cryptographic mix, see `mfbt/HashFunctions.h`) for both the scheme prefix and the URL, **not** a fixed integer table + MD5.
-- **Recommended change:** (a) bump the schema literal to 86 and add every missing column; or (b) drop schema-from-scratch entirely and switch to a Places-API-via-headless-Firefox approach (long term). Port `HashString` from `mfbt/HashFunctions.h` (≈ 30 lines) to a new `foxport/crypto/mozhash.py` and use it everywhere.
-- **Code locations:** `foxport/migrate/history.py:_FIREFOX_PLACES_SCHEMA`, `_url_hash`, `_SCHEME_PREFIX_TAG`.
-- **Backward compatibility:** Users with a `places.sqlite` already imported via FoxPort v0.3–v1.1 may have working profiles where AwesomeBar search silently doesn't find imported entries. Migration: re-run import after upgrading.
-- **Verification:** Write a test fixture; open the produced `places.sqlite` with a clean Firefox 138 install; navigate to `about:profiles` → "Show in Finder"; relaunch Firefox; verify AwesomeBar finds entries.
-- **Complexity:** L. **Priority:** P0.
+### `ItemsPage.set_counts()` Accepts All Ten Categories
+- Current: positional args for five categories; the other five appear in Preview but not in Items badges on back-nav.
+- Problem: Items counts get stale relative to what Preview actually computes.
+- Recommended change: `set_counts(counts: dict[str, int])` keyed by item slug; persist on `MigrationContext.counts: dict[str, int]`.
+- Code locations: [`foxport/gui/pages.py:724-742`](foxport/gui/pages.py#L724-L742), [`foxport/gui/main_window.py:287-293`](foxport/gui/main_window.py#L287-L293).
+- Backward compat: none (private API).
+- Verification: Test driving `set_counts` with all ten keys; manual back-nav.
+- Complexity: S
+- Priority: **P1**
 
-### EI-2 — `open_tabs` SNSS extractor returns zero URLs on real Chrome data
+### Open-Tabs Partial-Success Warning
+- Current: structural Pickle parser; if it returns ≥1 URL, the UTF-8 fallback never runs.
+- Problem: Chrome SNSS schema drift can cause silent under-count.
+- Recommended change: Always run both parsers internally; if regex would have returned >1.5× the structural URLs, log a warning, surface it on the run page, and prefer the regex result (or take the union and dedupe by URL).
+- Code locations: [`foxport/migrate/open_tabs.py`](foxport/migrate/open_tabs.py).
+- Verification: synthetic SNSS fixture where structural returns 2 and regex returns 10; assert the warn path.
+- Complexity: S
+- Priority: **P2**
 
-- **Current behavior:** `migrate/open_tabs.py:_extract_urls` scans the raw SNSS bytes with a UTF-16LE regex for URL-shaped substrings.
-- **Problem:** Verified live against a real Chrome `Default/Sessions/Session_13423521964202657` (2754 bytes): the extractor returns **0 URLs**. The file has 4-byte command headers visible (`0d 00 0f 08`, `0d 00 1f 08`, etc.) but no inline URL strings in either UTF-8 or UTF-16LE. Chrome may store URLs in companion `Tabs/Tabs_<id>` files, or pickle the URL field with a length prefix that breaks the regex assumption.
-- **Recommended change:** (a) Read `Tabs/Tabs_*` files as well — Chrome 100+ splits tabs from sessions. (b) Write a real SNSS command parser following the protocol in `chrome/browser/sessions/session_service_commands.cc` (Chromium source) — each command is `[4-byte size][1-byte command_id][payload]`, and `SerializedNavigationEntry` payloads have a Pickle-formatted `[url_len][url][title_len][title]` structure.
-- **Code locations:** `foxport/migrate/open_tabs.py:_URL_UTF16_RE`, `_latest_session_file`, `_extract_urls`.
-- **Backward compatibility:** Output file remains `recovery.jsonlz4` — same format Firefox expects.
-- **Verification:** Live run against a real Chrome profile reports >0 URLs. Manual cross-check against `chrome://history/?q=<recent>`.
-- **Complexity:** M. **Priority:** P0.
+### Documentation Drift (curated map entry count + Security notes)
+- Current: README says "63-entry curated map" / CLAUDE.md "63-entry"; the file actually has 67 Chrome IDs across 14 categories. README "Security notes" only mentions AMO, not HIBP. `foxport/browsers/firefox.py:6` docstring claims FoxPort "writes Firefox-native import files" only — but direct-write modules exist.
+- Problem: Trust-product needs accurate docs.
+- Recommended change: Replace fixed counts with a dynamic check (or just update to 67 and refresh on each map PR); update Security notes to mention HIBP; correct docstring; rerun screenshots.
+- Code locations: `README.md`, `CLAUDE.md`, `foxport/browsers/firefox.py:1-9`, `assets/screenshots/`.
+- Verification: docs grep + screenshot diff.
+- Complexity: S
+- Priority: **P2**
 
-### EI-3 — `bookmarks.html` toolbar promotion silently broken
+### Cards CSV Column Duplication
+- Current: `migrate_cards()` emits "Type, Name, Number, Expiration, Cardholder name, Notes" where Name and Cardholder are the same value (per the audit).
+- Problem: Importers may dedupe; signals sloppy CSV.
+- Recommended change: Drop the redundant column or differentiate (Name = network display; Cardholder = the actual name).
+- Code locations: `foxport/migrate/cards.py`.
+- Verification: add `tests/migrate/test_cards.py` asserting column shape.
+- Complexity: S
+- Priority: **P2**
 
-- **Current behavior:** `migrate/bookmarks.py` tags the toolbar root with `<H3 PERSONAL_TOOLBAR_FOLDER="true">`.
-- **Problem:** Verified against `BookmarkHTMLUtils.sys.mjs`: the attribute is **only honored on `_isImportDefaults=true`** (Firefox's first-run default-bookmark bootstrap), not on user-triggered Library → "Import Bookmarks from HTML". Toolbar bookmarks currently land in "Other Bookmarks" under a folder named "Bookmarks Toolbar".
-- **Recommended change:** Stop relying on the attribute. After import, surface a "Move imported toolbar items to Bookmarks Toolbar" button on the Done page that uses Firefox's Bookmarks Library + drag-and-drop semantics (i.e., document the manual step). Or — once history direct-write is fixed (EI-1) — populate `moz_bookmarks` directly with `parent = 3` (the toolbar root's ID).
-- **Code locations:** `foxport/migrate/bookmarks.py:_emit_folder`, `README.md` (current screenshots say "toolbar landed correctly").
-- **Complexity:** S (docs change) / M (direct-write path).
-- **Priority:** P1.
+### Curated Map Hot-Reload + In-Run Cache
+- Current: `extensions.py` loads curated JSON at import time; no in-run cache for AMO lookups (each unmatched ID hits the network once per run, but if the user clicks "back" + "next" the worker re-runs lookups).
+- Problem: Curated map updates require app restart; AMO calls aren't memoized across worker runs.
+- Recommended change: Lazy-load + reload-on-stat-change; a module-level dict cache keyed by Chrome ID; clear-on-Settings-action.
+- Code locations: `foxport/migrate/extensions.py`.
+- Complexity: S
+- Priority: **P3**
 
-### EI-4 — `cookies.sqlite` missing `updateTime` column (v17 schema gap)
+### Reverse Curated-Map Auditor
+- Current: `harvest_reverse_map.py` populates `AMO_GUID_TO_CHROME`; `check_curated_map.py --strict-stale` audits only the **forward** map.
+- Problem: Reverse direction degrades silently when GUIDs go missing.
+- Recommended change: Extend the monthly audit workflow to also verify reverse GUIDs against AMO; surface entries in the issue body.
+- Code locations: `scripts/check_curated_map.py`, `.github/workflows/curated-map-audit.yml`.
+- Complexity: S
+- Priority: **P2**
 
-- **Current behavior:** `migrate/cookies.py:_FIREFOX_COOKIES_SCHEMA` declares all v17 columns *except* `updateTime INTEGER` (added in the v16→v17 bump).
-- **Problem:** Verified against `netwerk/cookie/CookiePersistentStorage.cpp` tip. Firefox 138 will detect the column gap and treat the DB as needing migration; in some code paths this triggers a drop-and-recreate.
-- **Recommended change:** Add `updateTime INTEGER` to the schema. Default `NULL` or `creationTime` — both accepted.
-- **Code locations:** `foxport/migrate/cookies.py:_FIREFOX_COOKIES_SCHEMA`, the `INSERT OR REPLACE INTO moz_cookies` call (just add a 14th column).
-- **Backward compatibility:** None — Firefox auto-migrates.
-- **Verification:** `sqlite3 cookies.sqlite '.schema moz_cookies'` shows `updateTime`.
-- **Complexity:** S. **Priority:** P1.
+### Test Coverage Gaps (downloads, cards, search engines, diff, reverse)
+- Current: 97 tests pass; the audit confirmed no `test_cards.py`, no `test_downloads.py`, no `test_search_engines.py`, no `test_diff.py`, no `tests/migrate_reverse/`.
+- Problem: New writers shipped without regression coverage.
+- Recommended change: Add focused tests with synthetic Web Data / History fixtures.
+- Code locations: `tests/migrate/`, `tests/migrate_reverse/`, `tests/test_diff.py`.
+- Complexity: M
+- Priority: **P1**
 
-### EI-5 — `formhistory.sqlite` v4 → v5 with new `moz_sources` tables
+### Generated README → Manifest-Driven (consolidates with #2)
+- Current: `import_instructions()` now covers all artifact keys (verified in `test_import_instructions.py`), but it's a separate hand-written switch from the manifest the run produces.
+- Recommended change: After landing `manifest.json` (#2), generate README sections from manifest entries plus a small per-artifact template; remove the hand-written switch.
+- Complexity: S after #2
+- Priority: **P2**
 
-- **Current behavior:** `migrate/autofill.py` writes `PRAGMA user_version = 4`.
-- **Problem:** `FormHistory.sys.mjs` is on v5 (added `moz_sources` + `moz_history_to_sources` junction). Firefox 138 auto-migrates but ships with the wrong assumption on first launch (the imported data wasn't recorded as added by any extension).
-- **Recommended change:** Bump to v5, add empty `moz_sources` + `moz_history_to_sources` tables.
-- **Code locations:** `foxport/migrate/autofill.py:_FIREFOX_FORMHISTORY_SCHEMA`.
-- **Complexity:** S. **Priority:** P2.
+### Done-Screen "Reveal backups" Action (post direct-write)
+- Current: Backups are created with timestamped names but the Done UI doesn't surface them.
+- Recommended change: When the manifest reports a `backup_path`, render a "Reveal backup" action and a "Restore from backup" instructions block.
+- Complexity: S
+- Priority: **P2**
 
-### EI-6 — Bookmark + history exports include `chrome://`, `chrome-extension://`, `edge://`, `about:` URLs
+### Settings: NSS Path Override + Reset to Defaults
+- Current: `FOXPORT_NSS_PATH` env var is documented but not exposed in Settings; Settings has no Reset action.
+- Recommended change: Add an Advanced section with an NSS path field and a "Reset to defaults" button.
+- Code locations: `foxport/config.py`, `foxport/gui/dialogs.py`, `foxport/crypto/nss.py`.
+- Complexity: M
+- Priority: **P2**
 
-- **Current behavior:** Live diff against a real Brave Default profile listed `chrome://gpu/` among the new bookmark URLs.
-- **Problem:** Firefox can't navigate to `chrome://*` URLs. The bookmark appears, the user clicks, nothing happens.
-- **Recommended change:** Filter URLs whose scheme is in `{chrome:, chrome-extension:, edge:, brave:, opera:, vivaldi:, yandex:, about:}` from bookmark + history + open-tab outputs *by default*. Add a "Migrate browser-internal URLs anyway" toggle for the rare case.
-- **Code locations:** `foxport/migrate/bookmarks.py:_emit_url`, `foxport/migrate/history.py:_iter_chromium_history`, `foxport/migrate/open_tabs.py:_extract_urls`.
-- **Complexity:** S. **Priority:** P1.
+### Refresh Screenshots + Docs After UI Stabilization
+- Current: `assets/screenshots/3-items.png` predates the downloads row.
+- Recommended change: Re-run `scripts/capture_screenshots.py` after the working tree theme polish lands and the Items/Run pages stabilize.
+- Complexity: S
+- Priority: **P2**
 
-### EI-7 — `diff` CLI silently picks the wrong profile when target has multiple
-
-- **Current behavior:** `cli._find_firefox` does substring matching. Live evidence: user has LibreWolf profiles `default-default-1 (10314 bookmarks)`, `default (no places.sqlite)`, `default-default (10314 bookmarks)`. The diff against `--target "LibreWolf/default"` matches the EMPTY second profile and reports "0 already in target" for 4935 bookmarks.
-- **Problem:** Substring "default" matches all three; the substring-fallback picks the first.
-- **Recommended change:** When more than one profile matches, refuse and print the full list. Require exact `<Browser>/<Profile>` match.
-- **Code locations:** `foxport/cli.py:_find_firefox`, `_find_chromium`.
-- **Backward compatibility:** Scripts using ambiguous names break loudly — desirable.
-- **Complexity:** S. **Priority:** P1.
-
-### EI-8 — Drag-and-drop "Drop a profile folder here" tile is dead code
-
-- **Current behavior:** `SourcePage._on_drop` stores the dropped path in `ctx.dropped_source_path` and updates the banner. No migrator reads `dropped_source_path`.
-- **Problem:** Users will drag, see "Manual source selected: …", click Next, and find the migration runs against whatever was previously selected (or fails). Confidence-destroying.
-- **Recommended change:** Wire the dropped path into a synthetic `ChromiumProfile` (or `FirefoxProfile` if the path looks like a Gecko profile dir) and use it as the source.
-- **Code locations:** `gui/pages.py:SourcePage._on_drop`, `MigrationContext.dropped_source_path`.
-- **Complexity:** S. **Priority:** P1.
-
-### EI-9 — No master-password retry path in the GUI
-
-- **Current behavior:** `MainWindow._start_migration` (reverse mode) tries to open NSS, catches `NSSError` containing "master password", prompts once, retries. **If the prompt password is also wrong, the migration aborts silently with a generic "FATAL" log entry.**
-- **Problem:** Users mistype passwords; no second-chance prompt.
-- **Recommended change:** Loop up to 3 attempts with explicit error messaging on each.
-- **Code locations:** `gui/main_window.py:_start_migration`.
-- **Complexity:** S. **Priority:** P2.
-
-### EI-10 — Already-installed extensions show in the install page but aren't auto-skipped
-
-- **Current behavior:** `migrate/extensions.py:_build_html` adds a `row-installed` CSS class + strikethrough. The "Install on Firefox" link still renders.
-- **Problem:** Users will click "Install" out of habit, opening a redundant AMO page for the same extension.
-- **Recommended change:** Hide already-installed rows by default; show a "+N already installed (click to expand)" disclosure at the bottom of the report.
-- **Code locations:** `migrate/extensions.py:_build_html`.
-- **Complexity:** S. **Priority:** P2.
-
-### EI-11 — Password preview dialog shows plaintext by default
-
-- **Current behavior:** `PasswordPreviewDialog` populates the table with plaintext passwords for every row, with a banner that says "close this dialog before walking away".
-- **Problem:** Shoulder-surfing risk. A "•••••" mask with per-row "show" toggle is the password-manager norm.
-- **Recommended change:** Mask the password column by default. Add a single "Show all" / per-row "👁" affordance.
-- **Code locations:** `gui/dialogs.py:PasswordPreviewDialog._populate`.
-- **Complexity:** S. **Priority:** P2.
-
-### EI-12 — `favicons.sqlite` deletion is unconditional in history direct-write
-
-- **Current behavior:** `migrate/nss_history.py:write_history_into_target` calls `favicons.unlink()` whenever it exists.
-- **Problem:** User may have spent years building up favicons. The history direct-write wipes them with no backup.
-- **Recommended change:** Move `favicons.sqlite` to `favicons.foxport-backup-<mtime>.sqlite` like the other backups, not delete.
-- **Code locations:** `migrate/nss_history.py:write_history_into_target`.
-- **Complexity:** S. **Priority:** P1.
-
-### EI-13 — Curated extension map has a known-bad placeholder entry
-
-- **Current behavior:** `migrate_reverse/extensions.py:AMO_GUID_TO_CHROME` contains `"{446900e4-…}": ""` — a literal ellipsis-in-GUID placeholder that's never matched and clutters the file.
-- **Recommended change:** Delete the placeholder. Audit the rest of `AMO_GUID_TO_CHROME` — some entries (`"Tampermonkey@example.com"`) look fabricated; verify against AMO.
-- **Code locations:** `foxport/migrate_reverse/extensions.py`.
-- **Complexity:** S. **Priority:** P2.
-
-### EI-14 — `gui/theme.py` checkbox checkmark glyph never renders
-
-- **Current behavior:** QSS sets `image: url("data:image/svg+xml;utf8,<svg …/>")` for `QCheckBox::indicator:checked`. Live screenshots show a solid lavender square with no glyph.
-- **Problem:** PyQt6 QSS does not reliably render `image: url(data:…)`. Either inline as a Qt resource (compile a `.qrc` to a Python module) or fall back to drawing a glyph in Python on `paintEvent`.
-- **Recommended change:** Compile a small `.qrc` with a check icon, load via `Q_INIT_RESOURCE`, reference as `qrc:/foxport/icons/check.svg`. Or accept the colored-square indicator as deliberate (low effort, slightly worse UX).
-- **Code locations:** `foxport/gui/theme.py`.
-- **Complexity:** S. **Priority:** P3.
-
-### EI-15 — Reverse-direction extension matcher has minimal coverage
-
-- **Current behavior:** `AMO_GUID_TO_CHROME` holds 13 hand-curated entries; everything else falls through to a Chrome Web Store text-search URL.
-- **Problem:** Forward direction has 63 curated entries; reverse has 13. Asymmetric.
-- **Recommended change:** During curated-map maintenance, also harvest the AMO GUID for each entry (via the AMO detail API) and persist it back into a single bidirectional JSON.
-- **Code locations:** `foxport/data/curated_extension_map.json`, `foxport/migrate/extensions.py`, `foxport/migrate_reverse/extensions.py`.
-- **Complexity:** M. **Priority:** P2.
-
-### EI-16 — `scripts/check_curated_map.py` exit code doesn't fail CI on stale entries
-
-- **Current behavior:** `return 1 if broken else 0` — stale (last_updated > 24mo) entries do NOT exit non-zero.
-- **Recommended change:** Add `--strict-stale` flag that makes stale entries fail too, separate from `is_disabled`. Wire to a monthly GitHub Action scheduled run.
-- **Code locations:** `scripts/check_curated_map.py:main`, new `.github/workflows/curated-map-audit.yml`.
-- **Complexity:** S. **Priority:** P3.
-
-### EI-17 — `nss.py` lacks decrypt; `firefox_read.py` binds it inline at runtime
-
-- **Current behavior:** `crypto/nss.py:NSSLibrary` binds `NSS_Init`, `PK11SDR_Encrypt`, etc. but **not** `PK11SDR_Decrypt`. `firefox_read.py` does `dec = session._lib.handle.PK11SDR_Decrypt` and configures argtypes inline (accessing the private attribute).
-- **Problem:** Two-way coupling and SLF001 access. Tests can't easily mock.
-- **Recommended change:** Add `PK11SDR_Decrypt` bind + `NSSSession.decrypt()` method to `nss.py`. `firefox_read.py` uses the public API.
-- **Code locations:** `foxport/crypto/nss.py:load_nss`, `NSSSession`, `foxport/browsers/firefox_read.py:read_firefox_logins`.
-- **Complexity:** S. **Priority:** P2.
-
----
+### Help Menu Affordances
+- Current: Help menu contains only "About". No "Open documentation", "Report a problem", "Check for updates", "View change log".
+- Recommended change: Add docs link (file-or-URL), `Open output folder`, "Report a problem" (preformatted GitHub issue with manifest summary), and a stub for "Check for updates" guarded by a feature flag until the appcast lands.
+- Complexity: S
+- Priority: **P3**
 
 ## Reliability, Security, Privacy, and Data Safety
 
-### Bugs / risks found
+Bugs / risks found this pass:
 
-- **Schema drift on `places.sqlite` and `formhistory.sqlite`** (EI-1, EI-5) — risks Firefox triggering `replaceDatabaseOnStartup` and discarding the import.
-- **Open-tabs feature broken on real data** (EI-2) — feature ships but doesn't work.
-- **Toolbar bookmark promotion silently fails** (EI-3) — users assume migration worked, finds toolbar empty.
-- **`favicons.sqlite` wiped without backup** (EI-12) — data loss.
-- **Drag-and-drop tile dead-ended** (EI-8) — confidence-destroying false success.
-- **Diff CLI substring matching too permissive** (EI-7) — silent wrong-profile selection.
+- **Verified** Done-screen UI only opens five categories; `set_counts()` accepts five — the wizard offers ten.
+- **Verified** Staging-folder emitters are non-atomic (only target-profile writers got `replace_file_atomic`).
+- **Verified** No NSS version-skew guard before direct-write into `logins.json`.
+- **Verified** Open-tabs structural-parser-fallback gate suppresses regex when structural returns any URL.
+- **Verified** No `manifest.json` per run.
+- **Verified** No first-run trust dialog; no centralized network-activity surface.
+- **Verified** ABE sidecar binary absent locally; release workflow does not Authenticode-sign.
+- **Verified** `foxport.spec` lacks icon and version resource.
+- **Verified** Reverse curated map has no auditor; forward auditor exists.
+- **Verified** Documentation drift: 63 vs 67 curated entries; security notes lag HIBP; firefox.py docstring says "import files" only.
+- **Likely** Cards CSV redundant column.
+- **Likely** Extension settings format drift if expanded — needs explicit allowlist (current scope safe).
 
-### Missing guardrails
+Missing guardrails:
 
-- **No checksum / digest** on emitted files. A re-run produces different files; users can't verify "is this the same export I ran yesterday?"
-- **No "migration log"** persisted per-run beyond the in-memory `QPlainTextEdit`. Closing the window loses the log.
-- **No "this category was skipped because X"** explicit status — the user has to read the log to find out passwords failed.
-- **`passwords.csv` is plaintext on disk** with no warning beyond a README sentence. Should default to encrypted-CSV (passphrase via Qt prompt) with a "decrypt to plain CSV" option.
-- **AMO API requests have no per-host caching across runs** — multiple migrations re-fetch the same extension data.
-- **No rate-limit handling on AMO** — `time.sleep(0.5)` in the auditor script; the live extension matcher has none.
+- Per-category conflict review before direct-write.
+- Rollback manifest with backup paths and explicit restore steps.
+- Atomic-replace in staging emitters.
+- NSS version validation.
+- First-run consent + network disclosure.
+- Release artifact smoke test inside the workflow (verify packaged EXE starts, contains `foxport_abe.exe`, signature good).
 
-### Permission / network / filesystem concerns
+Permission / network / file-system concerns:
 
-- **`pywin32`/`win32crypt`** — already only used for DPAPI on Windows, gated by `sys.platform`. Safe.
-- **`subprocess.run(["security", ...])`** on macOS — invokes a user-prompt-issuing system tool. Acceptable.
-- **`subprocess.run(["secret-tool", ...])`** on Linux — same.
-- **`os.startfile(...)`** on Windows for "Reveal in Explorer" — opens user's chosen path. Validated against the output dir; safe.
-- **No path-traversal sanitization** in `make_export_dir`. If `source.label` contains `..`, the export dir could escape `~/Documents/FoxPort/`. Low risk (`source.label` comes from `_CHROMIUM_SPECS` registry) but worth a `os.path.normpath` + bounds check.
-- **ABE sidecar** runs elevated via embedded manifest. Source code reviewed but **never compiled or signed**. Until the binary exists, FoxPort's ABE handling is *aspirational*.
+- ABE sidecar elevation must be explained pre-run; FoxPort must not silently invoke an unsigned helper.
+- AMO + HIBP usage is opt-in but disclosure is split (Items checkboxes + README post-hoc). Surface both in Preview.
+- Plaintext outputs (`passwords.csv`, `saved-cards.csv`) need stronger cleanup affordances in the GUI Done state, not only in `README.txt`.
+- Snapshot passphrases are user-managed; mistyped passphrase UX is CLI-only ("encrypted bundle requires --passphrase").
 
-### Recovery and rollback needs
+Recovery / rollback needs:
 
-- **Direct-write paths back up files** to `*.foxport-backup-<mtime>.*` — verified. But there's no automated "restore last backup" command. Add `python -m foxport.cli restore-backup --target Firefox/default-release --category cookies` that copies the most recent `.foxport-backup-*.sqlite` back over the live file.
-- **Snapshot bundle** (NF-3) would solve this generically.
+- Manifest must enumerate every backup file the migration produced, with absolute paths and a one-line restore command per file.
+- Snapshot restore should be dry-run-able: inspect manifest + filelist + total bytes before extraction.
+- Direct-write should expose a "Reveal backups" Done action and a "Restore backup" wizard step that copies the timestamped backup back over the live file with a confirm.
 
-### Logging / diagnostics needs
+Logging / diagnostics needs:
 
-- **No log-to-file**, only in-memory `QPlainTextEdit`. Hard to diagnose issues users report.
-- **No `--verbose` / `--debug`** CLI flag. The CLI has the same output regardless.
-- **No structured JSON output** for the CLI. Pipeline consumers can't reliably parse.
-
----
+- Run log should write structured entries (parser versions, counts, failures, target-lock status, online lookup status, artifact hashes) — most are present in console output but not persisted.
+- `--json` for CLI and exportable GUI log.
+- Failed-network reason categories for AMO/HIBP (timeout, 5xx, dns, schema mismatch).
 
 ## UX, Accessibility, and Trust
 
-### Onboarding gaps
+Onboarding gaps:
 
-- **No first-run dialog** explaining what FoxPort will and won't do. Users meet a profile picker with zero context.
-- **No "open the import folder when done"** auto-action; user has to click the button.
-- **No "what's next" hand-off** — after the Done page, the user is on their own to find `about:logins` → Import.
+- No first-run trust explanation. New users land on Source step with no context for "source stays read-only", "no plaintext leaves this machine", "network calls are optional and listed".
+- "No Firefox target detected" empty state is plain copy; could link to Firefox install + portable-Firefox tutorials.
 
-### Empty / loading / error / disabled states
+Empty / loading / error / disabled states:
 
-- **No empty state for the Source page** beyond a banner — if zero profiles are detected, the page is mostly blank. Add a help illustration + "How FoxPort detects profiles" link.
-- **No loading shimmer / spinner** during the initial detection scan. The status bar updates but the page sits empty for 200-800 ms.
-- **Error states aren't actionable** — `FATAL: <exception>` is the worst UX outcome. Should suggest "Click here to open the log folder".
-- **Disabled categories in reverse mode** get a tooltip but no in-line "not yet supported" badge. A muted "Coming in v1.2" pill would set expectations.
+- Detection runs in background but Source/Target empty states could be stronger when zero profiles found.
+- Preview counts are synchronous; large profiles may feel frozen — measure and consider a background preview worker.
+- Direct-write checkboxes correctly disable on reverse and when their category is unchecked; verify a11y labels stay accurate.
 
-### Destructive / irreversible actions
+Destructive / irreversible actions:
 
-- **Direct-write checkboxes** carry the warning "close Firefox first" but no confirm dialog at submit time. A "You're about to overwrite cookies.sqlite in Firefox/default-release. A backup will be saved as `cookies.foxport-backup-…sqlite`. Continue?" would catch hasty clicks.
-- **Migration auto-starts** the moment the user hits "Run Migration" on Preview. No "are you sure?" confirmation. Acceptable given the dry-run option, but a single confirmation would not hurt.
+- Cookies/history/open-tabs direct-write replaces target files; backups exist but no conflict preview.
+- Plaintext exports persist after import; cleanup is left to user.
 
-### Settings clarity
+Settings clarity:
 
-- **No settings page at all.** Output directory is per-wizard; preferences (default dry-run, mask passwords by default, allow online AMO lookup, telemetry opt-in) don't exist.
-- **`FOXPORT_NSS_PATH` env var is undocumented** outside the source comment.
+- Disabled telemetry/crash checkboxes are transparent but noisy in the dialog. Move them into a future "Data" surface tied to first-run when the features land.
 
-### Accessibility
+Accessibility:
 
-- **No keyboard navigation testing.** Wizard tabs work via Qt default behavior, but Tile widgets aren't focusable (no `setFocusPolicy(StrongFocus)` in `gui/widgets.py:Tile`). Keyboard-only users can't pick a source.
-- **Tiles use mouse cursor only** — no `aria-role` equivalent, no announceable selection. Screen readers will read them as generic frames.
-- **Color contrast** — Catppuccin Mocha foreground/background ratios meet WCAG AA, but `OVERLAY0` (`#6c7086`) on `BASE` (`#1e1e2e`) is ~3.5:1 — borderline for normal text. Disabled-step rail items will be hard to read for users with low vision.
-- **High-contrast / system theme integration** — none. Catppuccin Mocha is hard-coded; users on Windows High Contrast mode get unstyled QSS.
+- v1.2.1 added `:focus` styling and Tile keyboard activation. Verify with screen-reader (Narrator/NVDA) + keyboard-only run; add a `tests/test_accessibility.py` smoke with `QApplication` + assert `accessibleName/Description` on key widgets.
+- Extension HTML reports should pass basic semantic checks (heading levels, link text).
 
-### Microcopy and trust signals
+Microcopy / trust signals:
 
-- **"Migration complete"** on the Done page — fine. **"Open output folder"** — should be the primary action, not buried behind "Open passwords.csv".
-- **No "FoxPort never modifies the source browser"** statement on the Source page. The README says it; the GUI doesn't.
-- **No version stamp on the wizard** (the SVG banner has v1.0.0; the current GUI has no header banner). Users can't tell which version is running.
-- **AMO requests should be disclosed** — the "Allow online AMO lookup" checkbox has no link to what's actually fetched.
-
----
+- Replace "direct-write" with "Install into closed Firefox profile" (technical subtitle ok).
+- Surface "Source profile stays read-only" on Preview and Run pages, not only Items.
+- Add a "Sensitive files in this run" callout listing plaintext outputs.
+- Add a "Network requests in this run" callout listing AMO / HIBP and the exact data sent.
 
 ## Architecture and Maintainability
 
-### Module / boundary improvements
+Module or boundary improvements:
 
-- **`foxport/migrate/*` directly imports `foxport/crypto/*`** — fine. But `migrate/nss_passwords.py`, `nss_cookies.py`, `nss_history.py` are three near-identical "back up target, atomic swap, refuse if locked" patterns. **Refactor candidate:** a `foxport/migrate/direct_write.py:DirectWriter` base class with `back_up_target()`, `swap_in()`, `refuse_if_locked()` helpers, leaving per-artifact subclasses to provide the staging file path.
-- **`foxport/gui/pages.py` is 877 LOC**, all five wizard pages in one file. Split per-page: `pages/source.py`, `pages/target.py`, `pages/items.py`, `pages/preview.py`, `pages/run.py`, with `pages/context.py` for the shared `MigrationContext`.
-- **`foxport/gui/workers.py:MigrationWorker.run`** is one method with a 9-branch tree. Each branch could be its own thin method delegating to migrators.
-- **`foxport/migrate_reverse/*`** — three modules, none of which share with `foxport/migrate/*`. Forward and reverse extension matchers have totally separate code but conceptually do the same thing. A shared `foxport/extensions/matcher.py` could host the matching engine; forward + reverse just pick a direction.
+- Centralize artifact metadata via #2's manifest model; today the artifact-key list is repeated in CLI (`ALL_ITEMS`), worker (`MigrationRequest.do_*`), Items page checkboxes, Preview counters, Done buttons, and `import_instructions`.
+- Promote `replace_file_atomic()`/`write_bytes_atomic()` from `fileops.py` to the canonical writer for all on-disk emitters.
+- `MigrationRequest` and `MigrationContext` should be kept in sync (or share fields via a single dataclass with a converter); mapper test if not.
+- `import_/adapters.py` needs a production emitter glue path to the Netscape HTML writer (currently each adapter has its own normalized shape).
+- GUI preview counts should move to a background worker; large History/Cookies probe is synchronous today.
 
-### Refactor candidates
+Refactor candidates:
 
-- `foxport/migrate/cookies.py:_iter_decrypted_cookies` — generator + side-channel failures list. Cleaner as a dataclass-yielding generator with `(row, plaintext, error_or_None)`.
-- `foxport/cli.py:_cmd_migrate` — every "if 'X' in items" block is copy-paste. Build a table `{item_name: (label, migrator, post_action)}` and iterate.
-- `foxport/gui/pages.py:ItemsPage._make_row` — proliferating optional kwargs (`customize_callback`, `default_checked`). Inline three or four `QFrame`s manually.
+- `RunPage` action bar → metadata-driven artifact list widget.
+- `ItemsPage._make_row` is a 50-line helper — fine, but combine the 10 row construction calls into a data-driven loop using `ITEM_DEFINITIONS` to reduce churn when a new category lands.
+- `firefox.py:import_instructions` → manifest-driven generator after #2.
+- `nss_cookies.py` and `nss_history.py` duplicate the `_backup_path_for()` helper — lift it.
 
-### Test gaps
+Test gaps:
 
-- **Zero tests.** Critical migration paths (`url_hash`, schema-from-scratch, CSV emission, AES-GCM v10/v11 decrypt, ABE flag-byte parsing) all run blind.
-- **Recommended test plan:**
-  - `tests/fixtures/` with anonymized `Local State`, `Login Data` (synthesized via DPAPI in a sandbox), `Bookmarks`, `Cookies`, `History`, `Web Data`, `extensions.json`, `places.sqlite`, `logins.json`, `Session_*` files.
-  - `tests/migrate/test_passwords.py` — round-trip a fixture, assert CSV columns + timestamps.
-  - `tests/migrate/test_bookmarks.py` — round-trip the JSON, assert HTML structure + `ADD_DATE` units.
-  - `tests/migrate/test_cookies.py` — round-trip + verify schema PRAGMA + Chrome 130 HOST_KEY strip flag.
-  - `tests/migrate/test_history.py` — verify `url_hash` matches Firefox's `HashString` (after EI-1 fix).
-  - `tests/migrate/test_open_tabs.py` — fixture-based SNSS Pickle parser test.
-  - `tests/migrate/test_extensions.py` — mock AMO + verify confidence tiering.
-  - `tests/crypto/test_dpapi.py` — branch on key length (16 vs 32 bytes).
-  - `tests/gui/test_wizard.py` — `pytest-qt` for page navigation.
-  - GitHub Actions matrix: extend `ci.yml` to run `pytest` cross-platform.
+- CLI subcommand help under Windows encoding (we have the top-level; add subcommand recursive — `test_cli_help.py` already loops through subparsers, but assert encode-to-`'mbcs'` succeeds, not only ASCII).
+- All-artifact Done UI render test (mock `set_done`).
+- Atomic-replace failure recovery (force write-error mid-replace; assert original target unchanged).
+- Reverse migrators end-to-end.
+- Downloads, cards, search engines, diff.
+- NSS version monkeypatch.
+- Open-tabs partial-success warning.
+- Snapshot restore non-empty refusal + overwrite branch — partially covered by new working-tree tests; verify edge cases (target is symlink, target contains a `.fxport`).
 
-### Documentation gaps
+Documentation gaps:
 
-- **`docs/architecture.md`** — none. `CLAUDE.md` exists but is gitignored as an AI-agent note. The README's "How it works" section is good but doesn't go below the level of "DPAPI unwraps the key".
-- **`docs/file-formats.md`** — Firefox formats FoxPort produces (CSV columns, Netscape HTML quirks, `places.sqlite` schema notes) deserve their own page so users can debug.
-- **`docs/troubleshooting.md`** — "ABE sidecar not found", "master password failed", "places.sqlite import didn't work", "Firefox 138 fresh-installed and didn't pick up the import" — none of these have docs.
+- README install snippet implies Windows-only Python despite badges/code being cross-platform; soften with "Windows-first, macOS/Linux supported with the same install steps".
+- Security notes section should add HIBP.
+- `foxport/browsers/firefox.py:1-9` docstring should reflect direct-write reality.
+- ABE sidecar docs should separate source-built helper from shipped signed helper once release work lands.
 
-### Release / build / deployment gaps
+Release / build / deployment gaps:
 
-- **`.github/workflows/release.yml` and `ci.yml` exist but have never run.** Trigger one workflow_dispatch to validate them.
-- **No tag/release in GitHub yet.** Repo is on `main` only.
-- **No published wheel / sdist** on PyPI. `python -m pip install foxport` doesn't work.
-- **PyInstaller bundle is untested.** The `foxport.spec` should be exercised once locally + once in CI.
-- **No app icon** — the SVG banner is for the README only. Windows EXE has no icon embedded.
-- **No code-signing cert** — bundles will trip SmartScreen on Windows and Gatekeeper on macOS.
-- **No update channel** — see NF-10.
-
----
+- No `foxport_abe.exe` locally; not bundled unless built.
+- No Authenticode signing.
+- No icon or version resource in `foxport.spec`.
+- No published release artifact verified during this pass.
+- Release workflow is Windows-only despite cross-platform runtime claims; macOS/Linux distribution path is unstated.
+- No SBOM / supply-chain attestation.
 
 ## Prioritized Roadmap
 
-> Pull these into `ROADMAP.md` after triage. Format: checkbox + priority + title + Why / Evidence / Touches / Acceptance / Verify.
+Land the working tree first — it already addresses items the previous plan called P0. The list below assumes those commits have shipped.
 
-### Phase 1 — Correctness (P0)
+### Phase A — Commit the working tree (immediate)
 
-- [ ] **P0 — Fix `places.sqlite` schema (v77 → v86) and `url_hash` algorithm**
-  - Why: History migration silently corrupts / discards on Firefox 138+ launch.
-  - Evidence: `mozilla-central/toolkit/components/places/Database.cpp` (`SCHEMA_VERSION = 86`); `Helpers.cpp` (`HashString` algorithm, not MD5).
-  - Touches: `foxport/migrate/history.py:_FIREFOX_PLACES_SCHEMA`, `_url_hash`, `_SCHEME_PREFIX_TAG`; new `foxport/crypto/mozhash.py`.
-  - Acceptance: A fixture URL passed through `_url_hash` produces the same 64-bit value as Firefox's `Helpers.cpp::computeHash(url)`; `PRAGMA user_version = 86` in emitted file; all v78-v86 columns present.
-  - Verify: `pytest tests/migrate/test_history.py::test_url_hash_matches_firefox` + manual `sqlite3 places.sqlite '.schema moz_places'` shows new columns.
+- [ ] P0 — Commit the working tree on `main` and tag `v1.3.0-rc`
+  - Why: All P0 items from the previous research pass are implemented but uncommitted; they include the CLI help fix, atomic snapshot, atomic direct-write, snapshot overwrite policy, generalized `import_instructions()`, and `direct_write_open_tabs` wiring.
+  - Evidence: `git status` lists 14 modified + 4 new files; `pytest` reports 97 passed.
+  - Touches: `RESEARCH_FEATURE_PLAN.md` (this file), `CHANGELOG.md`, all uncommitted source files.
+  - Acceptance: Commit message describes the trust + safety pass; CHANGELOG has a v1.3.0 section; `pytest` passes on `main`.
+  - Verify: `git log --oneline -1` after commit; CI run on PR.
 
-- [ ] **P0 — Fix `open_tabs` SNSS extractor**
-  - Why: Verified live to return 0 URLs from a real 2754-byte Chrome session file.
-  - Evidence: This research pass — `_extract_urls(sess.read_bytes())` returns `[]`.
-  - Touches: `foxport/migrate/open_tabs.py` — replace regex with a proper SNSS Pickle command parser; read `Tabs/Tabs_*` files too.
-  - Acceptance: Live run against a Chrome profile with at least one open tab returns the URL.
-  - Verify: `python -c "from foxport.migrate.open_tabs import migrate_open_tabs, ..."`, count of URLs > 0.
+### Phase B — Finish the Done/preview parity arc (next 1-2 days of work)
 
-- [ ] **P0 — Add a test suite**
-  - Why: Zero existing tests; every regression above ships unnoticed.
-  - Evidence: `find . -name test_*.py` returns nothing.
-  - Touches: New `tests/` tree with fixtures + pytest config; `.github/workflows/ci.yml` updated to run `pytest`.
-  - Acceptance: ≥ 80% coverage on `foxport/migrate/*` and `foxport/crypto/*`; CI matrix is green.
-  - Verify: `pytest -q` exits 0 locally; CI badge in README.
+- [ ] P0 — Done screen + Items badges parity with all ten categories
+  - Why: New artifacts produced today are unreachable from the Done screen and invisible on back-nav.
+  - Evidence: `main_window.py:114-121`, `pages.py:724-742`, `pages.py:1149-1165`.
+  - Touches: `foxport/gui/main_window.py`, `foxport/gui/pages.py`, `foxport/gui/widgets.py`, tests.
+  - Acceptance: Every produced artifact appears with an Open/Reveal action and sensitivity label; `set_counts(counts: dict[str, int])` updates all selectable badges.
+  - Verify: mock `set_done(True, ..., {key: path for key in ALL_KEYS})`; manual all-items run.
 
-### Phase 2 — Schema gaps (P1)
+- [ ] P0 — Emit `manifest.json` per non-dry-run migration
+  - Why: Single registry for Done screen, README, support, snapshot, future `--json`.
+  - Evidence: `workers.py:118` + `cli.py:193` carry artifacts as plain `dict[str, Path]`; no manifest is emitted.
+  - Touches: new `foxport/manifest.py`, `workers.py`, `cli.py`, `snapshot.py`, `firefox.py` (import_instructions consumes manifest), tests.
+  - Acceptance: `manifest.json` next to `README.txt`; schema-version'd; never contains plaintext secrets; `.fxport` carries the manifest.
+  - Verify: per-key fixture tests; `python -m foxport.cli migrate ... && jq < manifest.json`.
 
-- [ ] **P1 — `cookies.sqlite` add `updateTime` column (v17 spec compliance)**
-  - Why: Verified missing.
-  - Evidence: `netwerk/cookie/CookiePersistentStorage.cpp` tip.
-  - Touches: `foxport/migrate/cookies.py:_FIREFOX_COOKIES_SCHEMA`, INSERT column list.
-  - Acceptance: `PRAGMA table_info(moz_cookies)` includes `updateTime`.
-  - Verify: `pytest tests/migrate/test_cookies.py::test_schema_includes_updatetime`.
+### Phase C — Trust and release path (next 1-2 weeks)
 
-- [ ] **P1 — `bookmarks.html` toolbar — stop relying on `PERSONAL_TOOLBAR_FOLDER`**
-  - Why: Firefox only honors it on `_isImportDefaults=true`.
-  - Evidence: `BookmarkHTMLUtils.sys.mjs` source.
-  - Touches: `foxport/migrate/bookmarks.py:_emit_folder`; user-facing import-instructions text.
-  - Acceptance: Manual import into Firefox 138 puts toolbar items on the Toolbar (or docs are updated to instruct manual move).
-  - Verify: Manual test against a clean Firefox 138 profile.
+- [ ] P0 — Signed Windows release with bundled ABE sidecar + icon + version resource
+  - Why: Distribution gates everything else.
+  - Evidence: `foxport.spec:11-13`; `release.yml` has no SignTool; no `assets/icon.ico`.
+  - Touches: `assets/icon.ico`, `assets/version_info.txt`, `foxport.spec`, `.github/workflows/release.yml`, `tools/abe_sidecar/CMakeLists.txt`.
+  - Acceptance: Built `FoxPort.exe` is signed, has icon, has version resource matching `__version__`; ABE sidecar bundled and signed; `*.sha256` artifact separate.
+  - Verify: `Get-AuthenticodeSignature dist/FoxPort/FoxPort.exe`; manual UAC prompt on a Chrome 127+ profile.
 
-- [ ] **P1 — Filter `chrome://`, `about:`, `edge://`, `brave://`, `chrome-extension://` URLs from bookmark + history + tab exports**
-  - Why: Firefox can't navigate to them; they pollute output.
-  - Evidence: Live diff against real Brave profile.
-  - Touches: `migrate/bookmarks.py`, `migrate/history.py`, `migrate/open_tabs.py`. Centralize the predicate.
-  - Acceptance: Re-run diff against same profile shows no `chrome://` URLs.
-  - Verify: Live re-run.
+- [ ] P1 — First-run trust dialog + Preview "Network activity" section
+  - Why: Local-only product needs centralized network disclosure.
+  - Evidence: optional AMO + HIBP exist; future telemetry/crash/update placeholders in Settings.
+  - Touches: `foxport/config.py`, `foxport/gui/dialogs.py` (new `FirstRunDialog`), `foxport/gui/pages.py` (Preview).
+  - Acceptance: First launch shows trust dialog; Preview lists every optional call; off-by-default toggles persist.
+  - Verify: fresh config flow; `test_config.py` updated.
 
-- [ ] **P1 — `diff` CLI refuses ambiguous profile matches**
-  - Why: Live evidence of silent wrong-profile selection.
-  - Evidence: This pass.
-  - Touches: `foxport/cli.py:_find_chromium`, `_find_firefox`.
-  - Acceptance: `python -m foxport.cli diff --source default --target default` prints all matches and exits 2.
-  - Verify: Live re-run.
+- [ ] P1 — NSS version-skew guard
+  - Why: Highest-value defensive line for direct-write into `logins.json`.
+  - Evidence: `foxport/crypto/nss.py` does not call `NSS_VersionCheck`/`NSS_GetVersion`.
+  - Touches: `foxport/crypto/nss.py`, `migrate/nss_passwords.py`, tests.
+  - Acceptance: Refusal on major.minor mismatch unless `FOXPORT_NSS_FORCE` is set; manifest records NSS version.
+  - Verify: monkeypatched library test; manual run against mismatched portable Firefox.
 
-- [ ] **P1 — `favicons.sqlite` backup, not delete**
-  - Why: Data loss in history direct-write.
-  - Evidence: `foxport/migrate/nss_history.py:write_history_into_target` calls `unlink()`.
-  - Touches: same file.
-  - Acceptance: `favicons.foxport-backup-<mtime>.sqlite` exists after a history direct-write.
-  - Verify: `pytest tests/migrate/test_nss_history.py::test_favicons_backed_up`.
+- [ ] P1 — Direct-write conflict review + rollback manifest
+  - Why: The product's biggest data-safety risk.
+  - Evidence: `nss_passwords` dedups by GUID; cookies/history replace; no preview shows target-side conflicts.
+  - Touches: new `foxport/migrate/conflicts.py`, GUI dialog, CLI flags, tests.
+  - Acceptance: Pre-write dialog shows counts/samples; per-category policy; rollback instructions in manifest.
+  - Verify: synthetic target fixtures with conflicts; locked-profile abort; manual all-direct-write flow.
 
-- [ ] **P1 — Wire the drag-and-drop "Manual source" tile**
-  - Why: Dead-ended UI promises something it doesn't deliver.
-  - Evidence: `gui/pages.py:SourcePage._on_drop` stores path; no migrator reads it.
-  - Touches: `gui/pages.py`, `gui/workers.py:MigrationRequest`.
-  - Acceptance: Dropping a `User Data` folder → wizard advances → migration runs against that path.
-  - Verify: Manual GUI test.
+- [ ] P1 — Atomic-replace for staging emitters
+  - Why: Crash mid-write leaves corrupt artifacts that snapshot then bundles.
+  - Evidence: `passwords.py`, `bookmarks.py`, `cookies.py`, `history.py`, `autofill.py`, `cards.py`, `downloads.py`, `search_engines.py`, `open_tabs.py` non-direct paths write to final filenames.
+  - Touches: every `foxport/migrate/*.py` non-`nss_*` emitter; `foxport/fileops.py` helper reuse; tests.
+  - Acceptance: All emitters stage-then-replace; orphan `.foxport-*` tmpfiles cleaned on failure.
+  - Verify: monkeypatched write-error test per emitter.
 
-- [ ] **P1 — HIBP scan during password migration**
-  - Why: User expectation; FoxPort already has cleartext.
-  - Evidence: HIBP API v3 free.
-  - Touches: `foxport/crypto/hibp.py`, `migrate/passwords.py`, Items checkbox.
-  - Acceptance: `compromised-passwords.txt` lists hits; Done screen shows the count.
-  - Verify: Test with a known-pwned password.
+- [ ] P1 — Tests for downloads, cards, search engines, diff, reverse
+  - Why: Recent shippers lack regression coverage.
+  - Evidence: No `test_downloads.py`, `test_cards.py`, `test_search_engines.py`, `test_diff.py`, `tests/migrate_reverse/`.
+  - Touches: `tests/migrate/`, `tests/migrate_reverse/`, `tests/test_diff.py`.
+  - Acceptance: Synthetic-fixture suites covering success, empty, dry-run, malformed sources.
+  - Verify: `pytest`.
 
-### Phase 3 — Trust + polish (P2)
+- [ ] P1 — GUI snapshot + restore with bundle inspector
+  - Why: `.fxport` is high-value and CLI-only.
+  - Evidence: `RunPage` has no snapshot action; File menu has no Restore.
+  - Touches: `foxport/gui/dialogs.py`, `pages.py`, `main_window.py`, `snapshot.py`.
+  - Acceptance: Done screen "Save as snapshot…" works (encrypted/plain); File menu Restore inspects manifest, refuses non-empty dirs.
+  - Verify: GUI manual snapshot/restore; large-bundle responsiveness.
 
-- [ ] **P2 — Password preview dialog masks values by default**
-  - Why: Shoulder-surfing risk.
-  - Touches: `gui/dialogs.py:PasswordPreviewDialog`.
-  - Acceptance: Password column shows `•••` until per-row eye-icon clicked.
+- [ ] P1 — Surface external bookmark adapters (CLI + GUI)
+  - Why: Tested adapters have no production caller.
+  - Evidence: `foxport/import_/adapters.py`, `tests/test_import_adapters.py`; no production callsites.
+  - Touches: new CLI subcommand `import-bookmarks`, GUI drop handler branch, shared Netscape emitter.
+  - Acceptance: CLI converts each format to bookmarks.html; GUI accepts dropped bookmark files.
+  - Verify: `python -m foxport.cli import-bookmarks --input fixture.opml --out out.html`.
 
-- [ ] **P2 — Hide already-installed extensions from `extensions.html` by default**
-  - Touches: `migrate/extensions.py:_build_html`.
+### Phase D — Polish + observability (P2 / P3)
 
-- [ ] **P2 — Settings page** with output dir, mask passwords, online AMO lookup, dry-run by default, telemetry opt-in.
-  - Touches: `gui/main_window.py` (menu item), new `gui/settings.py`, `foxport/config.py`.
-  - Acceptance: Settings persist across runs in `%APPDATA%/FoxPort/config.json`.
+- [ ] P2 — CLI `--json` + `list --detail`
+- [ ] P2 — Cards CSV column cleanup + `test_cards.py`
+- [ ] P2 — Open-tabs partial-success warning
+- [ ] P2 — Reverse curated-map auditor + monthly workflow update
+- [ ] P2 — Documentation + screenshot refresh (curated count, HIBP in security notes, firefox.py docstring, Items page screenshot)
+- [ ] P2 — Settings: NSS path override + Reset to defaults
+- [ ] P2 — Done "Reveal backups" action
+- [ ] P2 — Downloads direct-write into `moz_annos` when history direct-write is selected
+- [ ] P2 — All-artifact Done UI render test; atomic-replace failure recovery test; NSS version monkeypatch test
 
-- [ ] **P2 — Master-password retry loop (up to 3 attempts)**
-  - Touches: `gui/main_window.py:_start_migration`.
-
-- [ ] **P2 — Place `NSSSession.decrypt` in `crypto/nss.py`**
-  - Touches: `crypto/nss.py`, `browsers/firefox_read.py`.
-
-- [ ] **P2 — `formhistory.sqlite` v4 → v5 with `moz_sources` + `moz_history_to_sources`**
-  - Touches: `migrate/autofill.py`.
-
-- [ ] **P2 — Reverse-direction matcher coverage (13 → 60+ entries)**
-  - Touches: `migrate_reverse/extensions.py:AMO_GUID_TO_CHROME`, build a script that harvests via AMO API + Chrome listing match.
-
-- [ ] **P2 — History time-range filter dialog**
-  - Touches: `gui/dialogs.py`, `gui/pages.py:ItemsPage`, `migrate/history.py`.
-
-- [ ] **P2 — Downloads migration**
-  - Touches: new `migrate/downloads.py`, `migrate/history.py` (annotation insertion).
-
-- [ ] **P2 — Brave / Vivaldi as Chromium *target* in reverse direction**
-  - Touches: `migrate_reverse/passwords.py`, `gui/pages.py:TargetPage` (already direction-aware).
-
-- [ ] **P2 — FIDO CXF passkey export**
-  - Touches: new `migrate/passkeys.py`.
-
-- [ ] **P2 — Browser snapshot `.fxport` bundle + `restore` CLI**
-  - Touches: new `foxport/snapshot.py`, `cli.py`.
-
-- [ ] **P2 — Pocket / Pinboard / OPML bookmark input**
-  - Touches: new `foxport/import_/` package; `gui/pages.py:SourcePage._on_drop`.
-
-- [ ] **P2 — Path-traversal hardening on `make_export_dir`**
-  - Touches: `browsers/firefox.py:make_export_dir`.
-
-### Phase 4 — Distribution + observability (P3)
-
-- [ ] **P3 — First-run dialog with opt-in for Glean + Sentry**
-  - Touches: `gui/main_window.py`, new `gui/welcome.py`, `foxport/telemetry.py`.
-
-- [ ] **P3 — Glean telemetry (categories, durations, error counts; never URLs)**
-  - Touches: `foxport/telemetry.py`.
-
-- [ ] **P3 — Sentry crash reporting (opt-in)**
-  - Touches: `foxport/app.py`, `foxport/telemetry.py`.
-
-- [ ] **P3 — Auto-update via WinSparkle / Sparkle**
-  - Touches: `foxport/updater.py`, `gui/main_window.py`.
-
-- [ ] **P3 — Run the release workflow end-to-end + publish the first signed binary**
-  - Touches: `.github/workflows/release.yml`, secrets configuration.
-  - Acceptance: A GitHub Release exists with `FoxPort-v1.2.0-windows-x64.zip` attached + a working signed `foxport_abe.exe` inside.
-
-- [ ] **P3 — Replace SVG banner with raster logo + Windows EXE icon**
-  - Touches: `assets/`, `foxport.spec`.
-
-- [ ] **P3 — Schedule the curated-map auditor monthly via `.github/workflows/curated-map-audit.yml`**
-  - Touches: new workflow.
-
-- [ ] **P3 — Per-page screen-reader / keyboard navigation pass**
-  - Touches: `gui/widgets.py:Tile` (`setFocusPolicy`), `gui/main_window.py` (Qt accessibility attributes).
-
-- [ ] **P3 — Settings page accepts `FOXPORT_NSS_PATH` override and documents it**
-  - Touches: `README.md`, settings page.
-
-- [ ] **P3 — Docs: `docs/architecture.md`, `docs/file-formats.md`, `docs/troubleshooting.md`**
-  - Touches: new `docs/`.
-
----
+- [ ] P3 — Opt-in Glean telemetry with declared metrics
+- [ ] P3 — Opt-in Sentry crash reporting (path-stripped)
+- [ ] P3 — Signed update appcast (WinSparkle/NetSparkle)
+- [ ] P3 — Passkey inventory CXF prototype
+- [ ] P3 — Extension settings allowlist (uBlock Origin, Stylus)
+- [ ] P3 — Help menu affordances (docs, change log, report a problem)
+- [ ] P3 — Curated map hot-reload + in-run AMO cache
+- [ ] P3 — macOS/Linux distribution path (PyInstaller per OS + signed/notarized macOS app)
 
 ## Quick Wins
 
-Low-risk changes < 1 hour each:
-
-- **EI-4** — Add `updateTime INTEGER` to `cookies.sqlite` schema. Single-line change.
-- **EI-12** — Switch favicons unlink → rename with timestamp. Two-line change.
-- **EI-7** — Refuse ambiguous CLI profile matches. Single conditional.
-- **EI-13** — Delete the `"{446900e4-…}": ""` placeholder in `AMO_GUID_TO_CHROME`.
-- **EI-6** — URL scheme filter. Centralized predicate, three callers.
-- **EI-10** — Hide already-installed extensions in `extensions.html` by default (CSS-only).
-- **EI-11** — Mask passwords in the preview dialog (one-line `QTableWidgetItem` text replacement + per-row toggle).
-- **EI-16** — `--strict-stale` flag in `check_curated_map.py`.
-- **EI-9** — Loop master-password prompt 3x.
-
----
+- Commit the working tree as the v1.3.0-rc baseline.
+- Update README/CLAUDE.md to say "67 curated entries" (or load the count dynamically).
+- Update README "Security notes" to mention optional HIBP network calls.
+- Fix `foxport/browsers/firefox.py:1-9` docstring to acknowledge direct-write modules.
+- Add `set_counts(counts: dict[str, int])` signature with the existing five plus the new five.
+- Replace the six fixed Done buttons with an iteration over `exports`.
+- Add a CI step that runs `python -m foxport.cli --help` and asserts `"->"` in the description (no Unicode arrow regression).
+- Re-run `scripts/capture_screenshots.py` after Items/Run polish.
+- Lift `_backup_path_for()` into a shared `fileops` helper.
+- Add `test_cards.py`, `test_downloads.py`, `test_search_engines.py`, `test_diff.py` shells with smoke assertions; expand later.
 
 ## Larger Bets
 
-- **NF-1 + NF-2 + EI-1 trio** — "Migrate to Firefox safely" identity. HIBP scan + CXF passkeys + corrected `places.sqlite`. Positions FoxPort as the *trustworthy* Chrome-to-Firefox path versus Mozilla's own broken-on-Windows wizard.
-- **NF-3 + NF-9** — "Browser archive" identity. `.fxport` snapshot bundle + import from Pocket/Pinboard/OPML. Repositions FoxPort as a backup/restore tool, not just a one-shot migrator.
-- **NF-7 + NF-8 + NF-10** — Distribution maturity. Glean + Sentry + WinSparkle. Required for any release positioning beyond "GitHub one-off."
-- **EI-1 alternative — Places-API-via-headless-Firefox.** Long-term, schema chasing won't scale. Instead: ship a one-shot WebExtension that runs inside a temporary Firefox instance, takes a FoxPort JSON dump, and uses `browser.bookmarks.create` / `browser.history.addUrl` / `browser.cookies.set` to populate the profile via Firefox's own APIs. Firefox does the schema dance. Higher upfront effort; never breaks again.
-- **Test suite + CI** — Without P0 #3, every Phase-2+ item ships blind.
-
----
+- Signed Windows release with bundled signed ABE helper + icon + version resource + checksum + smoke test.
+- Manifest-driven Done/README/snapshot/CLI-JSON architecture replacing today's `dict[str, Path]`.
+- Direct-write conflict resolution and rollback model across passwords/cookies/history/open-tabs.
+- GUI snapshot/restore with passphrase UX, dry-run inspection, and safe extraction.
+- macOS/Linux distribution path (PyInstaller per OS; signed/notarized macOS; AppImage or `.deb` on Linux).
+- Standards-led passkey inventory/export once CXF/CXP and browser local data constraints are verified.
+- Narrow extension settings allowlist for two high-value extensions.
+- Opt-in telemetry/crash/update infrastructure with declared data dictionary and strong privacy docs.
 
 ## Explicit Non-Goals
 
-- **MV2 → MV3 manifest rewriter** — Chrome dropped MV2 in July 2025; the reverse migration would need MV3 → MV2 (Firefox still allows both). Rabbit hole (declarativeNetRequest vs webRequest). Skip.
-- **Built-in password manager** — Don't compete with Bitwarden / 1Password / KeePassXC. Stay an *interop* tool.
-- **Real-time sync** — FoxPort is a one-shot migration tool. Continuous sync would require a service. Out of identity.
-- **GUI on a server / headless port** — CLI exists for that.
-- **Forensic-grade dumping** — HackBrowserData + Hindsight own that space.
-- **Anything that requires telemetry without opt-in** — privacy-positioned tool, see Larger Bets.
-- **Chrome Web Store text-scraping bot** — fragile, against ToS. The "search CWS for this name" link in reverse-direction extension reports is fine; programmatic scraping isn't.
-- **macOS App Store distribution** — sandboxing forbids the Keychain reads FoxPort needs. Ship outside the store.
-
----
+- Do not become a Firefox Sync replacement; FoxPort migrates local state, not ongoing sync.
+- Do not silently modify source Chromium profiles.
+- Do not silently write target Firefox/Chromium profiles while they are running.
+- Do not auto-install extensions or bypass browser install consent.
+- Do not upload passwords, cookies, browsing history, URLs, profile paths, or extension lists.
+- Do not invent a proprietary passkey export format.
+- Do not broaden into full browser forensics UI; provenance and diagnostics are useful, but migration remains the product.
+- Do not ship an unsigned elevated ABE helper as a polished user-facing default.
+- Do not enable telemetry, crash reporting, or update checks without first-run consent and a declared data dictionary.
+- Do not chase obscure source browsers (Maxthon, Coc Coc, etc.) until the supported set has signed releases and conflict UI.
 
 ## Open Questions
 
-(Only items that block prioritization — public-source-answerable questions excluded.)
-
-1. **How does Mozilla's own ChromeProfileMigrator handle the no-ABE-key case on Windows in Firefox 140?** Does it silently skip passwords, or does it surface a clear "couldn't import" error? If silent, FoxPort's UX wins by surfacing ABE detection. (Verifiable by installing Firefox 140 and running the wizard against a Chrome 127+ profile.)
-2. **Will Firefox 138's `places.sqlite` parser accept FoxPort's emitted v77 schema and *migrate forward*, or will it call `replaceDatabaseOnStartup`?** Research agent flagged the risk; needs a clean-VM end-to-end test to confirm which path Firefox takes.
-3. **Is FoxPort's `compromised-passwords.txt` (NF-1) regulated as a security advisory anywhere?** GDPR / CCPA implications of producing a list of weak passwords. Probably no — the user generated it themselves. Worth a one-line legal review.
-4. **What Authenticode certificate authority offers the lowest friction for a one-developer Windows code-signing release?** Sectigo / DigiCert / SSL.com — Comparable cost, different EV vs OV vs CSC tradeoffs. Influences whether NF-10 (auto-update) is feasible in Q3 2026.
-
----
-
-*Generated 2026-05-23 based on FoxPort v1.1.0 (`a483edc`). Research pass is exhaustive against the current codebase; competitive landscape and Firefox internal verification are from primary mozilla-central / AMO API / FIDO / HIBP sources. Items marked Verified are confirmed against code or live runs; items marked Likely / Assumption are flagged inline.*
+- What signing certificate and timestamping service will be available for Authenticode-signing `FoxPort.exe`, `foxport_abe.exe`, and release ZIP/checksum files? (SignPath has an open-source program; certum/Sectigo are commercial paths.)
+- Should the first distributable target remain GitHub ZIP, or should FoxPort add a Windows installer / MSIX once signing exists? Installer makes auto-update easier; MSIX requires Store presence or sideload trust.
+- Where will update appcast and (later) telemetry/crash endpoints be hosted? Who owns the privacy policy?
+- For direct-write conflict defaults, should the safe default be "skip duplicates" for every category, or "backup-only plus files-only output" unless the user explicitly chooses merge/overwrite?
+- Is enterprise-managed browser migration a target persona (policy detection, group-policy export, admin documentation)? Or should FoxPort stay consumer/power-user focused for now?
+- Should the `manifest.json` schema be JSON Schema v2020-12 (codegen-friendly) or stay informal? The former gives `--json` clients a contract; the latter is lighter to evolve.
+- macOS distribution: full notarization path (Apple Developer ID, hardened runtime, gatekeeper assessment) or DMG-only with a clear "right-click → Open" instruction?
+- Linux distribution: AppImage, Flatpak, or per-distro packages? AppImage is the lowest barrier; Flatpak gets more sandboxing but complicates `nss3` loading.

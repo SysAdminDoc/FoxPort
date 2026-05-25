@@ -271,5 +271,6 @@ def write_session_into_target(
             f"recovery.foxport-backup-{int(target_path.stat().st_mtime)}.jsonlz4"
         )
         shutil.copy2(target_path, backup)
-    shutil.copy2(result.out_path, target_path)
+    from foxport.fileops import replace_file_atomic
+    replace_file_atomic(result.out_path, target_path)
     return target_path

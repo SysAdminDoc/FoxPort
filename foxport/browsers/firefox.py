@@ -1,15 +1,9 @@
-"""Firefox-side helpers — discover import targets and prepare staging files.
+"""Firefox-side helpers - discover import targets and prepare staging files.
 
-FoxPort never writes directly into ``logins.json`` / ``places.sqlite`` — that
-would corrupt active profiles and bypass Firefox's NSS encryption. Instead we
-emit Firefox-native import formats:
-
-* Passwords → CSV consumable by ``about:logins`` → "Import from a File"
-  (Firefox 88+, LibreWolf, Waterfox).
-* Bookmarks → Netscape Bookmark HTML consumable by the Library → Import.
-* Extensions → an AMO install page list the user clicks through.
-
-Outputs land in a single dated export folder so they're easy to find later.
+FoxPort emits browser-native import artifacts by default and offers guarded
+direct-write paths for a few Firefox profile databases when the target profile
+is closed. Outputs land in a dated export folder so they are easy to find,
+review, snapshot, restore, or import manually later.
 """
 
 from __future__ import annotations
@@ -57,68 +51,147 @@ def make_export_dir(parent: Path, source_label: str, target_label: str) -> Path:
     return out
 
 
-def import_instructions(profile, exports: dict[str, Path]) -> str:
+def import_instructions(profile, exports: dict[str, Path | str]) -> str:
     """Build a human-readable instruction sheet for the produced exports.
 
     ``profile`` may be a :class:`FirefoxProfile` (forward direction) or a
-    :class:`ChromiumProfile` (reverse direction). The text is identical in
-    structure; the destination-tool wording is generic enough to apply to
-    both Firefox-family and Chromium-family targets.
+    :class:`ChromiumProfile` (reverse direction). Reverse artifacts are detected
+    by their Chrome-prefixed filenames so CLI and GUI exports get accurate copy
+    without needing a target profile object.
     """
+
+    def p(key: str) -> Path:
+        return Path(exports[key])
+
+    def is_chrome_artifact(key: str) -> bool:
+        return p(key).name.startswith("chrome-")
+
     target = profile.label if profile else "your destination browser"
     lines: list[str] = [
-        f"FoxPort — migration files ready for {target}",
+        f"FoxPort migration files ready for {target}",
         "=" * 64,
         "",
     ]
     if "passwords" in exports:
+        if is_chrome_artifact("passwords"):
+            lines.extend([
+                "Passwords:",
+                f"  File: {p('passwords')}",
+                "  Open Chrome, go to Settings -> Autofill and passwords -> Password Manager.",
+                "  Use the three-dot menu to import the CSV. Chrome deduplicates by URL and username.",
+                "  Delete the CSV after you verify the import; it contains plaintext passwords.",
+                "",
+            ])
+        else:
+            lines.extend([
+                "Passwords:",
+                f"  File: {p('passwords')}",
+                "  Open Firefox or a Firefox-family browser, go to about:logins.",
+                "  Use the three-dot menu -> Import from a File, then pick this CSV.",
+                "  Firefox deduplicates by URL and username. Delete the CSV after verification.",
+                "",
+            ])
+    if "hibp" in exports:
         lines.extend([
-            "Passwords:",
-            f"  File: {exports['passwords']}",
-            "  Open the target browser, go to about:logins.",
-            "  Click the three-dot menu (top-right) -> Import from a File...",
-            "  Pick the CSV above. Firefox will dedupe by URL+username.",
+            "Compromised-password review:",
+            f"  File: {p('hibp')}",
+            "  Review these accounts before or immediately after import. The file lists",
+            "  site and username only, not plaintext passwords.",
             "",
         ])
     if "bookmarks" in exports:
-        lines.extend([
-            "Bookmarks:",
-            f"  File: {exports['bookmarks']}",
-            "  Open the target browser, press Ctrl+Shift+O to open the Library.",
-            "  Import and Backup -> Import Bookmarks from HTML... -> pick the file.",
-            "  NOTE: Firefox's user-import path does NOT honor the bookmark-bar",
-            "        toolbar tag. After import, the toolbar bookmarks will land",
-            "        under 'Other Bookmarks > Bookmarks Toolbar'. Drag the",
-            "        contents of that folder up to 'Bookmarks Toolbar' in the",
-            "        Library tree to restore the original layout.",
-            "",
-        ])
+        if is_chrome_artifact("bookmarks"):
+            lines.extend([
+                "Bookmarks:",
+                f"  File: {p('bookmarks')}",
+                "  Open Chrome Bookmark Manager (Ctrl+Shift+O), then use Import bookmarks.",
+                "  The Bookmarks Toolbar is emitted first so Chrome can promote it to the bar.",
+                "",
+            ])
+        else:
+            lines.extend([
+                "Bookmarks:",
+                f"  File: {p('bookmarks')}",
+                "  Open Firefox Library (Ctrl+Shift+O).",
+                "  Use Import and Backup -> Import Bookmarks from HTML, then pick this file.",
+                "  Firefox's user import path may place toolbar items under",
+                "  Other Bookmarks > Bookmarks Toolbar; drag those contents to Bookmarks Toolbar",
+                "  in the Library tree if needed.",
+                "",
+            ])
     if "extensions" in exports:
+        marketplace = "Chrome Web Store" if is_chrome_artifact("extensions") else "Firefox Add-ons"
         lines.extend([
             "Extensions:",
-            f"  File: {exports['extensions']}",
-            "  Open the HTML in the target browser and click each Install link.",
-            "  Items marked NO MATCH have no known Firefox equivalent on AMO.",
+            f"  File: {p('extensions')}",
+            f"  Open the HTML in the target browser and install each mapped {marketplace} item.",
+            "  Unmatched rows are preserved so you can decide whether to skip or search manually.",
             "",
         ])
     if "cookies" in exports:
         lines.extend([
             "Cookies (advanced):",
-            f"  File: {exports['cookies']}",
-            "  CLOSE Firefox completely, back up the existing cookies.sqlite in your",
-            "  profile folder, then copy this file in its place. Delete cookies.sqlite-wal",
-            "  and cookies.sqlite-shm if present.",
+            f"  File: {p('cookies')}",
+            "  If FoxPort direct-write was enabled, this file was already installed after",
+            "  backing up the existing cookies.sqlite.",
+            "  For manual import, close Firefox completely, back up cookies.sqlite, copy this",
+            "  file into the profile, and remove cookies.sqlite-wal / cookies.sqlite-shm if present.",
             "",
         ])
     if "history" in exports:
         lines.extend([
             "Browsing history (advanced):",
-            f"  File: {exports['history']}",
-            "  CLOSE Firefox completely, back up the existing places.sqlite in your",
-            "  profile folder, then copy this file in its place. Delete favicons.sqlite",
-            "  so Firefox rebuilds it from the new history. Bookmarks remain unaffected.",
+            f"  File: {p('history')}",
+            "  If FoxPort direct-write was enabled, this file was already installed after",
+            "  backing up places.sqlite and moving favicons.sqlite to a timestamped backup.",
+            "  For manual import, close Firefox completely, back up places.sqlite, copy this",
+            "  file into the profile, and move favicons.sqlite aside so Firefox can rebuild it.",
             "",
         ])
-    lines.append("Keep this folder until you've verified the import — the source")
-    lines.append("browser was NOT modified.")
+    if "autofill" in exports:
+        lines.extend([
+            "Form autofill:",
+            f"  File: {p('autofill')}",
+            "  Close Firefox completely, back up formhistory.sqlite in the profile, then",
+            "  copy this file into its place. Reopen Firefox and verify common form entries.",
+            "",
+        ])
+    if "cards" in exports:
+        lines.extend([
+            "Saved payment cards:",
+            f"  File: {p('cards')}",
+            "  Firefox has no equivalent local card store for direct import. Use this CSV as",
+            "  a review/export artifact and delete it after moving data to your password manager.",
+            "",
+        ])
+    if "search_engines" in exports:
+        lines.extend([
+            "Search engines:",
+            f"  Inventory: {p('search_engines')}",
+            "  OpenSearch XML files are in the search-engines folder next to this inventory.",
+            "  Add the engines you want from Firefox Settings -> Search or via the browser's",
+            "  OpenSearch install prompt where available.",
+            "",
+        ])
+    if "open_tabs" in exports:
+        lines.extend([
+            "Open tabs / session restore:",
+            f"  File: {p('open_tabs')}",
+            "  If FoxPort direct-write was enabled, recovery.jsonlz4 was already installed",
+            "  after backing up any existing recovery file.",
+            "  For manual import, close Firefox, copy this file to",
+            "  sessionstore-backups/recovery.jsonlz4 in the profile, then reopen Firefox.",
+            "",
+        ])
+    if "downloads" in exports:
+        lines.extend([
+            "Downloads:",
+            f"  File: {p('downloads')}",
+            "  Firefox does not expose a stable native download-history import. Keep this CSV",
+            "  as a portable reference for file names, source URLs, target paths, and timestamps.",
+            "",
+        ])
+    lines.append("Keep this folder until you have verified the import. FoxPort does not modify")
+    lines.append("the source browser profile. Files containing secrets should be deleted once")
+    lines.append("they are safely imported or moved to your password manager.")
     return "\n".join(lines)

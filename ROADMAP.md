@@ -1,224 +1,181 @@
 # ROADMAP
 
-Items here are concrete units of work. Check them off as shipped; promote rough
-ideas from the bottom of the file as scope firms up.
+Single source of truth for actionable work. Items here are concrete units of
+work — check them off as shipped. `RESEARCH_FEATURE_PLAN.md` is the
+deeper analysis backing each entry; this file is the to-do list.
 
 > **Read this first if you're picking up where the last session left off:**
 > `RESEARCH_FEATURE_PLAN.md` is the most recent research output. The
-> `v1.2.0` section below is the promoted action list from that file.
+> `v1.3.0` and Phase D sections below are the promoted action lists from
+> it.
 
-## v1.2.1 — Extreme hardening pass  ✅ shipped 2026-05-24
+---
+
+## v1.3.0 — Trust + completeness pass  🚧 in progress
+
+Working tree on top of v1.2.1 introducing atomic fileops, the ASCII-safe CLI
+help, a generalized `import_instructions()`, snapshot overwrite policy,
+open-tabs direct-write wiring, and friends. See the v1.3.0 CHANGELOG entry
+for the full list.
+
+### Phase A — Trust + safety foundations  ✅ shipped 2026-05-24
+- [x] Atomic fileops helpers (`foxport/fileops.py` with `write_bytes_atomic`,
+      `replace_file_atomic`) + `tests/test_fileops.py` coverage.
+- [x] CLI top-level help no longer crashes under default Windows encoding
+      (`python -m foxport.cli --help` returns 0 in cp1252). ASCII-safe test
+      at `tests/test_cli_help.py` recursively checks every subparser.
+- [x] `import_instructions()` covers every emitted artifact (passwords, HIBP,
+      bookmarks, extensions, cookies, history, autofill, cards, search
+      engines, open tabs, downloads) and detects reverse-direction Chrome-
+      prefixed filenames. `tests/test_import_instructions.py` pins it.
+- [x] `snapshot.create_snapshot()` writes atomically via `write_bytes_atomic`.
+- [x] `snapshot.restore_snapshot()` refuses non-empty output dirs unless
+      `overwrite=True`; CLI gets `--overwrite`.
+- [x] `nss_cookies` / `nss_history` / `open_tabs` direct-writes go through
+      `replace_file_atomic` instead of `shutil.copy2`.
+- [x] `MigrationContext.direct_write_open_tabs` flows through
+      `MigrationRequest` to the worker — the hidden flag is now reachable
+      from the Items page.
+
+### Phase B — Wizard + run-artifact parity
+- [ ] **P0** Done screen + Items badges parity with all ten categories.
+      Replace the six hardcoded buttons in `RunPage` with a generated
+      artifact list; switch `ItemsPage.set_counts()` to a keyed `dict`
+      and persist counts on `MigrationContext`.
+- [ ] **P0** Emit `manifest.json` per non-dry-run migration. Single
+      registry consumed by Done UI, generated README, snapshot, future
+      `--json` CLI, and support diagnostics. Schema-versioned, no
+      plaintext secrets.
+
+### Phase C — Trust + release path
+- [ ] **P0** Signed Windows release with bundled signed ABE sidecar,
+      app icon, and Windows version resource.
+- [ ] **P1** First-run trust dialog + Preview "Network activity"
+      section listing optional AMO + HIBP calls + future-feature
+      placeholders.
+- [ ] **P1** NSS `nss3.dll` version-skew guard before direct-write into
+      `logins.json`; emit version into manifest.
+- [ ] **P1** Direct-write conflict review + rollback manifest across
+      passwords / cookies / history / open-tabs.
+- [ ] **P1** Atomic-replace for staging-folder emitters (the non-`nss_*`
+      writers still write directly to their final filenames).
+- [ ] **P1** Tests for downloads, cards, search engines, diff, reverse
+      migrators.
+- [ ] **P1** GUI snapshot creation (Done screen) + GUI restore wizard
+      (File menu) with bundle inspector.
+- [ ] **P1** Surface external bookmark adapters: CLI
+      `import-bookmarks` + GUI drag-and-drop on Pocket / Pinboard /
+      OPML / Netscape files.
+
+### Phase D — Polish + observability
+- [ ] **P2** CLI `--json` flag + `list --detail` with per-category counts.
+- [ ] **P2** Cards CSV column cleanup (drop redundant cardholder column)
+      + `tests/migrate/test_cards.py`.
+- [ ] **P2** Open-tabs partial-success sanity check — log + fall back to
+      regex when structural parser yields suspiciously few URLs.
+- [ ] **P2** Reverse curated-map auditor in the monthly cron workflow.
+- [ ] **P2** Documentation + screenshot refresh — curated count
+      (63 → 67), HIBP in README "Security notes", `firefox.py` docstring,
+      Items page screenshot with the Downloads row.
+- [ ] **P2** Settings: NSS path override + Reset-to-defaults.
+- [ ] **P2** Done "Reveal backups" action.
+- [ ] **P2** Downloads direct-write into Firefox `moz_annos` when history
+      direct-write is selected.
+- [ ] **P2** All-artifact Done UI render test + atomic-replace failure
+      recovery test + NSS version monkeypatch test.
+- [ ] **P3** Opt-in Glean telemetry with declared metrics.
+- [ ] **P3** Opt-in Sentry crash reporting (path-stripped).
+- [ ] **P3** Signed update appcast (WinSparkle / NetSparkle).
+- [ ] **P3** Passkey inventory CXF prototype.
+- [ ] **P3** Extension settings allowlist (uBlock Origin filter lists,
+      Stylus userstyles).
+- [ ] **P3** Help menu affordances (Open documentation, Report a problem,
+      Change log).
+- [ ] **P3** Curated map hot-reload + in-run AMO cache.
+- [ ] **P3** macOS / Linux distribution path (PyInstaller per OS;
+      signed/notarized macOS; AppImage or `.deb` on Linux).
+
+---
+
+## Open items inherited from earlier roadmaps
+
+- [ ] **v0.3.1 / Phase C** ABE sidecar binary — compile `foxport_abe.exe`
+      with MSVC v143 in CI and Authenticode-sign it. Document
+      `--browser` flag for additional vendors once IIDs are confirmed.
+- [ ] **Distribution** Replace SVG banner with raster logo + favicon set
+      (needs ChatGPT image-gen pass; not autonomously generatable).
+- [ ] **Distribution** Authenticode-sign the released ZIP (needs cert).
+- [ ] **Reach** Extension-settings best-effort (Stylus userstyles,
+      Bitwarden vault URL, uBO filter lists) — see Phase D allowlist.
+- [ ] **Reach** `--remote-debugging-port` CDP fallback for the day the
+      ABE bypass breaks.
+- [ ] **Curated map** Auto-PR generator that proposes new entries from
+      frequently-seen "no-match" extensions (requires opt-in
+      telemetry; see Phase D Glean).
+
+---
+
+## Historical milestones (collapsed for reference)
+
+<details>
+<summary>v1.2.1 — Extreme hardening pass  ✅ 2026-05-24</summary>
 
 Audit-driven follow-up to v1.2.0. Five batches of fixes; no new
-user-facing features.
+user-facing features. 89 tests pass (up from 69). See CHANGELOG.md for
+details. Highlights: refused to overwrite unreadable `logins.json`;
+HIBP no longer redecrypts; `backup_path: Path | None`; rename
+`favicons_deleted` → `favicons_backup_path`; consolidated SQLite
+counters; `closeEvent` migration guard; snapshot path-traversal +
+sha256 + unknown-key hardening; AMO URL injection fix; HIBP UA
+reflects `__version__`; keyboard focus indicators; persistent dry-run
+banner; regression tests for every batch.
+</details>
 
-### Correctness (data-loss + accounting)
-- [x] **nss_passwords: refuse to overwrite unreadable `logins.json`** —
-      new `LoginsCorruptError` instead of silently writing an empty store
-      on top of real entries.
-- [x] **HIBP scan no longer redecrypts** — both CSV writer and HIBP scan
-      consume the same in-memory list.
-- [x] **`total == decrypted + skipped_empty + failed`** invariant restored.
-- [x] **`backup_path: Path | None`** across NSS direct-write paths — no
-      more fake `.no-backup-needed` sentinel leaking into log lines.
-- [x] **`favicons_deleted` → `favicons_backup_path`** rename in
-      nss_history (the file is moved aside, not deleted).
-- [x] **search_engines `_copy_for_read` pulls WAL/SHM siblings** so
-      recently-added engines aren't dropped from the snapshot.
+<details>
+<summary>v1.2.0 — Research-driven correctness + trust  ✅ 2026-05-23</summary>
 
-### Resource safety + thread safety
-- [x] **Preview-page count helpers** consolidated behind a
-      `_safe_sqlite_count()` that can't leak tempdirs on early failure.
-- [x] **MainWindow.closeEvent** blocks Alt-F4 during a live migration
-      with a confirm prompt + bounded thread wait (prevents half-imported
-      `logins.json` / `places.sqlite` from a window-close mid-write).
+Research-driven correctness pass. `places.sqlite` v77 → v86 with
+`crypto/mozhash.py`; open-tabs SNSS Pickle parser (0 → 12 URLs); 48-
+test pytest suite; HIBP scan; drag-drop manual source; cookies
+`updateTime`; favicons backup not delete; chrome:// filter; ambiguous
+diff refusal; password preview masks; settings page; path-traversal
+hardening; formhistory v5; reverse harvester; history time-range.
+</details>
 
-### Security hardening
-- [x] **snapshot path-traversal**: reject absolute paths + `..` segments
-      up front, switch the prefix-string check to `Path.relative_to()`,
-      verify per-file SHA-256 against manifest digest on restore.
-- [x] **snapshot forward-compat**: drop unknown manifest keys defensively
-      instead of TypeError'ing the dataclass constructor.
-- [x] **AMO URL injection**: URL-quote `gecko_id` in `_amo_detail` so a
-      malicious extension manifest can't inject path/query traversal.
-- [x] **HIBP UA**: now reflects `foxport.__version__` instead of a
-      frozen string.
+<details>
+<summary>v1.1.0 — Reverse direction GUI + direct-write extras  ✅ 2026-05-23</summary>
 
-### UX + accessibility
-- [x] **Keyboard `:focus` indicators** on `Tile`, `QCheckBox`,
-      `QPushButton`. Tab navigation was invisible before.
-- [x] **Persistent dry-run banner** on the Run page when
-      `ctx.dry_run` is set.
+GUI direction toggle, master-password retry loop, direct-write
+cookies+history, open-tabs SNSS (URL scanner version), CLI `diff`,
+curated-map auditor.
+</details>
 
-### Test coverage (69 → 89)
-- [x] `_decrypt_all` invariant tests (passwords)
-- [x] `LoginsCorruptError` regression coverage (nss_passwords)
-- [x] End-to-end autofill v5 schema test (formhistory)
-- [x] Snapshot path-traversal + sha256 + unknown-key regression tests
+<details>
+<summary>v1.0.0 — Reverse direction (Firefox → Chromium)  ✅ 2026-05-23</summary>
 
-## v1.2.0 — Research-driven correctness + trust  ✅ shipped 2026-05-23
+NSS-based Firefox login readers; reverse migrators for passwords /
+bookmarks / extensions; AMO_GUID_TO_CHROME table.
+</details>
 
-### P0 (correctness — three bugs verified live in v1.1.0)
-- [x] **places.sqlite v77 → v86 + correct `url_hash`** — `crypto/mozhash.py` ports mfbt::HashString. schema bumped, `block_until_ms`/`block_pages_until_ms` added.
-- [x] **`open_tabs` SNSS Pickle parser** — structural parser + UTF-8 fallback. Live verified: 0 → 12 URLs on real Chrome profile.
-- [x] **Add `tests/` suite** — pytest config in `pyproject.toml`, `tests/conftest.py` fixtures, 41 tests across mozhash/bookmarks/history/cookies/open_tabs/extensions. CI runs `pytest`.
+<details>
+<summary>v0.x — Foundations  ✅ 2026-05-23</summary>
 
-### P1 (schema gaps + UX trust)
-- [x] **`cookies.sqlite` add `updateTime`** column (v17 spec compliance)
-- [x] **`bookmarks.html` toolbar** — documented manual-move workaround in import_instructions; direct-write path remains a v1.3 candidate
-- [x] **Filter `chrome://`, `chrome-extension://`, `edge://`, `brave://`, `about:`** URLs from bookmark + history + tab exports by default
-- [x] **`diff` CLI refuses ambiguous profile matches** — multiple substring hits print list and exit 2
-- [x] **Wire drag-and-drop "Manual source" tile** — synthetic ChromiumProfile auto-promoted into source list
-- [x] **`favicons.sqlite` backup, not delete** in history direct-write
-- [x] **HIBP scan during password migration** — opt-in; produces `compromised-passwords.txt`
+v0.1–v0.6.1: PyQt6 wizard, four-stage extension matching, ABE
+awareness, cookies + history + dry-run + ABE sidecar source, CLI,
+per-row/per-folder filters, NSS direct-write passwords, master-
+password prompt, cross-platform (macOS Keychain, Linux libsecret /
+kwallet), autofill + saved cards + search engines, open tabs via SNSS
+URL scanner.
+</details>
 
-### P2 (polish + small features)
-- [x] **Password preview dialog masks values by default** (Show-all toggle; per-row eye is a future polish pass)
-- [x] **Hide already-installed extensions** in `extensions.html` by default (collapsed `<details>` block)
-- [x] **Settings page** — File → Settings… persisted to per-platform `config.json`
-- [x] **Master-password retry loop** (up to 3 attempts)
-- [x] **NSSSession.decrypt method** in `crypto/nss.py`
-- [x] **`formhistory.sqlite` v4 → v5** with `moz_sources` + `moz_history_to_sources`
-- [x] **Reverse-direction matcher coverage** — `scripts/harvest_reverse_map.py` (run with `--write` to refresh)
-- [x] **History time-range filter dialog** (Last 7/30/90 days + Last 12 months + Custom)
-- [x] **Path-traversal hardening** on `make_export_dir`
-- [x] **Curated map placeholder cleanup** — removed `"{446900e4-…}": ""` and the bad ClearURLs entry
-- [x] **`check_curated_map.py --strict-stale` flag** — fail CI on entries older than N months
+<details>
+<summary>Distribution baseline  ✅ 2026-05-23</summary>
 
-### P3 (distribution + observability)
-- [ ] First-run dialog with opt-in for Glean + Sentry
-- [ ] Glean telemetry (categories, durations, error counts; no URLs)
-- [ ] Sentry crash reporting (opt-in)
-- [ ] Auto-update via WinSparkle / Sparkle
-- [ ] Run the release workflow end-to-end + publish the first signed binary
-- [ ] Raster logo + Windows EXE icon
-- [x] Monthly curated-map auditor scheduled workflow — `.github/workflows/curated-map-audit.yml` (cron 1st of month + workflow_dispatch; files a GitHub issue on broken/disabled entries)
-- [x] Per-page screen-reader / keyboard navigation pass — `Tile` is keyboard-focusable, Space/Enter activate, accessibleName/Description set
-- [x] Docs: `docs/architecture.md`, `docs/file-formats.md`, `docs/troubleshooting.md`
-
-### Larger bets (Phase 4+)
-- [ ] **FIDO CXF v1.0 passkey export** — Chrome `Web Data.webauthn_credentials` → CXF JSON
-- [x] **Downloads migration** — Chromium `History.downloads` → portable CSV. Direct-write to Firefox `moz_annos` queued for v1.3.
-- [x] **Browser snapshot `.fxport` bundle** + `restore` CLI subcommand (plain or PBKDF2 + AES-256-GCM encrypted)
-- [x] **Pocket / Pinboard / OPML bookmark input** via `foxport/import_/` adapters (Netscape HTML too)
-- [x] **Brave / Vivaldi / Edge as reverse target** — `import_instructions` generalized; Chrome import CSV + Netscape HTML are universal across Chromium forks
-
-
-
-## v0.2.0 — Wizard UI + smarter matching  ✅ shipped 2026-05-23
-- [x] Five-step QStackedWidget wizard (Source → Target → Items → Preview → Run)
-- [x] Left-rail step indicator with active/completed/future states
-- [x] Tile-based source/target pickers
-- [x] Drag-and-drop on the source step
-- [x] Preview pane with bookmark/extension tree + counts
-- [x] Curated extension map externalized to JSON, 63 entries
-- [x] Gecko ID probe via AMO detail endpoint
-- [x] Permission-overlap confidence scoring
-- [x] Already-installed extension detection (reads target `extensions.json`)
-- [x] App-Bound Encryption awareness + warning
-- [x] Opera Stable / Opera GX flat-profile layout
-- [x] Browser-running detection on source
-- [x] Firefox profile lock detection on target
-- [x] Deterministic password GUIDs for idempotent re-runs
-- [x] Richer extensions.html with permissions preview + stats
-
-## v0.3.0 — Cookies + history + ABE bypass  ✅ shipped 2026-05-23
-- [x] **Cookies migration** — decrypt with existing AES-GCM key, emit a fresh
-      `cookies.sqlite` from scratch (Firefox schema v17). Refuse to write if
-      target is locked. Convert chromium µs/1601 → firefox µs/1970 + s/1970 for
-      `expiry`. Default `originAttributes=""`, `schemeMap=2` for HTTPS.
-- [x] **History migration** — `places.sqlite` direct write with `moz_origins` +
-      `moz_places` (`frecency=-1`, `recalc_frecency=1`) + `moz_historyvisits`.
-      `url_hash` populated via PlacesUtils-equivalent.
-- [x] **App-Bound Encryption bypass** — `tools/abe_sidecar/foxport_abe.cpp`
-      ships as C++ source + CMakeLists + manifest; `crypto/abe.py` is the
-      Python launcher. `load_master_key()` calls into it automatically when
-      only the ABE key is present.
-- [x] **Cookie HOST_KEY 32-byte SHA-256 prefix strip** for Chrome 130+
-      (detected via `Cookies.meta.version >= 24`).
-- [x] **Dry-run mode** — show counts and decrypt-tests, no file writes.
-
-## v0.3.1 — ABE sidecar binary
-- [ ] Compile `foxport_abe.exe` with MSVC v143 in CI (GitHub Actions)
-- [ ] Authenticode-sign the binary in the release pipeline
-- [ ] Ship the signed EXE in the FoxPort release ZIP at `foxport/data/foxport_abe.exe`
-- [ ] Document `--browser` flag for additional vendors (Avast Secure Browser,
-      etc.) once their IElevator IIDs are confirmed
-
-## v0.4.0 — Direct write mode  ✅ shipped 2026-05-23
-- [x] **Passwords via NSS** — link the target Firefox's `libnss3.dll` via
-      ctypes; emit encrypted entries straight into `logins.json` (+ matching
-      `logins-backup.json`); compute correct `id`/`guid`/`encType=1`.
-- [x] **Conflict resolution** — deterministic GUIDs skip existing entries
-      by default. Per-item skip/merge/overwrite UI deferred to v0.4.1 (the
-      "skip by GUID" default solves the 95% case).
-- [x] **CLI mode** (`python -m foxport.cli {list,migrate}` with
-      `--source --target --items --all --dry-run --out --no-online`).
-- [x] **Per-folder bookmark filter** — `BookmarkFilterDialog` opens from
-      the Items step Customize button.
-- [x] **Password preview/filter** — `PasswordPreviewDialog` shows
-      decrypted rows with search + per-row checkboxes.
-
-## v0.4.1 — Direct-write polish  ✅ shipped 2026-05-23 (per-item conflict UI deferred)
-- [x] Master-password prompt in the GUI when source/target has one set
-- [ ] Per-item conflict resolution UI (skip / merge / overwrite per duplicate)
-- [x] Cookies direct-write into closed target profile
-- [x] History direct-write to a closed profile's places.sqlite
-
-## v0.5.0 — Cross-platform  ✅ shipped 2026-05-23
-- [x] macOS Chromium support — Keychain unwrap of the AES key
-- [x] Linux Chromium support — gnome-keyring / kwallet / plain-text fallback
-- [x] macOS Firefox profile detection (`~/Library/Application Support/Firefox`)
-- [x] Linux Firefox profile detection (`~/.mozilla/firefox` + per-vendor dotfiles)
-
-## v0.6.0 — Additional data types  ✅ shipped 2026-05-23
-- [x] **Open tabs** — see v0.6.1 (URL scanner) and v1.2.0 (Pickle parser fix).
-- [x] **Form autofill** — Chromium `Web Data.autofill` → Firefox
-      `formhistory.sqlite/moz_formhistory`.
-- [x] **Saved cards (CSV-only)** — Chromium `Web Data` cards table; Firefox
-      has no native card store so CSV-only output.
-- [x] **Search engines** — Chromium `Web Data.keywords` → per-engine
-      OpenSearch XML + JSON inventory (writing `search.json.mozlz4`
-      directly is too fragile due to per-Firefox-version hash validation).
-
-## v0.6.1 — Open tabs  ✅ shipped 2026-05-23
-- [x] URL scanner for Chromium `Sessions/Session_<num>` (UTF-16LE pickle
-      regex with RFC-3986 char class)
-- [x] Translate to Firefox `sessionstore-backups/recovery.jsonlz4`
-      (`b"mozLz40\\0"` magic + lz4-block-compressed JSON)
-- [x] Optional direct-write into the closed target profile
-
-## Reverse direction — v1.0.0  ✅ shipped 2026-05-23
-- [x] Firefox → Chromium passwords (CSV format Chrome's import accepts)
-- [x] Firefox → Chromium bookmarks (Netscape HTML, toolbar promoted)
-- [x] AMO → CWS extension mapping (inverted curated + GUID table)
-- [x] GUI direction toggle on the Source step (v1.1.0)
-
-## Distribution  ✅ mostly shipped 2026-05-23
-- [x] PyInstaller --onedir bundle via `foxport.spec` (bundles
-      `foxport_abe.exe` when present)
-- [x] GitHub Actions release workflow (`workflow_dispatch`,
-      `.github/workflows/release.yml`) — builds the ABE sidecar with
-      MSVC v143, runs PyInstaller, zips, creates the GH release
-- [x] CI workflow (`.github/workflows/ci.yml`) — AST + import smoke +
-      CLI sanity on Windows/macOS/Linux × Python 3.11/3.12
-- [x] DPI-aware README screenshots via `scripts/capture_screenshots.py`
-- [x] SVG banner header at `assets/banner.svg`
-- [ ] Replace SVG banner with proper raster logo + favicon set
-      (needs ChatGPT image gen pass — not autonomously generatable)
-- [ ] Authenticode-sign the released ZIP and the ABE sidecar EXE
-      (needs a code-signing cert)
-
-## Reach goals
-- [x] Browser-profile diff viewer (`python -m foxport.cli diff`) — v1.1.0
-- [ ] Extension-settings best-effort — only for the small set of cross-browser
-      extensions that share storage shape (Stylus userstyles, Bitwarden vault
-      URL, uBO filter lists)
-- [ ] `--remote-debugging-port` CDP fallback — for the day the ABE bypass
-      breaks, launch the user's own browser headless and slurp cookies via CDP
-
-## Curated map upkeep
-- [x] Monthly health check (`scripts/check_curated_map.py`) — hits AMO
-      for every curated slug, flags `is_disabled` / removed / stale entries
-- [ ] Auto-PR generator that proposes new entries from frequently-seen
-      "no-match" extensions across users (opt-in telemetry)
+PyInstaller onedir bundle (`foxport.spec`); GH Actions release
+(`workflow_dispatch`) building MSVC sidecar + PyInstaller + GH
+release; CI workflow with AST + import smoke + CLI sanity on
+Windows/macOS/Linux × 3.11/3.12; DPI-aware README screenshots; SVG
+banner; monthly curated-map audit cron; per-page screen-reader/
+keyboard pass; `docs/architecture.md`, `docs/file-formats.md`,
+`docs/troubleshooting.md`.
+</details>

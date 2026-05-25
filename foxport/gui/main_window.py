@@ -47,7 +47,8 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(f"{__app_name__} v{__version__}")
-        self.resize(960, 680)
+        self.resize(1040, 720)
+        self.setMinimumSize(900, 620)
 
         self._settings: Settings = load_settings()
         self._ctx = MigrationContext()
@@ -149,6 +150,7 @@ class MainWindow(QMainWindow):
         self._ctx.extensions_online = s.allow_online_amo_lookup
         self._ctx.dry_run = s.default_dry_run
         self._ctx.hibp_scan = s.hibp_scan_default
+        self._ctx.mask_passwords_in_preview = s.mask_passwords_in_preview
 
     def _open_settings(self) -> None:
         from foxport.gui.dialogs import SettingsDialog
@@ -312,6 +314,7 @@ class MainWindow(QMainWindow):
             direct_write_passwords=self._ctx.direct_write_passwords,
             direct_write_cookies=self._ctx.direct_write_cookies,
             direct_write_history=self._ctx.direct_write_history,
+            direct_write_open_tabs=self._ctx.direct_write_open_tabs,
             hibp_scan=self._ctx.hibp_scan,
             direction=self._ctx.direction,
             master_password=self._ctx.master_password,

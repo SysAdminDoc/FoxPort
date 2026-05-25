@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QDateEdit,
     QDialog,
     QDialogButtonBox,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -66,12 +67,15 @@ class PasswordPreviewDialog(QDialog):
         profile: ChromiumProfile,
         selected_keys: set[str] | None = None,
         parent: QWidget | None = None,
+        mask_passwords: bool = True,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Preview & filter passwords")
         self.resize(820, 560)
         self._all_rows: list[PasswordRow] = []
         self._row_visible: list[bool] = []
+        self._plaintext: dict[int, str] = {}
+        self._show_all = not mask_passwords
         # Persisted set of "<origin>\x00<username>" keys the user has kept ticked.
         # Empty set = include everything (default).
         self._selected_keys: set[str] = set(selected_keys) if selected_keys else set()
@@ -82,8 +86,8 @@ class PasswordPreviewDialog(QDialog):
 
         header = QLabel(
             "Tick the rows to include in the export. Use the filter to search "
-            "by URL or username. Passwords are masked by default — click the "
-            "eye in each row to reveal."
+            "by URL or username. Use the visibility button to reveal or mask "
+            "passwords while reviewing."
         )
         header.setWordWrap(True)
         header.setStyleSheet("color: #a6adc8;")
@@ -91,8 +95,9 @@ class PasswordPreviewDialog(QDialog):
 
         mask_row = QHBoxLayout()
         mask_row.addStretch(1)
-        self._show_all_btn = QPushButton("Show all passwords")
+        self._show_all_btn = QPushButton("Hide passwords" if self._show_all else "Show passwords")
         self._show_all_btn.setCheckable(True)
+        self._show_all_btn.setChecked(self._show_all)
         self._show_all_btn.toggled.connect(self._toggle_show_all)  # type: ignore[arg-type]
         mask_row.addWidget(self._show_all_btn)
         layout.addLayout(mask_row)
@@ -101,7 +106,7 @@ class PasswordPreviewDialog(QDialog):
         filter_row.setSpacing(8)
         filter_row.addWidget(QLabel("Search:"))
         self._filter = QLineEdit()
-        self._filter.setPlaceholderText("URL or username substring")
+        self._filter.setPlaceholderText("Search URL or username")
         self._filter.textChanged.connect(self._refresh_filter)  # type: ignore[arg-type]
         filter_row.addWidget(self._filter, 1)
         self._all_btn = QPushButton("Select all visible")
@@ -112,8 +117,6 @@ class PasswordPreviewDialog(QDialog):
         filter_row.addWidget(self._none_btn)
         layout.addLayout(filter_row)
 
-        self._plaintext: dict[int, str] = {}
-        self._show_all = False
         self._table = QTableWidget(0, 4)
         self._table.setHorizontalHeaderLabels(["Include", "URL", "Username", "Password"])
         self._table.verticalHeader().setVisible(False)
@@ -156,7 +159,7 @@ class PasswordPreviewDialog(QDialog):
 
     def _toggle_show_all(self, checked: bool) -> None:
         self._show_all = checked
-        self._show_all_btn.setText("Hide passwords" if checked else "Show all passwords")
+        self._show_all_btn.setText("Hide passwords" if checked else "Show passwords")
         for r_idx, plain in self._plaintext.items():
             item = self._table.item(r_idx, 3)
             if item is None:
@@ -194,7 +197,11 @@ class PasswordPreviewDialog(QDialog):
             self._table.setItem(r_idx, 1, QTableWidgetItem(row.origin_url))
             self._table.setItem(r_idx, 2, QTableWidgetItem(row.username))
             self._plaintext[r_idx] = plaintext
-            self._table.setItem(r_idx, 3, QTableWidgetItem(self._mask(plaintext)))
+            self._table.setItem(
+                r_idx,
+                3,
+                QTableWidgetItem(plaintext if self._show_all else self._mask(plaintext)),
+            )
             self._row_visible.append(True)
             if r_idx % 200 == 0:
                 QApplication.processEvents()
@@ -240,7 +247,7 @@ class PasswordPreviewDialog(QDialog):
         visible = sum(1 for r in range(total) if not self._table.isRowHidden(r))
         selected = len(self._selected_keys)
         self._count_label.setText(
-            f"{visible} of {total} matching filter · {selected} selected for export"
+            f"{visible:,} of {total:,} matching filter · {selected:,} selected for export"
         )
 
     def selected_keys(self) -> set[str]:
@@ -351,6 +358,14 @@ def _qdate_to_chrome_us(qdate: QDate, *, end_of_day: bool = False) -> int:
     return unix_us + _CHROME_EPOCH_OFFSET_US
 
 
+def _chrome_us_to_qdate(value: int) -> QDate:
+    """Convert Chrome WebKit microseconds since 1601-01-01 UTC to QDate."""
+    import datetime as _dt
+    unix_us = value - _CHROME_EPOCH_OFFSET_US
+    py_dt = _dt.datetime.fromtimestamp(unix_us / 1_000_000, tz=_dt.timezone.utc)
+    return QDate(py_dt.year, py_dt.month, py_dt.day)
+
+
 class HistoryFilterDialog(QDialog):
     """Pick a time window for history migration.
 
@@ -422,9 +437,14 @@ class HistoryFilterDialog(QDialog):
         self._buttons.rejected.connect(self.reject)  # type: ignore[arg-type]
         layout.addWidget(self._buttons)
 
-        # Default preset = All
-        self._preset.setCurrentIndex(0)
-        self._set_custom_enabled(False)
+        if existing_from_us is not None and existing_to_us is not None:
+            self._preset.setCurrentIndex(len(self.PRESETS) - 1)
+            self._from_edit.setDate(_chrome_us_to_qdate(existing_from_us))
+            self._to_edit.setDate(_chrome_us_to_qdate(existing_to_us))
+            self._set_custom_enabled(True)
+        else:
+            self._preset.setCurrentIndex(0)
+            self._set_custom_enabled(False)
 
     def _set_custom_enabled(self, enabled: bool) -> None:
         self._from_edit.setEnabled(enabled)
@@ -470,10 +490,20 @@ class SettingsDialog(QDialog):
         layout.setContentsMargins(18, 16, 18, 14)
         layout.setSpacing(10)
 
+        defaults_label = QLabel("Export defaults")
+        defaults_label.setObjectName("SectionLabel")
+        layout.addWidget(defaults_label)
+
+        defaults_card = QFrame()
+        defaults_card.setObjectName("Card")
+        defaults_layout = QVBoxLayout(defaults_card)
+        defaults_layout.setContentsMargins(16, 14, 16, 14)
+        defaults_layout.setSpacing(10)
+
         path_label = QLabel(f"Settings file: <code>{config_path()}</code>")
         path_label.setStyleSheet("color: #a6adc8;")
         path_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        layout.addWidget(path_label)
+        defaults_layout.addWidget(path_label)
 
         # Output dir row
         out_row = QHBoxLayout()
@@ -484,28 +514,38 @@ class SettingsDialog(QDialog):
         self._out_btn = QPushButton("Choose…")
         self._out_btn.clicked.connect(self._pick_dir)  # type: ignore[arg-type]
         out_row.addWidget(self._out_btn)
-        layout.addLayout(out_row)
+        defaults_layout.addLayout(out_row)
 
         # Behavior checkboxes
         self._mask_cb = QCheckBox("Mask passwords in the preview dialog by default")
         self._mask_cb.setChecked(settings.mask_passwords_in_preview)
-        layout.addWidget(self._mask_cb)
+        defaults_layout.addWidget(self._mask_cb)
 
-        self._amo_cb = QCheckBox("Allow online AMO lookup for unknown extensions by default")
+        self._amo_cb = QCheckBox("Allow online Add-ons lookup for unknown extensions by default")
         self._amo_cb.setChecked(settings.allow_online_amo_lookup)
-        layout.addWidget(self._amo_cb)
+        defaults_layout.addWidget(self._amo_cb)
 
         self._dry_cb = QCheckBox("Run in dry-run mode by default (count + decrypt-test, no writes)")
         self._dry_cb.setChecked(settings.default_dry_run)
-        layout.addWidget(self._dry_cb)
+        defaults_layout.addWidget(self._dry_cb)
+
+        layout.addWidget(defaults_card)
+
+        privacy_label = QLabel("Privacy checks")
+        privacy_label.setObjectName("SectionLabel")
+        layout.addWidget(privacy_label)
+
+        privacy_card = QFrame()
+        privacy_card.setObjectName("Card")
+        privacy_layout = QVBoxLayout(privacy_card)
+        privacy_layout.setContentsMargins(16, 14, 16, 14)
+        privacy_layout.setSpacing(10)
 
         self._hibp_cb = QCheckBox(
             "Check passwords against haveibeenpwned.com by default (k-anonymity API)"
         )
         self._hibp_cb.setChecked(settings.hibp_scan_default)
-        layout.addWidget(self._hibp_cb)
-
-        layout.addSpacing(6)
+        privacy_layout.addWidget(self._hibp_cb)
 
         # Future-wired flags (Glean / Sentry). Off + advisory.
         self._telemetry_cb = QCheckBox(
@@ -513,14 +553,16 @@ class SettingsDialog(QDialog):
         )
         self._telemetry_cb.setChecked(settings.telemetry_opt_in)
         self._telemetry_cb.setEnabled(False)
-        layout.addWidget(self._telemetry_cb)
+        privacy_layout.addWidget(self._telemetry_cb)
 
         self._crash_cb = QCheckBox(
             "Send crash reports (no user data) — v1.3+ feature, off until then"
         )
         self._crash_cb.setChecked(settings.crash_reporting_opt_in)
         self._crash_cb.setEnabled(False)
-        layout.addWidget(self._crash_cb)
+        privacy_layout.addWidget(self._crash_cb)
+
+        layout.addWidget(privacy_card)
 
         layout.addStretch(1)
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Callable
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QMouseEvent
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -62,21 +62,78 @@ class StepRail(QFrame):
 
 
 class Banner(QFrame):
-    """Slim left-bordered banner. Variant chooses color: 'warn' (amber) or 'info' (blue)."""
+    """Slim left-bordered banner for info, warning, success, and error states."""
 
     def __init__(self, text: str, variant: str = "warn", parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setObjectName("Banner" if variant == "warn" else "BannerInfo")
+        self._variant = ""
+        self.set_variant(variant)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(14, 10, 14, 10)
         self._label = QLabel(text)
         self._label.setWordWrap(True)
-        self._label.setStyleSheet("background: transparent; border: none; color: #f9e2af;" if variant == "warn"
-                                  else "background: transparent; border: none; color: #cdd6f4;")
         layout.addWidget(self._label, 1)
+
+    def set_variant(self, variant: str) -> None:
+        names = {
+            "warn": "BannerWarn",
+            "info": "BannerInfo",
+            "success": "BannerSuccess",
+            "error": "BannerError",
+        }
+        self._variant = variant if variant in names else "info"
+        self.setObjectName(names[self._variant])
+        self.style().unpolish(self)
+        self.style().polish(self)
+        if hasattr(self, "_label"):
+            self._label.style().unpolish(self._label)
+            self._label.style().polish(self._label)
 
     def set_text(self, text: str) -> None:
         self._label.setText(text)
+
+
+class OptionRow(QFrame):
+    """Keyboard-reachable row that toggles a contained checkbox."""
+
+    clicked = pyqtSignal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("OptionRow")
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setMinimumHeight(46)
+        self.setProperty("checked", False)
+        self.setProperty("disabled", False)
+
+    def set_checked(self, checked: bool) -> None:
+        self.setProperty("checked", checked)
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+    def set_enabled_state(self, enabled: bool, tooltip: str = "") -> None:
+        self.setProperty("disabled", not enabled)
+        self.setCursor(Qt.CursorShape.PointingHandCursor if enabled else Qt.CursorShape.ForbiddenCursor)
+        self.setToolTip(tooltip)
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton and not self.property("disabled"):
+            self.clicked.emit()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        if not self.property("disabled") and event.key() in (
+            Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter,
+        ):
+            self.clicked.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
 
 class Tile(QFrame):
@@ -130,6 +187,7 @@ class Tile(QFrame):
 
     def set_disabled(self, disabled: bool, tooltip: str = "") -> None:
         self.setProperty("disabled", disabled)
+        self.setEnabled(not disabled)
         self.setCursor(Qt.CursorShape.ForbiddenCursor if disabled else Qt.CursorShape.PointingHandCursor)
         self.setToolTip(tooltip)
         self.style().unpolish(self)
@@ -238,7 +296,6 @@ class FooterBar(QFrame):
         from PyQt6.QtWidgets import QPushButton  # local to keep imports tidy
         super().__init__(parent)
         self.setObjectName("FooterBar")
-        self.setStyleSheet("QFrame#FooterBar { background: #181825; border-top: 1px solid #313244; }")
         layout = QHBoxLayout(self)
         layout.setContentsMargins(20, 12, 20, 12)
         layout.setSpacing(10)

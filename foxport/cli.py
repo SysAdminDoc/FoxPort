@@ -7,7 +7,7 @@ Examples:
     # List everything FoxPort can see
     python -m foxport.cli list
 
-    # Migrate Brave Default → Firefox default, everything except cookies
+    # Migrate Brave Default -> Firefox default, everything except cookies
     python -m foxport.cli migrate \\
         --source "Brave/Default" --target "Firefox/default-release" \\
         --items passwords,bookmarks,extensions
@@ -17,7 +17,7 @@ Examples:
 
 The ``--source`` and ``--target`` arguments use the ``"<browser>/<profile>"``
 shape printed by ``list``; case-insensitive substring match also works
-(``brave/default`` finds ``Brave — Default``).
+(``brave/default`` finds ``Brave - Default``).
 """
 
 from __future__ import annotations
@@ -64,13 +64,13 @@ REVERSE_ITEMS = ("passwords", "bookmarks", "extensions")
 class AmbiguousProfileMatch(SystemExit):
     """Raised when a CLI ``--source``/``--target`` substring matches >1 profile.
 
-    We exit non-zero rather than silently picking one — silent wrong-profile
+    We exit non-zero rather than silently picking one; silent wrong-profile
     selection produced the diff-CLI bug logged in RESEARCH_FEATURE_PLAN.md.
     """
 
     def __init__(self, spec: str, matches: list[str]) -> None:
         msg = (
-            f"error: '{spec}' matched {len(matches)} profiles — please be more specific:\n"
+            f"error: '{spec}' matched {len(matches)} profiles; please be more specific:\n"
             + "\n".join(f"  {m}" for m in matches)
         )
         print(msg, file=sys.stderr)
@@ -85,7 +85,7 @@ def _find_chromium(spec: str, profiles: list[ChromiumProfile]) -> ChromiumProfil
             return p
         if p.label.lower() == spec_lower:
             return p
-    # 2. Substring match must be UNIQUE — refuse ambiguous matches loudly.
+    # 2. Substring match must be UNIQUE; refuse ambiguous matches loudly.
     substring_hits = [
         p for p in profiles
         if spec_lower in f"{p.browser}/{p.profile_name}".lower()
@@ -180,7 +180,7 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
         target_label += "_dryrun"
     out_dir = make_export_dir(out_root, source.label, target_label)
     print(f"Source: {source.label}")
-    print(f"Target: {target.label if target else '(none — files only)'}")
+    print(f"Target: {target.label if target else '(none - files only)'}")
     print(f"Items:  {', '.join(sorted(items))}")
     print(f"Output: {out_dir}")
     if args.dry_run:
@@ -203,7 +203,9 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
                   f"{r.failed} failed of {r.total} total")
             if args.hibp:
                 print(f"  HIBP: {r.hibp_hits} compromised passwords"
-                      + (f" — see {r.hibp_report_path.name}" if r.hibp_report_path else ""))
+                      + (f" - see {r.hibp_report_path.name}" if r.hibp_report_path else ""))
+                if r.hibp_report_path and not args.dry_run:
+                    exports["hibp"] = r.hibp_report_path
             if not args.dry_run:
                 exports["passwords"] = r.csv_path
 
@@ -296,7 +298,7 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="foxport",
-        description=f"{__app_name__} v{__version__} — Chromium → Firefox migration",
+        description=f"{__app_name__} v{__version__} - Chromium to Firefox migration",
     )
     parser.add_argument("--version", action="version", version=f"{__app_name__} {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -305,7 +307,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     mig = sub.add_parser("migrate", help="Run a one-shot migration")
     mig.add_argument("--source", required=True,
-                     help="Source profile (e.g. 'Brave/Default' — case-insensitive substring match works)")
+                     help="Source profile (e.g. 'Brave/Default'; case-insensitive substring match works)")
     mig.add_argument("--target", default=None,
                      help="Target Firefox profile (optional; files-only mode if omitted)")
     mig.add_argument("--items", default=None,
@@ -339,6 +341,8 @@ def build_parser() -> argparse.ArgumentParser:
     restore.add_argument("--out-dir", required=True, help="Folder to write the unpacked artifacts to")
     restore.add_argument("--passphrase", default="",
                          help="Passphrase for encrypted bundles (omit for plain ones)")
+    restore.add_argument("--overwrite", action="store_true",
+                         help="Allow restore into a non-empty output directory")
 
     diff = sub.add_parser("diff",
                            help="Show what's in the source that the target doesn't have yet")
@@ -348,7 +352,7 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Master password for the target Firefox profile, if set")
 
     rev = sub.add_parser("migrate-reverse",
-                          help="Reverse direction: Firefox profile → Chromium-importable bundle")
+                          help="Reverse direction: Firefox profile to Chromium-importable bundle")
     rev.add_argument("--source", required=True,
                      help="Firefox-family source profile (e.g. 'Firefox/default-release')")
     rev.add_argument("--items", default=None,
@@ -383,6 +387,7 @@ def _cmd_migrate_reverse(args: argparse.Namespace) -> int:
     print(f"Source: {source.label}")
     print(f"Items:  {', '.join(sorted(items))}")
     print(f"Output: {out_dir}")
+    exports: dict[str, Path] = {}
 
     if "passwords" in items:
         print("\n[passwords]")
@@ -390,14 +395,26 @@ def _cmd_migrate_reverse(args: argparse.Namespace) -> int:
                                        master_password=args.master_password,
                                        dry_run=args.dry_run)
         print(f"  {r.written} written, {len(r.failures)} failed of {r.total} total")
+        if not args.dry_run and r.written > 0:
+            exports["passwords"] = r.csv_path
     if "bookmarks" in items:
         print("\n[bookmarks]")
         r = migrate_bookmarks_reverse(source, out_dir, dry_run=args.dry_run)
         print(f"  {r.urls} URLs across {r.folders} folders")
+        if not args.dry_run and r.urls > 0:
+            exports["bookmarks"] = r.html_path
     if "extensions" in items:
         print("\n[extensions]")
         r = migrate_extensions_reverse(source, out_dir, dry_run=args.dry_run)
         print(f"  {r.matched} matched, {r.unmatched} unmatched of {len(r.matches)} installed")
+        if not args.dry_run and r.matches:
+            exports["extensions"] = r.html_path
+    if exports:
+        instructions_path = out_dir / "README.txt"
+        instructions_path.write_text(
+            import_instructions(None, exports), encoding="utf-8"
+        )
+        print(f"\nInstructions: {instructions_path}")
     return 0
 
 
@@ -438,12 +455,16 @@ def _cmd_snapshot(args: argparse.Namespace) -> int:
     if not in_dir.is_dir():
         print(f"error: {in_dir} is not a directory", file=sys.stderr)
         return 2
-    manifest = create_snapshot(
-        in_dir, out_path,
-        source_label=args.source_label,
-        target_label=args.target_label,
-        passphrase=args.passphrase or None,
-    )
+    try:
+        manifest = create_snapshot(
+            in_dir, out_path,
+            source_label=args.source_label,
+            target_label=args.target_label,
+            passphrase=args.passphrase or None,
+        )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     print(f"Bundled {len(manifest.files)} file(s) into {out_path}")
     print(f"  Source: {manifest.source_label}")
     print(f"  Target: {manifest.target_label}")
@@ -459,7 +480,12 @@ def _cmd_restore(args: argparse.Namespace) -> int:
         print(f"error: {bundle} not found", file=sys.stderr)
         return 2
     try:
-        manifest = restore_snapshot(bundle, out_dir, passphrase=args.passphrase or None)
+        manifest = restore_snapshot(
+            bundle,
+            out_dir,
+            passphrase=args.passphrase or None,
+            overwrite=args.overwrite,
+        )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
