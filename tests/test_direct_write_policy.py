@@ -1,6 +1,6 @@
-"""Tests for the v1.3.3 conflict-review / direct-write-policy plumbing.
+"""Tests for the conflict-review / direct-write-policy plumbing.
 
-Three policies (apply / skip / backup-only) thread from MigrationRequest
+Policies thread from MigrationRequest
 fields through the worker to the manifest. The dialog itself is a thin
 shim around those fields; the heavy logic lives in the worker branches
 and the manifest writer, which is what these tests pin.
@@ -13,10 +13,9 @@ from pathlib import Path
 import pytest
 
 
-def test_direct_write_policies_constant_exposes_three_values():
+def test_direct_write_policies_constant_exposes_values():
     """The DirectWritePolicy literal + the user-facing constant must
-    enumerate exactly the three policies the worker knows how to
-    handle. Adding a fourth means adding a worker branch too."""
+    enumerate exactly the policies the worker knows how to handle."""
 
     from foxport.migrate.conflicts import (
         DIRECT_WRITE_POLICIES,
@@ -24,7 +23,7 @@ def test_direct_write_policies_constant_exposes_three_values():
         DIRECT_WRITE_POLICY_LABELS,
     )
 
-    assert DIRECT_WRITE_POLICIES == ("apply", "skip", "backup-only")
+    assert DIRECT_WRITE_POLICIES == ("apply", "merge", "skip", "backup-only")
     assert DIRECT_WRITE_POLICY_DEFAULT == "apply"
     # Every policy must have a human-readable label so the dialog
     # never silently lands an empty dropdown row.

@@ -91,6 +91,9 @@ class RunArtifact:
 
     * ``"apply"`` — current v1.3 behavior (merge passwords / replace
       cookies+history+open_tabs after backup).
+    * ``"merge"`` — preserve target cookies/history rows and add only
+      source rows absent by merge key. Passwords already merge under
+      ``"apply"``; open tabs still replace.
     * ``"skip"`` — target file was NOT modified; staging-only output.
     * ``"backup-only"`` — target file was copied to a timestamped
       sibling but the new content was NOT written.

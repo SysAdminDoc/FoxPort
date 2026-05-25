@@ -92,9 +92,9 @@ class MigrationContext:
         self.direct_write_history: bool = False
         self.direct_write_open_tabs: bool = False
         # Per-category direct-write policy. Default ``"apply"`` preserves
-        # the v1.3 behavior. Set by the conflict-review dialog (which
-        # opens between Preview and Run when any direct_write_* flag is
-        # True) before the worker runs.
+        # the v1.3 behavior; ``"merge"`` is available for cookies/history.
+        # Set by the conflict-review dialog (which opens between Preview
+        # and Run when any direct_write_* flag is True) before the worker runs.
         self.policy_passwords: str = "apply"
         self.policy_cookies: str = "apply"
         self.policy_history: str = "apply"

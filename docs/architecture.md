@@ -69,8 +69,8 @@ foxport/
 │   │                           #   worker can log "N of M already in target" before
 │   │                           #   mutation. GUID compare is case-insensitive.
 │   ├── nss_passwords.py        # direct-write into target logins.json via NSS
-│   ├── nss_cookies.py          # direct-write target cookies.sqlite
-│   └── nss_history.py          # direct-write target places.sqlite
+│   ├── nss_cookies.py          # direct-write target cookies.sqlite; merge mode
+│   └── nss_history.py          # direct-write target places.sqlite; merge mode
 │
 ├── migrate_reverse/            # Reverse (Firefox → Chromium) emitters
 │   ├── passwords.py            # Chrome import CSV
@@ -140,11 +140,14 @@ foxport/
 9. Optional direct-write paths run after the artifact is produced —
     they capture `timestamped_backup_path(target)` (via the shared
     `foxport.fileops` helper), copy the existing file aside, and swap
-    the new one in atomically. When Downloads and history direct-write
-    are both selected with `apply`, `migrate_history(...,
+    the new or merged DB in atomically. The `merge` policy preserves
+    target cookies/history rows while adding source cookies absent by
+    host/path/name and source history visits absent by URL+visit_date.
+    When Downloads and history direct-write are both selected with
+    `apply` or `merge`, `migrate_history(...,
     include_download_annotations=True)` also writes Firefox's
     `downloads/destinationFileURI` + `downloads/metaData` annotations
-    into the generated `places.sqlite`.
+    into the generated or merged `places.sqlite`.
 10. If crash reporting is enabled in Settings and a Sentry DSN is
     configured, app startup initializes `foxport.crash_reporting` with
     locals/source context disabled and path-stripping `before_send` hooks.

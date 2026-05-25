@@ -27,6 +27,16 @@ All notable changes to FoxPort are documented here. Format roughly follows
   sizes continue to grow.
 
 ### Added
+- **Cookies/history direct-write merge mode.** The conflict-review policy
+  set now includes `merge` in addition to `apply`, `skip`, and
+  `backup-only`. Cookie merge preserves the target `cookies.sqlite` and
+  inserts only source rows absent by host/path/name. History merge
+  preserves the target `places.sqlite`, inserts new source URLs, and adds
+  only visits absent by URL+visit timestamp; matching download annotations
+  are copied onto the merged places rows. Both paths still take timestamped
+  backups before atomically replacing the live DB with the merged copy.
+  Focused tests cover cookie preservation, history visit dedupe, favicon
+  preservation, and policy/CLI choice wiring.
 - **Passkey inventory CLI prototype.** `python -m foxport.cli passkeys
   inventory [--json]` now scans detected Chromium-family and Firefox-family
   profiles for known/likely local WebAuthn/passkey stores. It reports only

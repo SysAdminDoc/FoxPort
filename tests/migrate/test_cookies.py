@@ -1,9 +1,11 @@
 """Tests for the cookies.sqlite emitter."""
 
 import sqlite3
+from types import SimpleNamespace
 
 from foxport.crypto.dpapi import ChromiumKey
 from foxport.migrate.cookies import _FIREFOX_COOKIES_SCHEMA
+from foxport.migrate.nss_cookies import write_cookies_into_target
 
 
 def test_schema_pragma_version():
@@ -115,3 +117,89 @@ def test_schema_unique_constraint():
     except sqlite3.IntegrityError:
         return  # constraint fires
     raise AssertionError("Duplicate insert succeeded — UNIQUE constraint missing")
+
+
+def test_write_cookies_into_target_merge_preserves_existing_rows(
+    fake_chromium_profile, tmp_path, monkeypatch,
+):
+    """Merge mode adds source cookies absent by host/path/name only."""
+
+    from foxport.migrate import cookies as cookies_mod
+
+    monkeypatch.setattr(
+        cookies_mod,
+        "load_master_key",
+        lambda *a, **kw: ChromiumKey(key=b"x" * 32),
+    )
+
+    source_db = fake_chromium_profile.profile_dir / "Cookies"
+    conn = sqlite3.connect(str(source_db))
+    try:
+        conn.execute(
+            "CREATE TABLE cookies ("
+            " creation_utc INTEGER, host_key TEXT, name TEXT, value TEXT,"
+            " encrypted_value BLOB, path TEXT, expires_utc INTEGER,"
+            " is_secure INTEGER, is_httponly INTEGER, last_access_utc INTEGER,"
+            " is_persistent INTEGER, samesite INTEGER"
+            ")"
+        )
+        conn.execute(
+            "INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (0, "example.com", "sid", "source", b"", "/", 0, 0, 0, 0, 1, 0),
+        )
+        conn.execute(
+            "INSERT INTO cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (0, "new.example", "fresh", "fresh-value", b"", "/", 0, 1, 0, 0, 1, 0),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    target_dir = tmp_path / "target"
+    target_dir.mkdir()
+    target_db = target_dir / "cookies.sqlite"
+    conn = sqlite3.connect(str(target_db))
+    try:
+        conn.executescript(_FIREFOX_COOKIES_SCHEMA)
+        conn.execute(
+            "INSERT INTO moz_cookies (originAttributes, name, value, host, path) "
+            "VALUES ('', 'sid', 'target-kept', 'example.com', '/')"
+        )
+        conn.execute(
+            "INSERT INTO moz_cookies (originAttributes, name, value, host, path) "
+            "VALUES ('', 'target-only', 'target-only', 'target.example', '/')"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    target = SimpleNamespace(
+        label="Target",
+        profile_dir=target_dir,
+        lock_file=target_dir / "parent.lock",
+    )
+    result = write_cookies_into_target(
+        fake_chromium_profile,
+        target,
+        tmp_path / "staging",
+        merge=True,
+    )
+
+    assert result.merged is True
+    assert result.inserted == 1
+    assert result.skipped_existing == 1
+    assert result.backup_path is not None and result.backup_path.exists()
+
+    conn = sqlite3.connect(str(target_db))
+    try:
+        rows = conn.execute(
+            "SELECT host, name, value FROM moz_cookies ORDER BY host, name"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    assert rows == [
+        ("example.com", "sid", "target-kept"),
+        ("new.example", "fresh", "fresh-value"),
+        ("target.example", "target-only", "target-only"),
+    ]

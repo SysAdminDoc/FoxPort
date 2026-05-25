@@ -668,11 +668,12 @@ def build_parser() -> argparse.ArgumentParser:
                           "dry-run/direct-write flags, and outcome; never paths, "
                           "profile labels, URLs, usernames, or secrets.")
     mig.add_argument("--direct-write-policy", default="apply",
-                     choices=("apply", "skip", "backup-only"),
+                     choices=("apply", "merge", "skip", "backup-only"),
                      help="Per-category direct-write disposition applied to every "
                           "enabled direct_write_* category: 'apply' (v1.3 default - "
                           "merge passwords / replace cookies+history+open-tabs after "
-                          "backup), 'skip' (don't touch the target; staging only), "
+                          "backup), 'merge' (preserve cookies/history target rows "
+                          "and add only absent source rows), 'skip' (don't touch the target; staging only), "
                           "or 'backup-only' (copy target file aside but don't write).")
     mig.add_argument("--yes", action="store_true",
                      help="Non-interactive mode: skip any future confirmation prompts "

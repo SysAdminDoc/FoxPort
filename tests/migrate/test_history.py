@@ -5,7 +5,7 @@ import sqlite3
 from types import SimpleNamespace
 
 from foxport.crypto.mozhash import places_url_hash
-from foxport.migrate.history import migrate_history
+from foxport.migrate.history import _FIREFOX_PLACES_SCHEMA, migrate_history
 from foxport.migrate.nss_history import write_history_into_target
 
 
@@ -260,3 +260,115 @@ def test_write_history_into_target_can_include_download_annotations(
     finally:
         conn.close()
     assert annos == 2
+
+
+def test_write_history_into_target_merge_preserves_target_visits(
+    fake_chromium_profile, make_history_db, tmp_path,
+):
+    """Merge mode adds visits absent by URL+visit_time without replacing Places."""
+
+    history_path = make_history_db([
+        ("https://example.com/", "Example", 1),
+        ("https://new.example/", "New", 1),
+    ])
+    conn = sqlite3.connect(str(history_path))
+    try:
+        url_id = conn.execute(
+            "SELECT id FROM urls WHERE url = ?",
+            ("https://example.com/",),
+        ).fetchone()[0]
+        conn.execute(
+            "INSERT INTO visits (url, visit_time) VALUES (?, ?)",
+            (url_id, CHROME_EPOCH_OFFSET_MICROS + 5_000_000),
+        )
+        conn.execute(
+            "UPDATE urls SET visit_count = 2, last_visit_time = ? WHERE id = ?",
+            (CHROME_EPOCH_OFFSET_MICROS + 5_000_000, url_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    history_path.rename(fake_chromium_profile.profile_dir / "History")
+
+    target_dir = tmp_path / "target"
+    target_dir.mkdir()
+    target_db = target_dir / "places.sqlite"
+    conn = sqlite3.connect(str(target_db))
+    try:
+        conn.executescript(_FIREFOX_PLACES_SCHEMA)
+
+        def add_target_place(url: str, title: str, visit_dates: list[int]) -> None:
+            cur = conn.execute(
+                "INSERT INTO moz_places "
+                "(url, title, rev_host, visit_count, hidden, typed, frecency, "
+                " last_visit_date, guid, foreign_count, url_hash, origin_id, "
+                " recalc_frecency) "
+                "VALUES (?, ?, '', ?, 0, 0, -1, ?, ?, 0, ?, NULL, 1)",
+                (
+                    url,
+                    title,
+                    len(visit_dates),
+                    max(visit_dates),
+                    f"guid-{len(visit_dates)}-{abs(hash(url))}",
+                    places_url_hash(url),
+                ),
+            )
+            place_id = cur.lastrowid
+            for visit_date in visit_dates:
+                conn.execute(
+                    "INSERT INTO moz_historyvisits "
+                    "(from_visit, place_id, visit_date, visit_type, session, source) "
+                    "VALUES (0, ?, ?, 1, 0, 0)",
+                    (place_id, visit_date),
+                )
+
+        add_target_place("https://example.com/", "Target kept", [0])
+        add_target_place("https://target-only.example/", "Only target", [123])
+        conn.commit()
+    finally:
+        conn.close()
+
+    favicons = target_dir / "favicons.sqlite"
+    favicons.write_bytes(b"keep me")
+    target = SimpleNamespace(
+        label="Target",
+        profile_dir=target_dir,
+        lock_file=target_dir / "parent.lock",
+    )
+
+    result = write_history_into_target(
+        fake_chromium_profile,
+        target,
+        tmp_path / "staging",
+        merge=True,
+    )
+
+    assert result.merged is True
+    assert result.places_inserted == 1
+    assert result.visits_inserted == 2
+    assert result.visits_skipped_existing == 1
+    assert result.favicons_backup_path is None
+    assert favicons.exists(), "merge must preserve favicons.sqlite"
+
+    conn = sqlite3.connect(str(target_db))
+    try:
+        urls = {
+            url: (place_id, visit_count)
+            for place_id, url, visit_count in conn.execute(
+                "SELECT id, url, visit_count FROM moz_places"
+            ).fetchall()
+        }
+        assert set(urls) == {
+            "https://example.com/",
+            "https://new.example/",
+            "https://target-only.example/",
+        }
+        assert urls["https://example.com/"][1] == 2
+        example_visits = conn.execute(
+            "SELECT visit_date FROM moz_historyvisits WHERE place_id = ? ORDER BY visit_date",
+            (urls["https://example.com/"][0],),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    assert example_visits == [(0,), (5_000_000,)]

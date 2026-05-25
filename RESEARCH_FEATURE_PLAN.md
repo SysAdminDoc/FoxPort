@@ -44,6 +44,10 @@ when the work ships.
   extension matching reloads the active map for each run, honors
   `FOXPORT_CURATED_MAP_PATH` overrides, and caches duplicate AMO detail /
   search lookups within a single run.
+- v1.4 cookies/history direct-write merge mode is now shipped: the
+  conflict-review policy set includes `merge`, which preserves target rows
+  while adding source cookies absent by host/path/name and source history
+  visits absent by URL+visit timestamp.
 
 ## Current Process
 

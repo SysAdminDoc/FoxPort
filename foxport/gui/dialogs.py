@@ -516,6 +516,8 @@ class DirectWritePolicyDialog(QDialog):
 
     * ``apply``       — current behavior (merge for passwords, replace
                         cookies/history/open_tabs after backup).
+    * ``merge``       — preserve cookies/history target rows and add only
+                        source rows that are absent by merge key.
     * ``skip``        — leave the target untouched; staging output only.
     * ``backup-only`` — copy the target file aside but don't write new
                         content.
@@ -606,6 +608,12 @@ class DirectWritePolicyDialog(QDialog):
                         f"{conflicts.duplicates} of {conflicts.source_total} "
                         f"already in target; {conflicts.new} new would be merged."
                     )
+                elif key in {"cookies", "history"}:
+                    count_text = (
+                        f"{conflicts.source_total} source rows available. Apply replaces "
+                        f"{conflicts.duplicates} target rows; Merge preserves target rows "
+                        "and adds only absent source entries."
+                    )
                 else:
                     count_text = (
                         f"{conflicts.source_total} source rows would REPLACE "
@@ -621,11 +629,16 @@ class DirectWritePolicyDialog(QDialog):
             row_layout.addWidget(count_label)
 
             dropdown = QComboBox()
-            for policy in DIRECT_WRITE_POLICIES:
+            policies = (
+                DIRECT_WRITE_POLICIES
+                if key in {"cookies", "history"}
+                else tuple(p for p in DIRECT_WRITE_POLICIES if p != "merge")
+            )
+            for policy in policies:
                 dropdown.addItem(DIRECT_WRITE_POLICY_LABELS[policy], userData=policy)
             current = getattr(ctx, attr, "apply") or "apply"
             try:
-                idx = list(DIRECT_WRITE_POLICIES).index(current)
+                idx = list(policies).index(current)
             except ValueError:
                 idx = 0
             dropdown.setCurrentIndex(idx)

@@ -402,10 +402,16 @@ class MigrationWorker(QObject):
                             try:
                                 from foxport.migrate.conflicts import analyze_cookies
                                 ck_conflicts = analyze_cookies(req.source, req.target)
-                                self.log.emit(
-                                    f"  Pre-flight: {ck_conflicts.source_total} source cookies will "
-                                    f"REPLACE {ck_conflicts.duplicates} existing rows in target."
-                                )
+                                if policy == "merge":
+                                    self.log.emit(
+                                        f"  Pre-flight: {ck_conflicts.source_total} source cookies "
+                                        "will MERGE into target; existing target rows are preserved."
+                                    )
+                                else:
+                                    self.log.emit(
+                                        f"  Pre-flight: {ck_conflicts.source_total} source cookies will "
+                                        f"REPLACE {ck_conflicts.duplicates} existing rows in target."
+                                    )
                             except Exception as exc:  # noqa: BLE001
                                 self.log.emit(f"  Pre-flight skipped: {exc}")
                         if policy == "skip":
@@ -433,6 +439,25 @@ class MigrationWorker(QObject):
                                     )
                             except Exception as exc:  # noqa: BLE001
                                 self.log.emit(f"  Backup-only failed: {exc}")
+                        elif policy == "merge":
+                            try:
+                                cdw = write_cookies_into_target(
+                                    req.source, req.target, out_dir, merge=True,
+                                )
+                            except ProfileLockedError as exc:
+                                self.log.emit(f"  Cookies merge aborted: {exc}")
+                            else:
+                                direct_write_backups["cookies"] = cdw.backup_path
+                                backup_note = (
+                                    f"previous backed up as {cdw.backup_path.name}"
+                                    if cdw.backup_path is not None
+                                    else "no previous file to back up"
+                                )
+                                self.log.emit(
+                                    f"  Merged cookies.sqlite into {cdw.target_path}; "
+                                    f"{cdw.inserted} inserted, {cdw.skipped_existing} "
+                                    f"already in target; {backup_note}."
+                                )
                         else:
                             try:
                                 cdw = write_cookies_into_target(req.source, req.target, out_dir)
@@ -463,7 +488,7 @@ class MigrationWorker(QObject):
                     include_download_annotations=(
                         req.do_downloads
                         and req.direct_write_history
-                        and req.policy_history == "apply"
+                        and req.policy_history in {"apply", "merge"}
                     ),
                     date_from_us=req.history_date_from_us,
                     date_to_us=req.history_date_to_us,
@@ -481,10 +506,16 @@ class MigrationWorker(QObject):
                         try:
                             from foxport.migrate.conflicts import analyze_history
                             h_conflicts = analyze_history(req.source, req.target)
-                            self.log.emit(
-                                f"  Pre-flight: {h_conflicts.source_total} source URLs will "
-                                f"REPLACE {h_conflicts.duplicates} existing places.sqlite rows."
-                            )
+                            if policy == "merge":
+                                self.log.emit(
+                                    f"  Pre-flight: {h_conflicts.source_total} source URLs "
+                                    "will MERGE into target; existing target history is preserved."
+                                )
+                            else:
+                                self.log.emit(
+                                    f"  Pre-flight: {h_conflicts.source_total} source URLs will "
+                                    f"REPLACE {h_conflicts.duplicates} existing places.sqlite rows."
+                                )
                         except Exception as exc:  # noqa: BLE001
                             self.log.emit(f"  Pre-flight skipped: {exc}")
                     if policy == "skip":
@@ -512,6 +543,36 @@ class MigrationWorker(QObject):
                                 )
                         except Exception as exc:  # noqa: BLE001
                             self.log.emit(f"  Backup-only failed: {exc}")
+                    elif policy == "merge":
+                        try:
+                            hdw = write_history_into_target(
+                                req.source,
+                                req.target,
+                                out_dir,
+                                include_download_annotations=req.do_downloads,
+                                merge=True,
+                            )
+                        except ProfileLockedError as exc:
+                            self.log.emit(f"  History merge aborted: {exc}")
+                        else:
+                            direct_write_backups["history"] = hdw.backup_path
+                            backup_note = (
+                                f"previous backed up as {hdw.backup_path.name}"
+                                if hdw.backup_path is not None
+                                else "no previous places.sqlite to back up"
+                            )
+                            self.log.emit(
+                                f"  Merged places.sqlite into {hdw.target_path}; "
+                                f"{hdw.places_inserted} new URL(s), "
+                                f"{hdw.visits_inserted} visit(s) inserted, "
+                                f"{hdw.visits_skipped_existing} already in target; "
+                                f"{backup_note}."
+                            )
+                            if hdw.written.downloads_annotated:
+                                self.log.emit(
+                                    f"  Annotated {hdw.written.downloads_annotated} "
+                                    "download(s) in places.sqlite."
+                                )
                     else:
                         try:
                             hdw = write_history_into_target(

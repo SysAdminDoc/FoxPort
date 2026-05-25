@@ -201,7 +201,7 @@ the last P1 (conflict-review dialog) plus the P2/P3 follow-ons.
       When history direct-write is selected. ROADMAP Phase D P2; the
       history migrator now annotates matching `moz_places` rows with
       `downloads/destinationFileURI` + `downloads/metaData` when
-      Downloads are selected with history direct-write `apply`. The
+      Downloads are selected with history direct-write `apply` or `merge`. The
       standalone CSV remains the portable reference artifact.
 - [x] **P2** Extension settings allowlist
       uBO filter lists/user rules, Stylus userstyles, and Bitwarden
@@ -263,10 +263,15 @@ the last P1 (conflict-review dialog) plus the P2/P3 follow-ons.
        multi-tool Linux degradation chain ending in `"peanuts"`, and
        the per-platform PBKDF2 iteration counts (1003 mac vs 1
        linux).
-- [ ] **P3** "Merge mode" for cookies/history direct-write
+- [x] **P3** "Merge mode" for cookies/history direct-write
       Preserve target rows + add source rows by uniqueness key
       (cookies = `host_key+path+name`; history = URL+visit_time).
       Builds on v1.3.3's skip/overwrite/backup-only policy framework.
+      Direct-write policy now includes `merge`; cookies skip source rows
+      whose target already has the same host/path/name, history skips
+      visits whose target already has the same URL+visit timestamp, and
+      both still take timestamped backups before replacing the live DB
+      with the merged copy.
 - [x] **P3** Restore-from-backup wizard step
       Regret-undo for any direct-write run. CLI:
       ``foxport restore-backup --backup <path> [--target <path>] [--json]``

@@ -43,8 +43,12 @@ from foxport.migrate.passwords import _FOXPORT_LOGIN_NAMESPACE
 #   "apply"       — current v1.3 behavior. For passwords: NSS merge by
 #                   deterministic GUID. For cookies / history /
 #                   open_tabs: replace the target file wholesale after
-#                   backing it up to a timestamped sibling. This is the
-#                   safest non-trivial choice and stays the default.
+#                   backing it up to a timestamped sibling. This stays the
+#                   default for backward compatibility.
+#   "merge"       — preserve target state where the category supports it.
+#                   Cookies add source rows absent by host/path/name; history
+#                   adds source visits absent by URL + visit_time. Passwords
+#                   already merge under "apply"; open tabs still replace.
 #   "skip"        — don't run the direct-write at all. Staging output
 #                   is still written to the run's output folder so the
 #                   user can manually import it later via Firefox's UI.
@@ -54,10 +58,10 @@ from foxport.migrate.passwords import _FOXPORT_LOGIN_NAMESPACE
 #                   NOT actually write the new content. Useful when the
 #                   user wants to snapshot Firefox's current state before
 #                   making any decisions.
-DirectWritePolicy = Literal["apply", "skip", "backup-only"]
+DirectWritePolicy = Literal["apply", "merge", "skip", "backup-only"]
 
 
-DIRECT_WRITE_POLICIES: tuple[str, ...] = ("apply", "skip", "backup-only")
+DIRECT_WRITE_POLICIES: tuple[str, ...] = ("apply", "merge", "skip", "backup-only")
 DIRECT_WRITE_POLICY_DEFAULT: DirectWritePolicy = "apply"
 
 
@@ -66,6 +70,7 @@ DIRECT_WRITE_POLICY_DEFAULT: DirectWritePolicy = "apply"
 # dropdown without having to re-read the ROADMAP.
 DIRECT_WRITE_POLICY_LABELS: dict[str, str] = {
     "apply": "Apply (default — merge passwords, replace cookies/history/open-tabs after backup)",
+    "merge": "Merge (preserve target cookies/history; add only new source rows)",
     "skip": "Skip (don't touch the target profile; staging output only)",
     "backup-only": "Backup only (timestamp-copy the target file but don't write new content)",
 }
@@ -141,10 +146,12 @@ def analyze_cookies(
     source: ChromiumProfile,
     target: FirefoxProfile,
 ) -> CategoryConflicts:
-    """Cookies direct-write currently *replaces* the whole target DB, so
-    every row counts as "new from source's perspective". We still report
-    the target's existing row count under ``duplicates`` so the user can
-    see how much state will be displaced by the swap.
+    """Count cookies before direct-write.
+
+    ``apply`` replaces the whole target DB, so ``duplicates`` remains the
+    target row count that would be displaced. ``merge`` performs a more
+    precise host/path/name skip inside ``nss_cookies``; this analyzer stays
+    cheap and conservative for the review dialog.
     """
 
     result = CategoryConflicts(category="cookies")
@@ -174,8 +181,12 @@ def analyze_history(
     source: ChromiumProfile,
     target: FirefoxProfile,
 ) -> CategoryConflicts:
-    """Same shape as cookies — history direct-write replaces places.sqlite,
-    so ``duplicates`` is the size of what will be displaced."""
+    """Count history before direct-write.
+
+    ``apply`` replaces ``places.sqlite``, so ``duplicates`` is the target
+    row count that would be displaced. ``merge`` dedupes by URL+visit_time
+    inside ``nss_history``; this analyzer stays cheap and conservative.
+    """
 
     result = CategoryConflicts(category="history")
     source_db = source.profile_dir / "History"
