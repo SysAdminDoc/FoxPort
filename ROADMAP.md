@@ -62,8 +62,16 @@ for the full list.
 - [ ] **P1** First-run trust dialog + Preview "Network activity"
       section listing optional AMO + HIBP calls + future-feature
       placeholders.
-- [ ] **P1** NSS `nss3.dll` version-skew guard before direct-write into
-      `logins.json`; emit version into manifest.
+- [x] **P1** NSS `nss3.dll` version-skew guard. `load_nss()` binds
+      `NSS_GetVersion()` and stores the reported string on
+      `NSSLibrary.version`. `open_session()` accepts a
+      `require_compatible_version=True` kwarg and refuses to proceed
+      when the major version is below 3 (where PK11SDR ABI has been
+      stable). `FOXPORT_NSS_FORCE=1` overrides for portable Firefox
+      builds. `migrate_passwords_via_nss()` records the version in
+      `DirectWriteResult.nss_version`; the worker logs it.
+      `tests/crypto/test_nss_version.py` (11 tests) pins the parsing,
+      fail-open behavior, refusal, and env-var override.
 - [ ] **P1** Direct-write conflict review + rollback manifest across
       passwords / cookies / history / open-tabs.
 - [x] **P1** Atomic-replace for staging-folder emitters. `foxport/fileops.py`

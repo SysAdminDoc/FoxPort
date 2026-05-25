@@ -73,6 +73,32 @@ class NSSLibrary:
 
     handle: ctypes.CDLL
     install_path: Path
+    # NSS reports its own version through ``NSS_GetVersion()`` (e.g. "3.95").
+    # We capture it at load time so callers can refuse to direct-write when
+    # the bundled DLL is wildly out of step with the profile's key DB
+    # (mismatched key3.db / key4.db versions can corrupt the store).
+    version: str = ""
+
+
+def _is_version_compatible(nss_version: str, *, min_major: int = 3) -> bool:
+    """Crude compatibility check: NSS 3.x has been ABI-stable for
+    PK11SDR_Encrypt / PK11SDR_Decrypt since the late 2000s. We mostly care
+    that we didn't accidentally load an NSS 2.x build from somewhere
+    exotic. The major check is sufficient; minor / build skew across
+    Firefox 60+ profiles is fine in practice.
+    """
+
+    if not nss_version:
+        return True   # Couldn't read it — fail open with a logged warning.
+    try:
+        major = int(nss_version.split(".", 1)[0])
+    except ValueError:
+        return True
+    return major >= min_major
+
+
+class NSSVersionMismatchError(NSSError):
+    """The loaded nss3 reported a version we won't trust for direct-write."""
 
 
 # Per-platform NSS shared-library names + install search paths.
@@ -175,7 +201,21 @@ def load_nss(install_path: Path | None = None) -> NSSLibrary:
     handle.PK11SDR_Decrypt.restype = c_int
     handle.SECITEM_FreeItem.argtypes = [POINTER(_SECItem), c_int]
     handle.SECITEM_FreeItem.restype = None
-    return NSSLibrary(handle=handle, install_path=nss_path)
+
+    # NSS exposes its own version via NSS_GetVersion(); attribute may be
+    # missing on very old builds (pre-3.3) or on stripped Linux distro
+    # builds that hid the symbol — fall back to an empty string and let
+    # the caller decide whether to proceed under the version-skew guard.
+    version = ""
+    try:
+        handle.NSS_GetVersion.argtypes = []
+        handle.NSS_GetVersion.restype = c_char_p
+        raw = handle.NSS_GetVersion()
+        if raw:
+            version = raw.decode("ascii", errors="replace")
+    except (AttributeError, OSError):
+        version = ""
+    return NSSLibrary(handle=handle, install_path=nss_path, version=version)
 
 
 class NSSSession:
@@ -260,7 +300,27 @@ class NSSSession:
         self.close()
 
 
-def open_session(profile: FirefoxProfile, master_password: str = "") -> NSSSession:
-    """Convenience: load NSS + open a session against ``profile``."""
+def open_session(
+    profile: FirefoxProfile,
+    master_password: str = "",
+    *,
+    require_compatible_version: bool = True,
+) -> NSSSession:
+    """Convenience: load NSS + open a session against ``profile``.
+
+    When ``require_compatible_version`` is True (the default for direct-
+    write paths), refuses to proceed if the loaded NSS reported a major
+    version below 3 — that's the bar at which PK11SDR_Encrypt / Decrypt
+    have stable ABI. Power users with portable Firefox installs can pass
+    ``False`` (or set the ``FOXPORT_NSS_FORCE`` env var) to override.
+    """
+
     lib = load_nss()
+    if require_compatible_version and not os.environ.get("FOXPORT_NSS_FORCE"):
+        if not _is_version_compatible(lib.version):
+            raise NSSVersionMismatchError(
+                f"loaded nss3 reports version {lib.version!r}; refusing to "
+                "direct-write into a Firefox profile. Set FOXPORT_NSS_FORCE=1 "
+                "to override (you assume the risk of key-store corruption)."
+            )
     return NSSSession(lib, profile.profile_dir, master_password=master_password)

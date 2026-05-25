@@ -168,6 +168,9 @@ class MigrationWorker(QObject):
                         if nss_result.backup_file is not None:
                             self.log.emit(f"  Previous logins.json backed up to {nss_result.backup_file.name}")
                         direct_write_backups["passwords"] = nss_result.backup_file
+                        nss_version = getattr(nss_result, "nss_version", "")
+                        if nss_version:
+                            self.log.emit(f"  NSS version: {nss_version}")
                         # Also emit CSV alongside for safety/audit.
                 try:
                     result = migrate_passwords(

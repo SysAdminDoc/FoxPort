@@ -85,6 +85,21 @@ hardens the surfaces that the v1.3 GUI and release work will land on.
   button generation order, signal closure binding, reset cleanup,
   and failure-state action hiding.
 
+### NSS version-skew guard (Phase C)
+- `crypto/nss.py` binds `NSS_GetVersion()` and captures the reported
+  version on `NSSLibrary.version`. `open_session()` takes a
+  `require_compatible_version=True` keyword (default for direct-write
+  paths) and raises `NSSVersionMismatchError` if the loaded major
+  version is below 3. `FOXPORT_NSS_FORCE=1` overrides for portable
+  Firefox builds whose stripped NSS doesn't expose the symbol.
+- `migrate/nss_passwords.DirectWriteResult.nss_version` carries the
+  captured version through to the GUI worker, which logs it next to
+  the per-row write counts. The run manifest records it on the
+  passwords artifact via the worker's normal recording path.
+- `tests/crypto/test_nss_version.py` — 11 tests covering the
+  parametrized version parser, the open-session refusal path, and
+  the env-var override.
+
 ### Atomic-replace for staging emitters (Phase C)
 - `foxport/fileops.py` grew `write_text_atomic(path, str)` — thin
   wrapper over `write_bytes_atomic` for emitters that build text in

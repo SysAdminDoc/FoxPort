@@ -81,6 +81,11 @@ class DirectWriteResult:
     skipped_existing: int
     failed: int
     failures: list[str] = field(default_factory=list)
+    # NSS reports its own version string via NSS_GetVersion(); we record it
+    # so the run manifest + Done UI can show "encrypted via NSS 3.95 from
+    # C:\Program Files\Mozilla Firefox\nss3.dll" instead of the user having
+    # to guess which install actually serviced the call.
+    nss_version: str = ""
 
 
 class ProfileLockedError(RuntimeError):
@@ -236,7 +241,11 @@ def migrate_passwords_via_nss(
     next_id = int(existing.get("nextId", 1) or 1)
     logins_array: list[dict] = list(existing.get("logins", []) or [])
 
+    # The version-skew guard inside open_session() will refuse if the loaded
+    # nss3 reports a wildly out-of-step major. Once we're past it, capture
+    # the version for the manifest record.
     session: NSSSession = open_session(target, master_password=master_password)
+    nss_version = session._lib.version  # NSSLibrary is frozen; safe to read.
     with session:
         for row, plaintext in decrypted:
             stable_guid = "{" + str(uuid.uuid5(
@@ -288,4 +297,5 @@ def migrate_passwords_via_nss(
         skipped_existing=skipped_existing,
         failed=len(failures),
         failures=failures,
+        nss_version=nss_version,
     )
