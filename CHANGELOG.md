@@ -61,6 +61,19 @@ that prevents the curated-map drift recurring.
   Windows" (despite the cross-platform CI matrix); now reflects
   Windows-first with macOS / Linux supported via the same steps.
 
+### Added
+- **Restore inspect dialog surfaces the inner per-run manifest.**
+  v1.3+ bundles include the per-run `manifest.json` next to README.txt
+  inside the snapshot ZIP; `RestoreInspectDialog` now reads it and
+  renders direction / items / network / warnings / per-artifact
+  sensitivity badges above the file list. Older bundles without an
+  inner manifest fall back to today's outer-only behavior. The file
+  tree gains a Sensitivity column so plaintext-bearing artifacts
+  (`passwords`, `cookies`, `cards`, `history`, `autofill`) are
+  flagged before the user clicks Restore. Untrusted fields are
+  HTML-escaped so a tampered manifest can't inject markup into the
+  QLabel. Four tests in `tests/test_restore_inspect_inner_manifest.py`.
+
 ### Internal
 - ROADMAP.md restructured around v1.3.1 / v1.3.2 / v1.3.3 / v1.4 with
   the v1.3.0 milestone collapsed.
@@ -68,7 +81,7 @@ that prevents the curated-map drift recurring.
   baseline (was authored against an uncommitted working tree pre-v1.3).
 - CLAUDE.md status block refreshed to reflect v1.3.0 + the 13 follow-on
   commits; v1.3.1 batch noted.
-- **168 tests pass** (up from 163).
+- **172 tests pass** (up from 163).
 
 ## [1.3.0] — 2026-05-24
 

@@ -78,6 +78,96 @@ def prompt_snapshot_passphrase(
     return text
 
 
+def _try_read_inner_run_manifest(zf) -> dict | None:
+    """Return the per-run ``manifest.json`` from inside the snapshot ZIP.
+
+    v1.3+ migration runs emit a ``manifest.json`` next to ``README.txt``
+    inside the output folder; that file is bundled verbatim into the
+    snapshot ZIP. Older bundles (or snapshots built from non-migration
+    folders) don't have it — return ``None`` and the inspect dialog
+    skips the "Run details" section.
+
+    The outer ``manifest.json`` (the snapshot's own manifest) lives at
+    the archive root; the run manifest lives one level deeper. We
+    walk every name to find it without making assumptions about the
+    timestamped run-folder prefix.
+    """
+
+    import json as _json
+    for name in zf.namelist():
+        # archive root manifest.json is the snapshot's own; skip it.
+        if name == "manifest.json":
+            continue
+        if name.endswith("/manifest.json"):
+            try:
+                data = _json.loads(zf.read(name).decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                return None
+            # Sanity-check: the per-run shape carries a ``schema_version``
+            # and an ``artifacts`` list; the outer snapshot shape doesn't.
+            if isinstance(data, dict) and "schema_version" in data:
+                return data
+    return None
+
+
+def _build_run_details_widget(run_manifest: dict) -> QWidget:
+    """Render the per-run manifest fields as a compact two-column block.
+
+    Surfaces direction, items requested, optional network usage,
+    warnings, and a per-artifact sensitivity badge list. All values are
+    HTML-escaped because the manifest is untrusted (came out of the
+    bundle the user just opened).
+    """
+
+    from html import escape as _escape
+
+    direction = run_manifest.get("direction", "forward")
+    items = run_manifest.get("items_requested", []) or []
+    network = run_manifest.get("network", {}) or {}
+    warnings = run_manifest.get("warnings", []) or []
+    artifacts = run_manifest.get("artifacts", []) or []
+
+    items_str = ", ".join(_escape(str(i)) for i in items) if items else "(none)"
+    network_lines = "; ".join(
+        f"{_escape(k)}={_escape(v)}" for k, v in network.items()
+    ) or "(none)"
+    warning_html = ""
+    if warnings:
+        joined = "<br>".join(f"⚠ {_escape(str(w))}" for w in warnings)
+        warning_html = (
+            f"<br><span style='color: #f9e2af;'>Warnings:</span><br>{joined}"
+        )
+
+    sens_chips = ""
+    if artifacts:
+        chips = []
+        for a in artifacts:
+            key = _escape(str(a.get("key", "?")))
+            sens = str(a.get("sensitivity", "normal"))
+            color = {
+                "sensitive": "#f38ba8",
+                "financial": "#fab387",
+                "normal": "#a6adc8",
+            }.get(sens, "#a6adc8")
+            chips.append(
+                f"<span style='color: {color};'>{key}({_escape(sens)})</span>"
+            )
+        sens_chips = " · ".join(chips)
+
+    label = QLabel(
+        f"Direction: <code>{_escape(direction)}</code><br>"
+        f"Items: <code>{items_str}</code><br>"
+        f"Network: <code>{network_lines}</code><br>"
+        f"Artifacts: {sens_chips or '(none)'}"
+        f"{warning_html}"
+    )
+    label.setTextFormat(Qt.TextFormat.RichText)
+    label.setWordWrap(True)
+    label.setStyleSheet("color: #cdd6f4;")
+    label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+    return label
+
+
 class RestoreInspectDialog(QDialog):
     """Pre-extract inspection for a .fxport bundle.
 
@@ -87,6 +177,11 @@ class RestoreInspectDialog(QDialog):
     second file picker for the (empty) target dir. Snapshot integrity is
     verified per-file before any byte hits the chosen target — a
     corrupted bundle fails fast.
+
+    When the bundle carries an inner per-run ``manifest.json`` (v1.3+
+    migration runs do), the dialog also surfaces direction / items /
+    network usage / warnings / per-artifact sensitivity above the file
+    list so the user sees what's about to land before clicking Restore.
     """
 
     def __init__(
@@ -115,6 +210,7 @@ class RestoreInspectDialog(QDialog):
         import io as _io
         import json as _json
 
+        run_manifest: dict | None = None
         try:
             blob = bundle_path.read_bytes()
             if blob.startswith(_MAGIC_ENCRYPTED):
@@ -125,6 +221,12 @@ class RestoreInspectDialog(QDialog):
                 inner = blob
             with _zipfile.ZipFile(_io.BytesIO(inner)) as zf:
                 manifest = _json.loads(zf.read("manifest.json").decode("utf-8"))
+                # v1.3+ migration runs drop a richer `manifest.json` next
+                # to README.txt inside the snapshot. When the bundle was
+                # created from one of those runs, surface it next to the
+                # outer snapshot meta. Older bundles ship without it and
+                # we just skip the section.
+                run_manifest = _try_read_inner_run_manifest(zf)
         except Exception as exc:  # noqa: BLE001 — surface to the user
             err = QLabel(f"Could not open snapshot: {exc}")
             err.setStyleSheet("color: #f38ba8;")
@@ -147,17 +249,41 @@ class RestoreInspectDialog(QDialog):
         meta.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(meta)
 
+        # Run details — only when the bundle carries a v1.3+ inner
+        # manifest.json. Surfaces direction, items, network usage,
+        # warnings, and per-artifact sensitivity so the user can see
+        # what's about to land before they click Restore.
+        if run_manifest is not None:
+            run_label = QLabel("Run details")
+            run_label.setStyleSheet(
+                "color: #f9e2af; font-size: 13px; font-weight: 600; margin-top: 6px;"
+            )
+            layout.addWidget(run_label)
+            layout.addWidget(_build_run_details_widget(run_manifest))
+
         # File list with SHA-256 prefixes so the user can spot anything
-        # suspicious before clicking Restore.
+        # suspicious before clicking Restore. Sensitivity comes from the
+        # inner run manifest when present so cards / passwords / cookies
+        # get a visible label.
+        sensitivity_by_path: dict[str, str] = {}
+        if run_manifest is not None:
+            for artifact in run_manifest.get("artifacts", []) or []:
+                rel = artifact.get("path")
+                sens = artifact.get("sensitivity")
+                if isinstance(rel, str) and isinstance(sens, str):
+                    sensitivity_by_path[rel] = sens
         self._tree = QTreeWidget()
-        self._tree.setHeaderLabels(["File", "Size", "SHA-256"])
-        self._tree.setColumnWidth(0, 340)
-        self._tree.setColumnWidth(1, 90)
+        self._tree.setHeaderLabels(["File", "Size", "SHA-256", "Sensitivity"])
+        self._tree.setColumnWidth(0, 320)
+        self._tree.setColumnWidth(1, 80)
+        self._tree.setColumnWidth(2, 140)
         for entry in manifest.get("files", []):
+            rel_path = entry.get("path", "?")
             self._tree.addTopLevelItem(QTreeWidgetItem([
-                entry.get("path", "?"),
+                rel_path,
                 f"{entry.get('size', 0):,} B",
                 (entry.get("sha256", "") or "")[:16] + "...",
+                sensitivity_by_path.get(rel_path, ""),
             ]))
         layout.addWidget(self._tree, 1)
 

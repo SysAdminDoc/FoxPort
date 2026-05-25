@@ -60,10 +60,13 @@ follow-ons.
       for any category. Per-category policy: skip / overwrite / backup-only
       (merge defers to v1.4). CLI: `--direct-write-policy=... --yes`.
       Manifest records the chosen policy per category.
-- [ ] **P1** Snapshot inspect reads inner `RunManifest`
-      `RestoreInspectDialog` reads only the outer `SnapshotManifest` today.
-      v1.3+ bundles include the per-run `manifest.json` transparently;
-      surface its sensitivity / network / direct-write metadata.
+- [x] **P1** Snapshot inspect reads inner `RunManifest`
+      `RestoreInspectDialog` now picks up the bundled per-run manifest
+      (when present) and renders direction / items / network / warnings
+      + per-artifact sensitivity badges above the file list. Pre-v1.3
+      bundles without an inner manifest fall back to today's behavior.
+      Untrusted fields are HTML-escaped. Four tests in
+      `tests/test_restore_inspect_inner_manifest.py`.
 - [ ] **P1** CLI `--json` on migrate / migrate-reverse / diff / snapshot / restore
       `list --json` is the precedent. Same shape as `manifest.json` for
       migrate/migrate-reverse; command-specific schema_versioned payloads
