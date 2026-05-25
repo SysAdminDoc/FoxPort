@@ -90,10 +90,11 @@ the GUI + CLI + parser surfaces. See CHANGELOG.md for details.
       `.fxport` bundle layout, the HIBP tri-state, and the
       `decrypt_value_bytes` cookie-decryption helper.
 
-## v1.3.3 — Trust + completeness arc continues
+## v1.3.3 — Trust + completeness arc closeout  ✅ shipped 2026-05-25
 
-Phase C of the v1.3 plan — most of it shipped in v1.3.0, these are the
-follow-ons.
+Phase C of the v1.3 plan — most of it shipped in v1.3.0; v1.3.3 closes
+the last P1 (conflict-review dialog) plus the P2/P3 follow-ons.
+**207 tests pass.** See CHANGELOG.md.
 
 - [x] **P1** Conflict review dialog + per-category direct-write policy
       `DirectWritePolicyDialog` opens between Preview and Run (gated on

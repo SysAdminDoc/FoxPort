@@ -6,6 +6,12 @@ All notable changes to FoxPort are documented here. Format roughly follows
 
 ## [Unreleased]
 
+## [1.3.3] — 2026-05-25
+
+Trust + completeness arc closeout. Four commits delivering the last
+v1.3 P1 (conflict-review dialog) plus three v1.3.3 P2/P3 items.
+**207 tests pass** (up from 200 at v1.3.2).
+
 ### Added
 - **Conflict-review dialog + per-category direct-write policy (the
   last v1.3.3 P1 piece).** Closes the loop between the v1.3 pre-flight
@@ -62,6 +68,71 @@ All notable changes to FoxPort are documented here. Format roughly follows
   rather than being silently opted into a new optional network
   endpoint. Backward-compatible: legacy configs without the field
   default to 0. New tests cover the legacy-config branch.
+
+### Changed
+- Curated extension-map auditor cron bumped from monthly to weekly
+  (Mondays 06:00 UTC). A single dead AMO slug now sits in users'
+  migrations for up to ~7 days instead of ~30.
+
+## [1.3.2] — 2026-05-25
+
+Extreme audit + hardening pass on top of v1.3.1. Four commits
+delivering real correctness fixes in destructive data paths plus
+UX/robustness polish across the GUI + CLI + parser surfaces.
+**200 tests pass** (up from 184 at v1.3.1).
+
+### Fixed
+- **Chrome 130+ cookies: HOST_KEY prefix strip was in *character*-space,
+  not byte-space.** The decrypted-bytes prefix is 32 raw SHA-256 bytes;
+  some byte sequences (e.g. `0xC3 0xA9` = `é`) decode to fewer UTF-8
+  characters than bytes. `plaintext[32:]` was chewing the wrong amount,
+  corrupting every Chrome 130+ cookie value on Windows. New
+  `decrypt_value_bytes()` / `decrypt_value_v10_bytes()` helpers; cookies
+  strip 32 bytes BEFORE UTF-8 decode. Regression test exercises a
+  fixture with multi-byte SHA-256 bytes.
+- **`nss_passwords._atomic_write` was missing `flush()` + `fsync()`**
+  before the rename. On a crash between write and rename, the user's
+  `logins.json` could point at zero-filled blocks. Replaced with the
+  canonical `foxport.fileops.write_text_atomic`.
+- **GUID compare was case-sensitive** in passwords merge + pre-flight
+  analyzer. `uuid.uuid5()` emits lowercase but `logins.json` may
+  contain mixed-case GUIDs from older Firefox / 3rd-party tools.
+  Idempotent re-runs would have inserted duplicates instead of
+  skipping. Both modules now `.lower()` on both sides.
+- **Snapshot wrong-passphrase raised `cryptography.exceptions.InvalidTag`**,
+  not `ValueError`. CLI `restore` only catches `ValueError`, so users
+  saw an uncaught crypto traceback. Translated to a friendly
+  `ValueError("wrong passphrase or corrupted bundle")` with explicit
+  truncation guards. Two regression tests.
+- **Run-page footer was a dead button on failure.** Label said "Run
+  Migration" but click handler returned silently. Now relabels to
+  "Try Again" on failure and the click resets the run page +
+  restarts in-place. Back-button is gated while a migration is
+  actively running so the in-flight thread can't be orphaned.
+- **`profiles.ini` parsing was too brittle.** Hand-edited
+  `IsRelative=yes` raised `ValueError` and silently returned `[]`,
+  nuking the Target picker. Now each per-section operation handles
+  its own failure mode + falls back to the canonical default. Five
+  new tests in `tests/test_detect_profiles_ini.py`.
+- **Cards CSV filename:** migrator wrote `saved_cards.csv`
+  (underscore) while every user-facing surface said `saved-cards.csv`
+  (hyphen). Migrator renamed for consistency.
+- **Cookies samesite clamp:** Chromium `samesite=-1` (unspecified)
+  → Firefox `0` (no SameSite attribute), keeping
+  `moz_cookies.sameSite` within Firefox's valid `[0..3]` range.
+- **`tests/migrate/test_downloads.py:119` ResourceWarning** — file
+  handle leak under `pytest -W error::ResourceWarning`. Wrapped in
+  context manager.
+
+### Added
+- **`import-bookmarks --json`** completes the CLI JSON arc. Schema-
+  versioned payload (`schema_version`, `command`, `input_format`,
+  `parsed_count`, `out_path`); new test exercises end-to-end via
+  `main()`.
+- **`docs/architecture.md` refresh** covering the v1.3 modules:
+  `manifest.py`, `conflicts.py`, `fileops.py` + the per-run manifest
+  schema + the `.fxport` bundle layout + the HIBP tri-state + the
+  `decrypt_value_bytes` cookie-decryption helper.
 
 ## [1.3.1] — 2026-05-25
 
