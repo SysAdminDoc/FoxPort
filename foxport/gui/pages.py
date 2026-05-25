@@ -1170,6 +1170,8 @@ class RunPage(WizardPage):
 
     # Sentinel "key" the open-output-folder button emits.
     OUTPUT_FOLDER_KEY = "_out"
+    # Sentinel "key" emitted by the "Save as snapshot..." Done button.
+    CREATE_SNAPSHOT_KEY = "_snapshot"
 
     artifactActionRequested = pyqtSignal(str, str)  # (key, action_kind)
 
@@ -1303,6 +1305,18 @@ class RunPage(WizardPage):
                 )  # type: ignore[arg-type]
                 self._actions_layout.addWidget(btn)
                 self._action_buttons.append(btn)
+            # Save as snapshot is always last so it sits at the end of the
+            # row visually. Hidden when there's nothing in the output dir
+            # to bundle (dry-run with no exports).
+            if exports:
+                snap_btn = QPushButton("Save as snapshot…")
+                snap_btn.clicked.connect(
+                    lambda _checked=False: self.artifactActionRequested.emit(
+                        self.CREATE_SNAPSHOT_KEY, "snapshot",
+                    )
+                )  # type: ignore[arg-type]
+                self._actions_layout.addWidget(snap_btn)
+                self._action_buttons.append(snap_btn)
             self._actions_layout.addStretch(1)
             self._actions.setVisible(bool(self._action_buttons))
         else:

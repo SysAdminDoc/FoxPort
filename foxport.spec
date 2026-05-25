@@ -3,11 +3,19 @@
 #
 # Produces dist/FoxPort/ (--onedir) containing FoxPort.exe + Qt runtimes +
 # all bundled data files. If a built foxport_abe.exe exists at
-# foxport/data/foxport_abe.exe, it gets bundled too.
+# foxport/data/foxport_abe.exe, it gets bundled too. The CHANGELOG.md is
+# also bundled so the Help menu's "View change log" entry finds it inside
+# a packaged install.
 
 from pathlib import Path
 
 block_cipher = None
+
+# Optional Windows EXE branding. PyInstaller picks these up when present;
+# the release workflow generates assets/version_info.txt from __version__
+# on each build so the EXE's File Version metadata matches the tag.
+_icon = Path("assets/icon.ico")
+_version_info = Path("assets/version_info.txt")
 
 datas = [
     ("foxport/data/curated_extension_map.json", "foxport/data"),
@@ -16,6 +24,11 @@ datas = [
 _abe = Path("foxport/data/foxport_abe.exe")
 if _abe.is_file():
     datas.append((str(_abe), "foxport/data"))
+# Bundle CHANGELOG.md when present so the Help menu can render it inside
+# a packaged install (the Help menu probes _MEIPASS for this filename).
+_changelog = Path("CHANGELOG.md")
+if _changelog.is_file():
+    datas.append((str(_changelog), "."))
 
 a = Analysis(
     ["foxport/__main__.py"],
@@ -49,22 +62,31 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+exe_kwargs = {
+    "name": "FoxPort",
+    "debug": False,
+    "bootloader_ignore_signals": False,
+    "strip": False,
+    "upx": False,
+    "console": False,                    # GUI app — no console window
+    "disable_windowed_traceback": False,
+    "target_arch": None,
+    "codesign_identity": None,
+    "entitlements_file": None,
+}
+# Apply the branding hooks only when the source files exist so a local
+# `pyinstaller foxport.spec` build still works without a checked-in icon.
+if _icon.is_file():
+    exe_kwargs["icon"] = str(_icon)
+if _version_info.is_file():
+    exe_kwargs["version"] = str(_version_info)
+
 exe = EXE(
     pyz,
     a.scripts,
     [],
     exclude_binaries=True,
-    name="FoxPort",
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=False,
-    console=False,                       # GUI app — no console window
-    disable_windowed_traceback=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-    # icon will be added once branding lands at assets/icon.ico
+    **exe_kwargs,
 )
 
 coll = COLLECT(

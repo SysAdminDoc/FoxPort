@@ -85,6 +85,47 @@ hardens the surfaces that the v1.3 GUI and release work will land on.
   button generation order, signal closure binding, reset cleanup,
   and failure-state action hiding.
 
+### GUI snapshot + restore (Phase C)
+- Done screen exposes a trailing "Save as snapshot…" button when the
+  run produced artifacts. Routes through the same
+  `RunPage.artifactActionRequested` signal as the per-artifact
+  buttons via the new `RunPage.CREATE_SNAPSHOT_KEY` sentinel.
+- File menu "Restore snapshot…" picks a `.fxport` file, peeks at the
+  magic bytes to know whether to prompt for a passphrase, and opens
+  the new `RestoreInspectDialog`. The dialog opens the bundle in
+  memory (decrypting on demand), shows manifest metadata + per-file
+  SHA-256 list, refuses non-empty target dirs unless the user
+  explicitly confirms overwrite, and surfaces restore errors
+  inline. The atomic `restore_snapshot()` path is unchanged.
+- New `prompt_snapshot_passphrase()` shared between the create and
+  restore flows (empty string = unencrypted ZIP for create, plain
+  bundle for restore).
+- `tests/test_gui_run_actions.py` updated to account for the
+  trailing snapshot button + sentinel key in the Done action list.
+
+### Release workflow scaffolding (Phase C)
+- `foxport.spec` now honors `assets/icon.ico` and
+  `assets/version_info.txt` when present. Local `pyinstaller`
+  invocations work without either file (no branding); the release
+  workflow generates them on each run.
+- `.github/workflows/release.yml` writes `assets/version_info.txt`
+  from `foxport/__init__.py:__version__` so the built EXE's
+  FileVersion + ProductVersion metadata always matches the input
+  tag. The signing step decodes `WINDOWS_CERT_BASE64` /
+  `WINDOWS_CERT_PASSWORD` secrets (no-op when absent — forks can
+  ship debug builds) and Authenticode-signs FoxPort.exe +
+  foxport_abe.exe via SignTool with a public timestamp authority.
+- New smoke step verifies the packaged EXE exists, has a matching
+  FileVersion metadata, and includes `curated_extension_map.json`
+  inside the bundle. Catches the v1.2-era regression where the
+  spec quietly dropped a data file.
+- Each release uploads `FoxPort-vX.Y.Z-windows-x64.zip` *and* a
+  `*.sha256` sidecar so users can verify the download without
+  re-hashing.
+- `foxport.spec` bundles `CHANGELOG.md` when present so the Help
+  menu's "View change log" entry resolves the file inside a
+  PyInstaller `_MEIPASS` install.
+
 ### CLI `--json` + `list --detail` (Phase D)
 - `python -m foxport.cli list --json` emits a schema-versioned payload
   (`schema_version: 1`) containing foxport_version, chromium_sources,

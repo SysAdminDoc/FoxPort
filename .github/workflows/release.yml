@@ -59,10 +59,98 @@ jobs:
           cmake --build build --config Release
           Copy-Item build/Release/foxport_abe.exe ../../foxport/data/foxport_abe.exe
 
+      - name: Generate version_info.txt for the Windows EXE
+        shell: pwsh
+        run: |
+          # PyInstaller picks up assets/version_info.txt when present in
+          # foxport.spec. Generate it from __version__ + the input tag so
+          # File Version / Product Version metadata in the built EXE matches.
+          $version = (Select-String -Path foxport/__init__.py -Pattern '__version__ = "(.+)"').Matches.Groups[1].Value
+          $parts = $version.Split(".")
+          while ($parts.Count -lt 4) { $parts += "0" }
+          $tuple = ($parts -join ",")
+          $content = @"
+          VSVersionInfo(
+            ffi=FixedFileInfo(
+              filevers=($tuple),
+              prodvers=($tuple),
+              mask=0x3f, flags=0x0, OS=0x4, fileType=0x1,
+              subtype=0x0, date=(0, 0)
+            ),
+            kids=[
+              StringFileInfo(
+                [StringTable(
+                  '040904B0',
+                  [StringStruct('CompanyName', 'SysAdminDoc'),
+                   StringStruct('FileDescription', 'FoxPort - Chromium to Firefox migration'),
+                   StringStruct('FileVersion', '$version'),
+                   StringStruct('InternalName', 'FoxPort'),
+                   StringStruct('LegalCopyright', 'MIT licensed'),
+                   StringStruct('OriginalFilename', 'FoxPort.exe'),
+                   StringStruct('ProductName', 'FoxPort'),
+                   StringStruct('ProductVersion', '$version')]
+                )]
+              ),
+              VarFileInfo([VarStruct('Translation', [1033, 1200])])
+            ]
+          )
+          "@
+          New-Item -ItemType Directory -Path assets -Force | Out-Null
+          Set-Content -Path assets/version_info.txt -Value $content
+          Write-Host "Wrote assets/version_info.txt for version $version"
+
       - name: Build FoxPort PyInstaller bundle
         shell: pwsh
         run: |
           pyinstaller foxport.spec --noconfirm --clean
+
+      - name: Sign Windows artifacts (when cert secret is present)
+        shell: pwsh
+        env:
+          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          # No-op when the cert secret isn't set so forks can ship unsigned
+          # debug builds. Production releases must set both secrets; the
+          # step then decodes the base64-encoded PFX, calls SignTool over
+          # FoxPort.exe + foxport_abe.exe with a public timestamp authority,
+          # and removes the cert from disk.
+          if (-not $env:WINDOWS_CERT_BASE64) {
+            Write-Host "Skipping signing — WINDOWS_CERT_BASE64 secret not set."
+            exit 0
+          }
+          $certPath = Join-Path $env:RUNNER_TEMP "foxport-codesign.pfx"
+          [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_CERT_BASE64))
+          $signtool = (Get-ChildItem "${env:ProgramFiles(x86)}/Windows Kits/10/bin" -Filter signtool.exe -Recurse | Where-Object { $_.FullName -like "*x64*" } | Select-Object -First 1).FullName
+          if (-not $signtool) { throw "signtool.exe not found on the runner" }
+          foreach ($exe in @("dist/FoxPort/FoxPort.exe", "dist/FoxPort/foxport/data/foxport_abe.exe")) {
+            if (-not (Test-Path $exe)) { continue }
+            & $signtool sign /f $certPath /p $env:WINDOWS_CERT_PASSWORD `
+              /tr http://timestamp.digicert.com /td sha256 /fd sha256 $exe
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed for $exe" }
+            & $signtool verify /pa $exe
+          }
+          Remove-Item $certPath -Force
+
+      - name: Smoke-test packaged EXE
+        shell: pwsh
+        run: |
+          # The packaged GUI EXE is windowed so it can't print --version to
+          # the console directly. Instead we verify the EXE exists, has the
+          # expected version resource (when signed/generated), and the
+          # bundled curated_extension_map.json is reachable.
+          $exe = "dist/FoxPort/FoxPort.exe"
+          if (-not (Test-Path $exe)) { throw "$exe missing after build" }
+          $info = (Get-Item $exe).VersionInfo
+          Write-Host "EXE FileVersion: $($info.FileVersion)"
+          Write-Host "EXE ProductVersion: $($info.ProductVersion)"
+          $tagVersion = "${{ inputs.tag }}".TrimStart("v")
+          if ($info.FileVersion -and ($info.FileVersion -notlike "$tagVersion*")) {
+            throw "FileVersion '$($info.FileVersion)' does not start with tag '$tagVersion'"
+          }
+          if (-not (Test-Path "dist/FoxPort/foxport/data/curated_extension_map.json")) {
+            throw "curated_extension_map.json missing from bundle"
+          }
 
       - name: Package bundle as ZIP
         shell: pwsh
@@ -70,14 +158,21 @@ jobs:
           $zip = "FoxPort-${{ inputs.tag }}-windows-x64.zip"
           Compress-Archive -Path dist/FoxPort/* -DestinationPath $zip
           Write-Host "Created $zip"
-          Get-FileHash $zip -Algorithm SHA256 | Format-List
+          $hash = Get-FileHash $zip -Algorithm SHA256
+          $hash | Format-List
+          # Emit a separate .sha256 sidecar so users can verify the
+          # downloaded archive without re-hashing it by hand.
+          "$($hash.Hash)  $zip" | Set-Content "$zip.sha256"
           "ZIP_NAME=$zip" >> $env:GITHUB_ENV
+          "ZIP_SHA256_NAME=$zip.sha256" >> $env:GITHUB_ENV
 
       - name: Upload bundle artifact
         uses: actions/upload-artifact@v4
         with:
           name: FoxPort-windows-x64
-          path: ${{ env.ZIP_NAME }}
+          path: |
+            ${{ env.ZIP_NAME }}
+            ${{ env.ZIP_SHA256_NAME }}
 
       - name: Create GitHub release
         shell: pwsh
@@ -93,6 +188,7 @@ jobs:
           $argList = @(
             "release", "create", "${{ inputs.tag }}",
             "$env:ZIP_NAME",
+            "$env:ZIP_SHA256_NAME",
             "--title", "FoxPort ${{ inputs.tag }}",
             "--notes-file", "CHANGELOG.md"
           )

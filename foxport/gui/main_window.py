@@ -10,6 +10,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, QThread
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
+    QFileDialog,
     QHBoxLayout,
     QMainWindow,
     QMessageBox,
@@ -128,6 +129,12 @@ class MainWindow(QMainWindow):
         open_out = QAction("Open output folder", self)
         open_out.triggered.connect(self._open_output_root)
         file_menu.addAction(open_out)
+        file_menu.addSeparator()
+        # Snapshot/restore — File menu hosts the global Restore entry. The
+        # Done screen exposes Create Snapshot from the current run.
+        restore_act = QAction("Restore snapshot…", self)
+        restore_act.triggered.connect(self._restore_snapshot)
+        file_menu.addAction(restore_act)
         file_menu.addSeparator()
         settings = QAction("Settings…", self)
         settings.triggered.connect(self._open_settings)
@@ -396,7 +403,8 @@ class MainWindow(QMainWindow):
         """Resolve a Done-screen button click to a filesystem action.
 
         ``key == RunPage.OUTPUT_FOLDER_KEY`` opens the most recent run's
-        output directory. Any other key looks up the path from
+        output directory. ``key == RunPage.CREATE_SNAPSHOT_KEY`` launches
+        the snapshot save flow. Any other key looks up the path from
         ``self._last_exports`` and either launches it (``open``) or reveals
         it in the OS file manager (``reveal``). Silent no-op for unknown
         keys — the worker's exports map is the single source of truth.
@@ -405,6 +413,9 @@ class MainWindow(QMainWindow):
         if key == RunPage.OUTPUT_FOLDER_KEY:
             if self._last_out_dir:
                 self._open_path(Path(self._last_out_dir))
+            return
+        if key == RunPage.CREATE_SNAPSHOT_KEY:
+            self._create_snapshot_from_last_run()
             return
         raw_path = self._last_exports.get(key, "")
         if not raw_path:
@@ -442,6 +453,89 @@ class MainWindow(QMainWindow):
                 subprocess.Popen(["xdg-open", str(path.parent)])
         except OSError as exc:
             QMessageBox.warning(self, "FoxPort", f"Could not reveal {path}:\n{exc}")
+
+    def _restore_snapshot(self) -> None:
+        """Pick a .fxport bundle, prompt for the passphrase (encrypted
+        bundles only), open the inspect dialog."""
+
+        from foxport.gui.dialogs import (
+            RestoreInspectDialog,
+            prompt_snapshot_passphrase,
+        )
+        bundle, _ = QFileDialog.getOpenFileName(
+            self,
+            "Pick a .fxport snapshot to restore",
+            str(self._ctx.out_root),
+            "FoxPort snapshot (*.fxport);;All files (*)",
+        )
+        if not bundle:
+            return
+        bundle_path = Path(bundle)
+        # Peek at the magic bytes to decide whether to prompt for a
+        # passphrase. We don't actually decrypt here; the inspect dialog
+        # owns the full open path.
+        from foxport.snapshot import _MAGIC_ENCRYPTED
+        try:
+            head = bundle_path.read_bytes()[: len(_MAGIC_ENCRYPTED)]
+        except OSError as exc:
+            QMessageBox.critical(self, "FoxPort", f"Could not read {bundle_path}: {exc}")
+            return
+        passphrase = ""
+        if head == _MAGIC_ENCRYPTED:
+            passphrase_value = prompt_snapshot_passphrase(self, mode="restore")
+            if passphrase_value is None:
+                return
+            passphrase = passphrase_value
+        dialog = RestoreInspectDialog(bundle_path, passphrase=passphrase, parent=self)
+        dialog.exec()
+
+    def _create_snapshot_from_last_run(self) -> None:
+        """Bundle the most recent run's output folder into a .fxport file.
+
+        Run page wires this to the Done screen action. Empty exports or a
+        missing output dir surface a short notice instead of crashing.
+        """
+
+        if not self._last_out_dir:
+            QMessageBox.information(
+                self, "FoxPort",
+                "No completed migration to snapshot. Run a migration first.",
+            )
+            return
+        in_dir = Path(self._last_out_dir)
+        if not in_dir.is_dir():
+            QMessageBox.warning(self, "FoxPort", f"Output folder {in_dir} is gone.")
+            return
+        default_name = f"{in_dir.name}.fxport"
+        chosen, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save .fxport snapshot",
+            str(in_dir.parent / default_name),
+            "FoxPort snapshot (*.fxport);;All files (*)",
+        )
+        if not chosen:
+            return
+        out_path = Path(chosen)
+        from foxport.gui.dialogs import prompt_snapshot_passphrase
+        passphrase = prompt_snapshot_passphrase(self, mode="create")
+        if passphrase is None:
+            return
+        from foxport.snapshot import create_snapshot
+        try:
+            manifest = create_snapshot(
+                in_dir, out_path,
+                source_label=self._ctx.source.label if self._ctx.source else "(unknown)",
+                target_label=self._ctx.target.label if self._ctx.target else "(unknown)",
+                passphrase=passphrase or None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "FoxPort", f"Snapshot failed: {exc}")
+            return
+        QMessageBox.information(
+            self, "FoxPort",
+            f"Wrote {len(manifest.files)} file(s) into {out_path}.\n"
+            f"Encrypted: {manifest.encrypted}",
+        )
 
     def _open_changelog(self) -> None:
         """Open CHANGELOG.md in the registered OS handler.

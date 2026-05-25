@@ -42,7 +42,181 @@ from foxport.config import (
 )
 from foxport.crypto.dpapi import decrypt_value, load_master_key
 
-from PyQt6.QtWidgets import QFileDialog, QInputDialog
+from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
+
+
+def prompt_snapshot_passphrase(
+    parent: QWidget | None,
+    *,
+    mode: str = "create",
+) -> str | None:
+    """Ask the user for an optional snapshot passphrase.
+
+    ``mode='create'`` lets an empty string through — that means "no
+    encryption, plain ZIP". ``mode='restore'`` likewise lets empty
+    through; the snapshot module decides whether the bundle requires
+    a passphrase based on its magic bytes.
+
+    Cancel returns ``None`` so callers can distinguish "user backed out"
+    from "user chose no encryption".
+    """
+
+    prompt = (
+        "Enter a passphrase to encrypt the snapshot, or leave blank for an unencrypted ZIP. "
+        "PBKDF2-HMAC-SHA256 (200k iterations) -> AES-256-GCM."
+        if mode == "create"
+        else "Enter the passphrase that was used to encrypt this snapshot, or leave blank if it's a plain ZIP."
+    )
+    text, ok = QInputDialog.getText(
+        parent,
+        "Snapshot passphrase",
+        prompt,
+        QInputDialog.EchoMode.Password,
+    )
+    if not ok:
+        return None
+    return text
+
+
+class RestoreInspectDialog(QDialog):
+    """Pre-extract inspection for a .fxport bundle.
+
+    The user picks the snapshot file, the dialog opens the manifest
+    (decrypting first if the bundle is encrypted), shows the artifact list
+    + per-file SHA-256, then offers Restore vs Cancel. Restore opens a
+    second file picker for the (empty) target dir. Snapshot integrity is
+    verified per-file before any byte hits the chosen target — a
+    corrupted bundle fails fast.
+    """
+
+    def __init__(
+        self,
+        bundle_path: Path,
+        *,
+        passphrase: str = "",
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Inspect FoxPort snapshot")
+        self.resize(700, 480)
+        self._bundle_path = bundle_path
+        self._passphrase = passphrase
+        self._chosen_out_dir: Path | None = None
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
+        layout.addWidget(QLabel(f"Bundle: <code>{bundle_path}</code>"))
+
+        # Read manifest WITHOUT extracting anything. The snapshot module
+        # already streams the inner ZIP into memory, so this is cheap.
+        from foxport.snapshot import _MAGIC_ENCRYPTED, _decrypt_bundle
+        import zipfile as _zipfile
+        import io as _io
+        import json as _json
+
+        try:
+            blob = bundle_path.read_bytes()
+            if blob.startswith(_MAGIC_ENCRYPTED):
+                if not passphrase:
+                    raise ValueError("encrypted bundle requires a passphrase")
+                inner = _decrypt_bundle(blob, passphrase)
+            else:
+                inner = blob
+            with _zipfile.ZipFile(_io.BytesIO(inner)) as zf:
+                manifest = _json.loads(zf.read("manifest.json").decode("utf-8"))
+        except Exception as exc:  # noqa: BLE001 — surface to the user
+            err = QLabel(f"Could not open snapshot: {exc}")
+            err.setStyleSheet("color: #f38ba8;")
+            err.setWordWrap(True)
+            layout.addWidget(err)
+            close = QPushButton("Close")
+            close.clicked.connect(self.reject)  # type: ignore[arg-type]
+            layout.addWidget(close)
+            return
+
+        meta_lines = [
+            f"Created: <code>{manifest.get('created_iso', '?')}</code>",
+            f"FoxPort version: <code>{manifest.get('foxport_version', '?')}</code>",
+            f"Source: <code>{manifest.get('source_label', '?')}</code>",
+            f"Target: <code>{manifest.get('target_label', '?')}</code>",
+            f"Encrypted: <code>{manifest.get('encrypted', False)}</code>",
+        ]
+        meta = QLabel("<br>".join(meta_lines))
+        meta.setStyleSheet("color: #cdd6f4;")
+        meta.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        layout.addWidget(meta)
+
+        # File list with SHA-256 prefixes so the user can spot anything
+        # suspicious before clicking Restore.
+        self._tree = QTreeWidget()
+        self._tree.setHeaderLabels(["File", "Size", "SHA-256"])
+        self._tree.setColumnWidth(0, 340)
+        self._tree.setColumnWidth(1, 90)
+        for entry in manifest.get("files", []):
+            self._tree.addTopLevelItem(QTreeWidgetItem([
+                entry.get("path", "?"),
+                f"{entry.get('size', 0):,} B",
+                (entry.get("sha256", "") or "")[:16] + "...",
+            ]))
+        layout.addWidget(self._tree, 1)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Cancel,
+        )
+        self._restore_btn = QPushButton("Restore…")
+        self._restore_btn.setObjectName("PrimaryButton")
+        self._restore_btn.clicked.connect(self._on_restore)  # type: ignore[arg-type]
+        buttons.addButton(self._restore_btn, QDialogButtonBox.ButtonRole.AcceptRole)
+        buttons.rejected.connect(self.reject)  # type: ignore[arg-type]
+        layout.addWidget(buttons)
+
+    def _on_restore(self) -> None:
+        chosen = QFileDialog.getExistingDirectory(
+            self, "Restore into folder (must be empty)",
+            str(self._bundle_path.parent),
+        )
+        if not chosen:
+            return
+        target = Path(chosen)
+        # Non-empty refusal is the same policy as the CLI --overwrite
+        # default. The GUI surfaces it as a question instead of just
+        # bailing — the user can pick a fresh folder without re-entering
+        # the passphrase.
+        if target.exists() and any(target.iterdir()):
+            answer = QMessageBox.question(
+                self, "FoxPort",
+                f"{target} is not empty.\n\n"
+                "Overwrite existing files with the bundle contents?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            overwrite = True
+        else:
+            overwrite = False
+
+        from foxport.snapshot import restore_snapshot
+        try:
+            manifest = restore_snapshot(
+                self._bundle_path, target,
+                passphrase=self._passphrase or None,
+                overwrite=overwrite,
+            )
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, "FoxPort",
+                f"Restore failed: {exc}")
+            return
+        self._chosen_out_dir = target
+        QMessageBox.information(
+            self, "FoxPort",
+            f"Restored {len(manifest.files)} file(s) into {target}.",
+        )
+        self.accept()
+
+    def chosen_out_dir(self) -> Path | None:
+        return self._chosen_out_dir
 
 
 def prompt_master_password(parent: QWidget | None, profile_label: str) -> str | None:

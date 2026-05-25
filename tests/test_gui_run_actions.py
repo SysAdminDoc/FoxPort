@@ -91,8 +91,9 @@ def test_run_page_done_renders_action_per_artifact(qt_app):
     }
     page.set_done(True, "/tmp/out", exports)
 
-    # Open-output-folder + one button per export key = 12 buttons.
-    assert len(page._action_buttons) == 1 + len(exports)
+    # Open-output-folder + one button per export key + the trailing
+    # "Save as snapshot..." button = 1 + len(exports) + 1.
+    assert len(page._action_buttons) == 1 + len(exports) + 1
     assert not page._actions.isHidden()
 
     # Each button should be wired to artifactActionRequested via the
@@ -104,12 +105,14 @@ def test_run_page_done_renders_action_per_artifact(qt_app):
 
     keys_emitted = [k for k, _ in received]
     assert keys_emitted[0] == RunPage.OUTPUT_FOLDER_KEY
-    # Remaining keys match ARTIFACT_ACTIONS order, filtered to what was in exports.
+    # Trailing snapshot button always wins last position when exports exist.
+    assert keys_emitted[-1] == RunPage.CREATE_SNAPSHOT_KEY
+    # Middle keys match ARTIFACT_ACTIONS order, filtered to what was in exports.
     expected_order = [k for k, _, _ in RunPage.ARTIFACT_ACTIONS if k in exports]
-    assert keys_emitted[1:] == expected_order
+    assert keys_emitted[1:-1] == expected_order
 
     # Reveal vs open action kind must round-trip correctly.
-    action_by_key = dict(received[1:])
+    action_by_key = {k: a for k, a in received[1:-1]}
     for key, _, expected_action in RunPage.ARTIFACT_ACTIONS:
         if key in exports:
             assert action_by_key[key] == expected_action, key

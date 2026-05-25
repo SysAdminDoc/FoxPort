@@ -58,7 +58,16 @@ for the full list.
 
 ### Phase C — Trust + release path
 - [ ] **P0** Signed Windows release with bundled signed ABE sidecar,
-      app icon, and Windows version resource.
+      app icon, and Windows version resource. **Scaffolding in place**:
+      `foxport.spec` accepts `assets/icon.ico` and
+      `assets/version_info.txt` when present; release workflow
+      generates `version_info.txt` from `__version__` on every build,
+      Authenticode-signs FoxPort.exe + foxport_abe.exe when the
+      `WINDOWS_CERT_BASE64` / `WINDOWS_CERT_PASSWORD` secrets are
+      configured, smoke-tests the packaged EXE's FileVersion metadata,
+      emits a `*.sha256` sidecar, and attaches both to the GH release.
+      **Outstanding**: provision the codesigning cert and drop a real
+      `assets/icon.ico`.
 - [ ] **P1** First-run trust dialog + Preview "Network activity"
       section listing optional AMO + HIBP calls + future-feature
       placeholders.
@@ -88,8 +97,15 @@ for the full list.
       (5), `tests/test_diff.py` (4), `tests/migrate_reverse/test_bookmarks_reverse.py`
       (3). Reverse passwords + bookmarks + extensions emitters all go
       through atomic writers as a side effect of the audit.
-- [ ] **P1** GUI snapshot creation (Done screen) + GUI restore wizard
-      (File menu) with bundle inspector.
+- [x] **P1** GUI snapshot creation + restore wizard. Done screen has a
+      trailing "Save as snapshot…" button (sentinel
+      `RunPage.CREATE_SNAPSHOT_KEY` routed through the same
+      `artifactActionRequested` signal). File menu "Restore snapshot…"
+      opens `RestoreInspectDialog` which decrypts on demand, shows
+      manifest metadata + per-file SHA-256 list, refuses non-empty
+      target dirs unless the user confirms overwrite, then runs the
+      atomic restore. `prompt_snapshot_passphrase()` shared between
+      create and restore flows.
 - [x] **P1** Surface external bookmark adapters. `foxport/import_/adapters.py`
       grew `write_netscape_html()` — a shared emitter that groups by
       folder, escapes special chars, surfaces tags as the optional
