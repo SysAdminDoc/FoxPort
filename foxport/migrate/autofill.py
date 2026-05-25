@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from foxport.browsers.detect import ChromiumProfile
+from foxport.fileops import replace_file_atomic
 
 # autofill table uses seconds since 1601-01-01 UTC (NOT microseconds).
 _CHROME_EPOCH_OFFSET_SECS = 11_644_473_600
@@ -123,8 +124,6 @@ def migrate_autofill(
     ``formhistory.sqlite`` in ``out_dir``."""
     out_dir.mkdir(parents=True, exist_ok=True)
     sqlite_path = out_dir / "formhistory.sqlite"
-    if sqlite_path.exists() and not dry_run:
-        sqlite_path.unlink()
 
     src = _web_data_path(profile)
     failures: list[str] = []
@@ -158,29 +157,37 @@ def migrate_autofill(
             failures=failures,
         )
 
-    out_conn = sqlite3.connect(str(sqlite_path))
+    # Build into a tempdir then atomic-replace so a crash during inserts
+    # can't leave a corrupt formhistory.sqlite at the staging output path.
+    staging_dir = tempfile.mkdtemp(prefix="foxport_formhistory_build_")
     try:
-        out_conn.executescript(_FIREFOX_FORMHISTORY_SCHEMA)
-        out_conn.commit()
-        with out_conn:
-            for name, value, count, date_created, date_last_used in rows:
-                if not name or value is None:
-                    skipped += 1
-                    continue
-                first = _chrome_secs_to_firefox_micros(date_created or 0)
-                last = _chrome_secs_to_firefox_micros(date_last_used or 0)
-                try:
-                    out_conn.execute(
-                        "INSERT INTO moz_formhistory "
-                        "(fieldname, value, timesUsed, firstUsed, lastUsed, guid) "
-                        "VALUES (?, ?, ?, ?, ?, ?)",
-                        (str(name), str(value), int(count or 1), first, last, _firefox_guid()),
-                    )
-                    written += 1
-                except sqlite3.IntegrityError as exc:
-                    failures.append(f"{name}={value}: {exc}")
+        staged = Path(staging_dir) / "formhistory.sqlite"
+        out_conn = sqlite3.connect(str(staged))
+        try:
+            out_conn.executescript(_FIREFOX_FORMHISTORY_SCHEMA)
+            out_conn.commit()
+            with out_conn:
+                for name, value, count, date_created, date_last_used in rows:
+                    if not name or value is None:
+                        skipped += 1
+                        continue
+                    first = _chrome_secs_to_firefox_micros(date_created or 0)
+                    last = _chrome_secs_to_firefox_micros(date_last_used or 0)
+                    try:
+                        out_conn.execute(
+                            "INSERT INTO moz_formhistory "
+                            "(fieldname, value, timesUsed, firstUsed, lastUsed, guid) "
+                            "VALUES (?, ?, ?, ?, ?, ?)",
+                            (str(name), str(value), int(count or 1), first, last, _firefox_guid()),
+                        )
+                        written += 1
+                    except sqlite3.IntegrityError as exc:
+                        failures.append(f"{name}={value}: {exc}")
+        finally:
+            out_conn.close()
+        replace_file_atomic(staged, sqlite_path)
     finally:
-        out_conn.close()
+        shutil.rmtree(staging_dir, ignore_errors=True)
 
     return AutofillResult(
         sqlite_path=sqlite_path,

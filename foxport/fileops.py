@@ -8,6 +8,18 @@ import tempfile
 from pathlib import Path
 
 
+def write_text_atomic(path: Path, payload: str, *, encoding: str = "utf-8") -> None:
+    """Write text through a sibling temp file, then atomically replace target.
+
+    Thin wrapper over :func:`write_bytes_atomic` so emitters that build a
+    string in memory (CSV, HTML, JSON) don't have to handle the encode step
+    themselves. ``newline=""`` is not configurable here — the CSV writer
+    handles line endings before we get a finished string.
+    """
+
+    write_bytes_atomic(path, payload.encode(encoding))
+
+
 def write_bytes_atomic(path: Path, payload: bytes) -> None:
     """Write bytes through a sibling temp file, then atomically replace target."""
 

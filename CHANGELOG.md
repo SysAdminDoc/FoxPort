@@ -85,6 +85,37 @@ hardens the surfaces that the v1.3 GUI and release work will land on.
   button generation order, signal closure binding, reset cleanup,
   and failure-state action hiding.
 
+### Atomic-replace for staging emitters (Phase C)
+- `foxport/fileops.py` grew `write_text_atomic(path, str)` — thin
+  wrapper over `write_bytes_atomic` for emitters that build text in
+  memory.
+- Every non-`nss_*` writer routes through one of the atomic helpers
+  now. CSV/HTML/JSON/mozLz40 emitters build their payload in
+  `io.StringIO` (text) or memory (bytes) and call
+  `write_text_atomic` / `write_bytes_atomic`. SQLite emitters build
+  the DB in a private `tempfile.mkdtemp()` and `replace_file_atomic`
+  it into the staging path on success. A torn write mid-run can no
+  longer leave a corrupt `passwords.csv` / `cookies.sqlite` /
+  `places.sqlite` / `formhistory.sqlite` / `recovery.jsonlz4` /
+  `extensions.html` / `search-engines/*.xml` at the path the
+  generated README and `manifest.json` point at.
+- Migrators that previously called `.unlink()` on a stale output before
+  reopening it no longer need that step — the atomic replace overwrites
+  in one operation.
+
+### Saved-cards CSV cleanup
+- `migrate/cards.py` dropped the duplicate `Name` column. The shape is
+  now `Type, Cardholder name, Number, Expiration, Notes`. Chrome's
+  saved-card store only captures one human name (`name_on_card`); the
+  v1.2 export emitted it twice and confused importers that key on
+  column names.
+- `migrate_cards()` refuses to emit a CSV when zero cards decrypted —
+  the user no longer sees a header-only file that looks like a
+  catastrophic data loss.
+- `tests/migrate/test_cards.py` — 4 new tests covering the column
+  shape invariant, the empty-blob no-CSV behavior, the no-Web-Data
+  branch, and dry-run.
+
 ### Per-run manifest (Phase B)
 - `foxport/manifest.py` — schema-versioned `RunManifest` /
   `RunArtifact` dataclasses, `build_artifact()` (hashes + sizes +

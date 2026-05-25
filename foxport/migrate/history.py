@@ -38,6 +38,7 @@ from urllib.parse import urlsplit
 from foxport.browsers.chromium import is_browser_internal_url
 from foxport.browsers.detect import ChromiumProfile
 from foxport.crypto.mozhash import places_url_hash
+from foxport.fileops import replace_file_atomic
 
 _CHROME_TO_UNIX_MICROS = 11_644_473_600_000_000
 
@@ -269,8 +270,6 @@ def migrate_history(
     bookmarks migrator uses the HTML import path)."""
     out_dir.mkdir(parents=True, exist_ok=True)
     sqlite_path = out_dir / "places.sqlite"
-    if sqlite_path.exists() and not dry_run:
-        sqlite_path.unlink()
 
     failures: list[str] = []
     url_count = 0
@@ -302,93 +301,103 @@ def migrate_history(
     # Cannot use the trigger that calls Firefox-internal get_prefix() /
     # get_host_and_port() — those are C++ functions we don't have. Instead we
     # populate moz_origins manually and set origin_id directly.
-    conn = sqlite3.connect(str(sqlite_path))
+    #
+    # Build into a tempdir then atomic-replace the staging path. A crash
+    # during the URL/visit insert loop can't leave a corrupt places.sqlite
+    # at the final filename for the README and manifest to point at.
+    staging_dir = tempfile.mkdtemp(prefix="foxport_places_build_")
     try:
-        conn.executescript(_FIREFOX_PLACES_SCHEMA)
-        conn.commit()
-        with conn:
-            origin_cache: dict[tuple[str, str], int] = {}
+        staged = Path(staging_dir) / "places.sqlite"
+        conn = sqlite3.connect(str(staged))
+        try:
+            conn.executescript(_FIREFOX_PLACES_SCHEMA)
+            conn.commit()
+            with conn:
+                origin_cache: dict[tuple[str, str], int] = {}
 
-            def origin_id_for(url: str) -> int | None:
-                prefix = _get_prefix(url)
-                host = _get_host(url)
-                if not prefix or not host:
-                    return None
-                key = (prefix, host)
-                if key in origin_cache:
-                    return origin_cache[key]
-                cur = conn.execute(
-                    "INSERT OR IGNORE INTO moz_origins (prefix, host, frecency, recalc_frecency) "
-                    "VALUES (?, ?, -1, 1)",
-                    (prefix, host),
-                )
-                if cur.lastrowid:
-                    origin_cache[key] = cur.lastrowid
-                else:
-                    row = conn.execute(
-                        "SELECT id FROM moz_origins WHERE prefix = ? AND host = ?",
-                        (prefix, host),
-                    ).fetchone()
-                    origin_cache[key] = row[0] if row else 0
-                return origin_cache[key]
-
-            for url_row, visit_rows in _iter_chromium_history(profile):
-                (_chrome_url_id, url, title, visit_count_src, typed_count,
-                 last_visit_time, hidden) = url_row
-                if not url:
-                    continue
-                if not include_internal and is_browser_internal_url(url):
-                    continue
-                if not _in_range(int(last_visit_time or 0)):
-                    continue
-                # Drop individual visits outside the range too; if no visits
-                # remain, skip the entire URL.
-                visit_rows = [v for v in visit_rows if _in_range(int(v[2] or 0))]
-                if not visit_rows:
-                    continue
-                try:
-                    origin_id = origin_id_for(url)
+                def origin_id_for(url: str) -> int | None:
+                    prefix = _get_prefix(url)
+                    host = _get_host(url)
+                    if not prefix or not host:
+                        return None
+                    key = (prefix, host)
+                    if key in origin_cache:
+                        return origin_cache[key]
                     cur = conn.execute(
-                        "INSERT INTO moz_places "
-                        "(url, title, rev_host, visit_count, hidden, typed, frecency, "
-                        " last_visit_date, guid, foreign_count, url_hash, origin_id, "
-                        " recalc_frecency) "
-                        "VALUES (?, ?, ?, ?, ?, ?, -1, ?, ?, 0, ?, ?, 1)",
-                        (
-                            url,
-                            title or "",
-                            _rev_host(_get_host(url)),
-                            visit_count_src or 0,
-                            1 if hidden else 0,
-                            1 if (typed_count or 0) > 0 else 0,
-                            _chrome_micros_to_unix_micros(last_visit_time or 0) or None,
-                            "{" + str(uuid.uuid4()) + "}"[1:-1][:12],
-                            places_url_hash(url),
-                            origin_id,
-                        ),
+                        "INSERT OR IGNORE INTO moz_origins (prefix, host, frecency, recalc_frecency) "
+                        "VALUES (?, ?, -1, 1)",
+                        (prefix, host),
                     )
-                    place_id = cur.lastrowid
-                    url_count += 1
-                    for v in visit_rows:
-                        (_chrome_visit_id, _chrome_url_fk, visit_time, _from_visit,
-                         transition) = v
-                        chromium_core = int(transition or 0) & 0xFF
-                        firefox_type = _VISIT_TYPE_MAP.get(chromium_core, 1)
-                        conn.execute(
-                            "INSERT INTO moz_historyvisits "
-                            "(from_visit, place_id, visit_date, visit_type, session, source) "
-                            "VALUES (0, ?, ?, ?, 0, 0)",
+                    if cur.lastrowid:
+                        origin_cache[key] = cur.lastrowid
+                    else:
+                        row = conn.execute(
+                            "SELECT id FROM moz_origins WHERE prefix = ? AND host = ?",
+                            (prefix, host),
+                        ).fetchone()
+                        origin_cache[key] = row[0] if row else 0
+                    return origin_cache[key]
+
+                for url_row, visit_rows in _iter_chromium_history(profile):
+                    (_chrome_url_id, url, title, visit_count_src, typed_count,
+                     last_visit_time, hidden) = url_row
+                    if not url:
+                        continue
+                    if not include_internal and is_browser_internal_url(url):
+                        continue
+                    if not _in_range(int(last_visit_time or 0)):
+                        continue
+                    # Drop individual visits outside the range too; if no visits
+                    # remain, skip the entire URL.
+                    visit_rows = [v for v in visit_rows if _in_range(int(v[2] or 0))]
+                    if not visit_rows:
+                        continue
+                    try:
+                        origin_id = origin_id_for(url)
+                        cur = conn.execute(
+                            "INSERT INTO moz_places "
+                            "(url, title, rev_host, visit_count, hidden, typed, frecency, "
+                            " last_visit_date, guid, foreign_count, url_hash, origin_id, "
+                            " recalc_frecency) "
+                            "VALUES (?, ?, ?, ?, ?, ?, -1, ?, ?, 0, ?, ?, 1)",
                             (
-                                place_id,
-                                _chrome_micros_to_unix_micros(visit_time or 0),
-                                firefox_type,
+                                url,
+                                title or "",
+                                _rev_host(_get_host(url)),
+                                visit_count_src or 0,
+                                1 if hidden else 0,
+                                1 if (typed_count or 0) > 0 else 0,
+                                _chrome_micros_to_unix_micros(last_visit_time or 0) or None,
+                                "{" + str(uuid.uuid4()) + "}"[1:-1][:12],
+                                places_url_hash(url),
+                                origin_id,
                             ),
                         )
-                        visit_count += 1
-                except sqlite3.IntegrityError as exc:
-                    failures.append(f"{url}: {exc}")
+                        place_id = cur.lastrowid
+                        url_count += 1
+                        for v in visit_rows:
+                            (_chrome_visit_id, _chrome_url_fk, visit_time, _from_visit,
+                             transition) = v
+                            chromium_core = int(transition or 0) & 0xFF
+                            firefox_type = _VISIT_TYPE_MAP.get(chromium_core, 1)
+                            conn.execute(
+                                "INSERT INTO moz_historyvisits "
+                                "(from_visit, place_id, visit_date, visit_type, session, source) "
+                                "VALUES (0, ?, ?, ?, 0, 0)",
+                                (
+                                    place_id,
+                                    _chrome_micros_to_unix_micros(visit_time or 0),
+                                    firefox_type,
+                                ),
+                            )
+                            visit_count += 1
+                    except sqlite3.IntegrityError as exc:
+                        failures.append(f"{url}: {exc}")
+        finally:
+            conn.close()
+        replace_file_atomic(staged, sqlite_path)
     finally:
-        conn.close()
+        shutil.rmtree(staging_dir, ignore_errors=True)
 
     return HistoryResult(
         sqlite_path=sqlite_path,

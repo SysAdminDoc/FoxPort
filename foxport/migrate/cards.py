@@ -20,6 +20,7 @@ Output CSV columns (1Password import-compatible):
 from __future__ import annotations
 
 import csv
+import io
 import shutil
 import sqlite3
 import tempfile
@@ -32,14 +33,18 @@ from foxport.crypto.dpapi import (
     decrypt_value,
     load_master_key,
 )
+from foxport.fileops import write_text_atomic
 
 
+# 1Password's importer keys on these column names; Bitwarden picks them up
+# under "credit card" with the same headers. Chrome's saved-card store
+# captures only one human name per card (`name_on_card`), so we surface it
+# once as "Cardholder name" rather than duplicating it into a "Name" column.
 _CSV_HEADER = [
     "Type",
-    "Name",
+    "Cardholder name",
     "Number",
     "Expiration",
-    "Cardholder name",
     "Notes",
 ]
 
@@ -114,40 +119,35 @@ def migrate_cards(
         shutil.rmtree(copy.parent, ignore_errors=True)
 
     decrypted = 0
-    fh = None
-    writer = None
-    if not dry_run:
-        fh = csv_path.open("w", encoding="utf-8", newline="")
-        writer = csv.writer(fh, quoting=csv.QUOTE_ALL)
-        writer.writerow(_CSV_HEADER)
-    try:
-        for guid, name_on_card, expiration_month, expiration_year, encrypted in rows:
-            blob = bytes(encrypted) if encrypted else b""
-            try:
-                card_number = decrypt_value(blob, key) if blob else ""
-            except DecryptionError as exc:
-                failures.append(f"{guid}: {exc}")
-                continue
-            if not card_number:
-                failures.append(f"{guid}: empty plaintext")
-                continue
-            decrypted += 1
-            if writer is None:
-                continue
-            expiry = ""
-            if expiration_month and expiration_year:
-                expiry = f"{int(expiration_month):02d}/{int(expiration_year)}"
-            writer.writerow([
-                "Credit Card",
-                name_on_card or "",
-                card_number,
-                expiry,
-                name_on_card or "",
-                f"Imported from {profile.label} (guid={guid})",
-            ])
-    finally:
-        if fh is not None:
-            fh.close()
+    # Build the CSV body in memory so the on-disk file appears atomically
+    # via write_text_atomic — a torn write of a card CSV would put plaintext
+    # PANs into an unrecoverable state.
+    buf = io.StringIO(newline="")
+    writer = csv.writer(buf, quoting=csv.QUOTE_ALL)
+    writer.writerow(_CSV_HEADER)
+    for guid, name_on_card, expiration_month, expiration_year, encrypted in rows:
+        blob = bytes(encrypted) if encrypted else b""
+        try:
+            card_number = decrypt_value(blob, key) if blob else ""
+        except DecryptionError as exc:
+            failures.append(f"{guid}: {exc}")
+            continue
+        if not card_number:
+            failures.append(f"{guid}: empty plaintext")
+            continue
+        decrypted += 1
+        expiry = ""
+        if expiration_month and expiration_year:
+            expiry = f"{int(expiration_month):02d}/{int(expiration_year)}"
+        writer.writerow([
+            "Credit Card",
+            name_on_card or "",
+            card_number,
+            expiry,
+            f"Imported from {profile.label} (guid={guid})",
+        ])
+    if not dry_run and decrypted > 0:
+        write_text_atomic(csv_path, buf.getvalue())
 
     return CardResult(
         csv_path=csv_path,

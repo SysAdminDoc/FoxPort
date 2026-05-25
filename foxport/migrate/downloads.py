@@ -16,6 +16,7 @@ depends on the history migrator already running for the same target.
 from __future__ import annotations
 
 import csv
+import io
 import shutil
 import sqlite3
 import tempfile
@@ -24,6 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from foxport.browsers.detect import ChromiumProfile
+from foxport.fileops import write_text_atomic
 
 
 # Chromium time = µs since 1601-01-01 UTC.
@@ -130,26 +132,28 @@ def migrate_downloads(
         return DownloadsResult(csv_path=csv_path, total=len(rows), written=0, failures=failures)
 
     written = 0
-    with csv_path.open("w", encoding="utf-8", newline="") as fh:
-        writer = csv.writer(fh, quoting=csv.QUOTE_ALL)
-        writer.writerow(_CSV_HEADER)
-        for row in rows:
-            (d_id, current_path, target_path, start_time, end_time,
-             received_bytes, total_bytes, mime_type, state, tab_url) = row
-            filename = Path(target_path or current_path or "").name
-            source_url = chains.get(d_id) or tab_url or ""
-            writer.writerow([
-                filename,
-                source_url,
-                target_path or current_path or "",
-                int(received_bytes or 0),
-                int(total_bytes or 0),
-                mime_type or "",
-                _chrome_micros_to_iso(start_time or 0),
-                _chrome_micros_to_iso(end_time or 0),
-                _STATE_LABEL.get(int(state or 0), str(state)),
-            ])
-            written += 1
+    buf = io.StringIO(newline="")
+    writer = csv.writer(buf, quoting=csv.QUOTE_ALL)
+    writer.writerow(_CSV_HEADER)
+    for row in rows:
+        (d_id, current_path, target_path, start_time, end_time,
+         received_bytes, total_bytes, mime_type, state, tab_url) = row
+        filename = Path(target_path or current_path or "").name
+        source_url = chains.get(d_id) or tab_url or ""
+        writer.writerow([
+            filename,
+            source_url,
+            target_path or current_path or "",
+            int(received_bytes or 0),
+            int(total_bytes or 0),
+            mime_type or "",
+            _chrome_micros_to_iso(start_time or 0),
+            _chrome_micros_to_iso(end_time or 0),
+            _STATE_LABEL.get(int(state or 0), str(state)),
+        ])
+        written += 1
+    if written > 0:
+        write_text_atomic(csv_path, buf.getvalue())
 
     return DownloadsResult(
         csv_path=csv_path,

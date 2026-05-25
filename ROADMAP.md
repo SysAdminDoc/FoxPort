@@ -66,8 +66,14 @@ for the full list.
       `logins.json`; emit version into manifest.
 - [ ] **P1** Direct-write conflict review + rollback manifest across
       passwords / cookies / history / open-tabs.
-- [ ] **P1** Atomic-replace for staging-folder emitters (the non-`nss_*`
-      writers still write directly to their final filenames).
+- [x] **P1** Atomic-replace for staging-folder emitters. `foxport/fileops.py`
+      grew `write_text_atomic`; every non-`nss_*` writer (`passwords.py`,
+      `bookmarks.py`, `cookies.py`, `history.py`, `autofill.py`, `cards.py`,
+      `downloads.py`, `search_engines.py`, `open_tabs.py`, `extensions.py`)
+      now stages bytes / SQLite into a tempdir or in-memory buffer and
+      atomic-replaces the final path. A torn write can no longer leave a
+      half-written CSV / SQLite / JSON / mozLz40 at the README-referenced
+      path.
 - [ ] **P1** Tests for downloads, cards, search engines, diff, reverse
       migrators.
 - [ ] **P1** GUI snapshot creation (Done screen) + GUI restore wizard
@@ -78,8 +84,12 @@ for the full list.
 
 ### Phase D — Polish + observability
 - [ ] **P2** CLI `--json` flag + `list --detail` with per-category counts.
-- [ ] **P2** Cards CSV column cleanup (drop redundant cardholder column)
-      + `tests/migrate/test_cards.py`.
+- [x] **P2** Cards CSV column cleanup — `Name` was a duplicate of
+      `Cardholder name` (both sourced from `name_on_card`). New shape:
+      `Type, Cardholder name, Number, Expiration, Notes`. Comment
+      explains the 1Password / Bitwarden importer expectations.
+      Dedicated `tests/migrate/test_cards.py` covers the new shape +
+      atomic write.
 - [ ] **P2** Open-tabs partial-success sanity check — log + fall back to
       regex when structural parser yields suspiciously few URLs.
 - [ ] **P2** Reverse curated-map auditor in the monthly cron workflow.

@@ -32,6 +32,7 @@ from html import escape as html_escape
 from pathlib import Path
 
 from foxport.browsers.detect import ChromiumProfile
+from foxport.fileops import write_text_atomic
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
@@ -153,16 +154,16 @@ def migrate_search_engines(
         if dry_run:
             continue
         try:
-            (xml_dir / f"{slug}.xml").write_text(
+            write_text_atomic(
+                xml_dir / f"{slug}.xml",
                 _build_opensearch(name, keyword or "", url, suggest_url or ""),
-                encoding="utf-8",
             )
             written += 1
         except OSError as exc:
             failures.append(f"{name}: {exc}")
 
     if not dry_run:
-        json_path.write_text(json.dumps(inventory, indent=2), encoding="utf-8")
+        write_text_atomic(json_path, json.dumps(inventory, indent=2))
 
     return SearchEngineResult(
         json_path=json_path,

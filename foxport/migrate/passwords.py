@@ -18,6 +18,7 @@ RFC 4180 escaping):
 from __future__ import annotations
 
 import csv
+import io
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,6 +32,7 @@ from foxport.crypto.dpapi import (
     decrypt_value,
     load_master_key,
 )
+from foxport.fileops import write_text_atomic
 
 
 # Stable namespace UUID for FoxPort-generated login GUIDs. Deterministic per
@@ -131,25 +133,30 @@ def _decrypt_all(
 
 
 def _write_csv(decrypted: list[tuple[PasswordRow, str]], csv_path: Path) -> None:
-    with csv_path.open("w", encoding="utf-8", newline="") as fh:
-        writer = csv.writer(fh, quoting=csv.QUOTE_ALL)
-        writer.writerow(_FIREFOX_CSV_HEADER)
-        for row, plaintext in decrypted:
-            stable_guid = uuid.uuid5(
-                _FOXPORT_LOGIN_NAMESPACE,
-                f"{row.origin_url}\x00{row.username}",
-            )
-            writer.writerow([
-                row.origin_url,
-                row.username,
-                plaintext,
-                "",
-                row.action_url or "",
-                "{" + str(stable_guid) + "}",
-                _chrome_micros_to_firefox_millis(row.date_created),
-                _chrome_micros_to_firefox_millis(row.date_last_used),
-                _chrome_micros_to_firefox_millis(row.date_password_modified),
-            ])
+    # Build the entire CSV in memory and write through the atomic helper so
+    # a crash mid-write can't leave a half-finished CSV at the final name
+    # (the README.txt and manifest.json would otherwise reference a corrupt
+    # file that the user might try to import).
+    buf = io.StringIO(newline="")
+    writer = csv.writer(buf, quoting=csv.QUOTE_ALL)
+    writer.writerow(_FIREFOX_CSV_HEADER)
+    for row, plaintext in decrypted:
+        stable_guid = uuid.uuid5(
+            _FOXPORT_LOGIN_NAMESPACE,
+            f"{row.origin_url}\x00{row.username}",
+        )
+        writer.writerow([
+            row.origin_url,
+            row.username,
+            plaintext,
+            "",
+            row.action_url or "",
+            "{" + str(stable_guid) + "}",
+            _chrome_micros_to_firefox_millis(row.date_created),
+            _chrome_micros_to_firefox_millis(row.date_last_used),
+            _chrome_micros_to_firefox_millis(row.date_password_modified),
+        ])
+    write_text_atomic(csv_path, buf.getvalue())
 
 
 def _write_hibp_report(
@@ -164,7 +171,7 @@ def _write_hibp_report(
     ]
     for origin_url, username, count in pwned:
         lines.append(f"  {origin_url}  /  {username}  ({count:,} breach occurrences)")
-    out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_text_atomic(out_path, "\n".join(lines) + "\n")
 
 
 def migrate_passwords(

@@ -38,6 +38,7 @@ from foxport.crypto.dpapi import (
     decrypt_value,
     load_master_key,
 )
+from foxport.fileops import replace_file_atomic
 
 # Chromium time = µs since 1601-01-01 UTC. Firefox time = µs (or s) since
 # 1970-01-01 UTC.
@@ -219,11 +220,15 @@ def migrate_cookies(
     dry_run: bool = False,
 ) -> CookieResult:
     """Decrypt all cookies in ``profile`` and emit a Firefox-format
-    ``cookies.sqlite`` in ``out_dir``. Dry-run reports counts only."""
+    ``cookies.sqlite`` in ``out_dir``. Dry-run reports counts only.
+
+    The SQLite database is built in a tempdir and then atomically moved
+    into ``out_dir/cookies.sqlite`` — a crash during inserts can't leave
+    a corrupt cookies.sqlite at the final name that the README + manifest
+    would otherwise reference.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     sqlite_path = out_dir / "cookies.sqlite"
-    if sqlite_path.exists() and not dry_run:
-        sqlite_path.unlink()
 
     failures: list[str] = []
     key = load_master_key(profile.local_state, browser_display=profile.browser)
@@ -246,43 +251,49 @@ def migrate_cookies(
         )
 
     decrypted = 0
-    conn = sqlite3.connect(str(sqlite_path))
+    staging_dir = tempfile.mkdtemp(prefix="foxport_cookies_build_")
     try:
-        conn.executescript(_FIREFOX_COOKIES_SCHEMA)
-        conn.commit()
-        with conn:
-            for row, plaintext in _iter_decrypted_cookies(profile, key, failures):
-                try:
-                    conn.execute(
-                        "INSERT OR REPLACE INTO moz_cookies "
-                        "(originAttributes, name, value, host, path, expiry, "
-                        " lastAccessed, creationTime, isSecure, isHttpOnly, "
-                        " inBrowserElement, sameSite, rawSameSite, schemeMap, "
-                        " isPartitionedAttributeSet, updateTime) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 0, ?)",
-                        (
-                            "",
-                            row["name"],
-                            plaintext,
-                            row["host"],
-                            row["path"],
-                            row["expiry"],
-                            row["lastAccessed"],
-                            row["creationTime"],
-                            row["isSecure"],
-                            row["isHttpOnly"],
-                            row["sameSite"],
-                            row["sameSite"],
-                            row["schemeMap"],
-                            row["creationTime"],  # updateTime ≈ creationTime at import
-                        ),
-                    )
-                    decrypted += 1
-                except sqlite3.IntegrityError as exc:
-                    # UNIQUE(name, host, path, originAttributes) — skip dupes.
-                    failures.append(f"dup {row['host']} / {row['name']}: {exc}")
+        staged = Path(staging_dir) / "cookies.sqlite"
+        conn = sqlite3.connect(str(staged))
+        try:
+            conn.executescript(_FIREFOX_COOKIES_SCHEMA)
+            conn.commit()
+            with conn:
+                for row, plaintext in _iter_decrypted_cookies(profile, key, failures):
+                    try:
+                        conn.execute(
+                            "INSERT OR REPLACE INTO moz_cookies "
+                            "(originAttributes, name, value, host, path, expiry, "
+                            " lastAccessed, creationTime, isSecure, isHttpOnly, "
+                            " inBrowserElement, sameSite, rawSameSite, schemeMap, "
+                            " isPartitionedAttributeSet, updateTime) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 0, ?)",
+                            (
+                                "",
+                                row["name"],
+                                plaintext,
+                                row["host"],
+                                row["path"],
+                                row["expiry"],
+                                row["lastAccessed"],
+                                row["creationTime"],
+                                row["isSecure"],
+                                row["isHttpOnly"],
+                                row["sameSite"],
+                                row["sameSite"],
+                                row["schemeMap"],
+                                row["creationTime"],  # updateTime ≈ creationTime at import
+                            ),
+                        )
+                        decrypted += 1
+                    except sqlite3.IntegrityError as exc:
+                        # UNIQUE(name, host, path, originAttributes) — skip dupes.
+                        failures.append(f"dup {row['host']} / {row['name']}: {exc}")
+        finally:
+            conn.close()
+        replace_file_atomic(staged, sqlite_path)
     finally:
-        conn.close()
+        shutil.rmtree(staging_dir, ignore_errors=True)
 
     return CookieResult(
         sqlite_path=sqlite_path,

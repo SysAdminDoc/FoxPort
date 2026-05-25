@@ -32,6 +32,7 @@ from foxport.browsers.chromium import (
     read_bookmarks,
 )
 from foxport.browsers.detect import ChromiumProfile
+from foxport.fileops import write_text_atomic
 
 
 _CHROME_EPOCH_OFFSET_SECS = 11644473600
@@ -178,7 +179,7 @@ def migrate_bookmarks(
     buf.append("</DL><p>")
 
     if not dry_run:
-        html_path.write_text("\n".join(buf) + "\n", encoding="utf-8")
+        write_text_atomic(html_path, "\n".join(buf) + "\n")
     return BookmarkResult(
         html_path=html_path,
         folders=counter[0],

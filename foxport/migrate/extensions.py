@@ -34,6 +34,7 @@ import requests
 from foxport.browsers.chromium import ExtensionInfo, read_extensions
 from foxport.browsers.detect import ChromiumProfile
 from foxport.data import data_file
+from foxport.fileops import write_text_atomic
 
 
 _AMO_BASE = "https://addons.mozilla.org/api/v5"
@@ -443,8 +444,8 @@ def migrate_extensions(
     json_path = out_dir / "extensions.json"
     if dry_run:
         return ExtensionResult(html_path=html_path, json_path=json_path, matches=matches)
-    html_path.write_text(_build_html(matches, profile.label), encoding="utf-8")
-    json_path.write_text(json.dumps([
+    write_text_atomic(html_path, _build_html(matches, profile.label))
+    write_text_atomic(json_path, json.dumps([
         {
             "id": m.source.extension_id,
             "name": m.source.name,
@@ -462,6 +463,6 @@ def migrate_extensions(
             "already_installed": m.already_installed,
         }
         for m in matches
-    ], indent=2), encoding="utf-8")
+    ], indent=2))
 
     return ExtensionResult(html_path=html_path, json_path=json_path, matches=matches)

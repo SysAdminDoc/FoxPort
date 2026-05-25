@@ -44,6 +44,7 @@ from pathlib import Path
 
 from foxport.browsers.chromium import is_browser_internal_url
 from foxport.browsers.detect import ChromiumProfile, FirefoxProfile
+from foxport.fileops import write_bytes_atomic
 
 
 # Chrome command IDs for navigation updates. The integer value drifts
@@ -241,7 +242,10 @@ def migrate_open_tabs(
         return OpenTabsResult(out_path=out_path, tabs=len(urls), failures=failures)
     try:
         blob = _wrap_mozlz4(_build_session_json(urls))
-        out_path.write_bytes(blob)
+        # Use the atomic helper so a torn write can't leave a half-written
+        # recovery.jsonlz4 at the final path (Firefox would refuse to parse
+        # it on the next launch and the user would lose all recovered tabs).
+        write_bytes_atomic(out_path, blob)
     except Exception as exc:  # noqa: BLE001
         failures.append(f"mozlz4 emit: {exc}")
         return OpenTabsResult(out_path=out_path, tabs=0, failures=failures)
