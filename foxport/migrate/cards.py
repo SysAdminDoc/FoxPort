@@ -12,9 +12,9 @@ ones every Chrome 80+ ships:
     card_number_encrypted, use_date, use_count, billing_address_id,
     nickname (since M99)
 
-Output CSV columns (1Password import-compatible):
+Output CSV columns (1Password / Bitwarden import-compatible):
 
-    Type, Name, Number, Expiration (MM/YYYY), Cardholder name, Notes
+    Type, Cardholder name, Number, Expiration (MM/YYYY), Notes
 """
 
 from __future__ import annotations
@@ -83,7 +83,11 @@ def migrate_cards(
     """Walk Chromium's ``Web Data.credit_cards`` and emit a CSV of decrypted
     card details. Firefox has no native target, so this is informational."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    csv_path = out_dir / "saved_cards.csv"
+    # File name uses a hyphen to match user-facing surfaces (Done-screen
+    # button label, first-run dialog, README, import_instructions). Before
+    # v1.3.1 the migrator wrote ``saved_cards.csv`` (underscore) while every
+    # user-visible string said hyphen — minor cosmetic drift now resolved.
+    csv_path = out_dir / "saved-cards.csv"
     failures: list[str] = []
 
     src = _web_data_path(profile)

@@ -160,10 +160,47 @@ def load_master_key(
     raise DecryptionError(f"no os_crypt.encrypted_key in {local_state_path}")
 
 
-def decrypt_value(blob: bytes, master: ChromiumKey) -> str:
-    """Decrypt a single Chromium-encrypted value (password, cookie, etc.).
+def decrypt_value_bytes(blob: bytes, master: ChromiumKey) -> bytes:
+    """Decrypt a Chromium-encrypted value and return the raw plaintext bytes.
 
-    Returns the decoded UTF-8 string. Raises :class:`DecryptionError` on failure.
+    Cookie values in Chrome 130+ are prefixed with the raw 32-byte
+    SHA-256 of the cookie's host_key BEFORE any encoding can be applied.
+    Stripping that prefix after a UTF-8 decode would chew the wrong
+    number of characters because arbitrary bytes don't map 1:1 to
+    characters under ``errors='replace'``. Callers that need to slice
+    raw bytes (cookies) must use this helper; callers that always want
+    a string (passwords, autofill, cards) should keep using
+    :func:`decrypt_value`.
+    """
+
+    if not blob:
+        return b""
+    prefix = blob[:3]
+    if prefix in (b"v10", b"v11"):
+        # 16-byte key => macOS/Linux CBC path; 32-byte key => Windows GCM path.
+        if len(master.key) == 16:
+            from foxport.crypto.keychain import ChromiumKeyV10, decrypt_value_v10_bytes
+            return decrypt_value_v10_bytes(blob, ChromiumKeyV10(key=master.key))
+        nonce = blob[3:15]
+        ct_and_tag = blob[15:]
+        aes = AESGCM(master.key)
+        try:
+            return aes.decrypt(nonce, ct_and_tag, None)
+        except Exception as exc:
+            raise DecryptionError(f"AES-GCM decrypt failed: {exc}") from exc
+    # Pre-Chromium 80: raw DPAPI-encrypted UTF-16LE string (Windows only).
+    return _dpapi_unprotect(blob)
+
+
+def decrypt_value(blob: bytes, master: ChromiumKey) -> str:
+    """Decrypt a Chromium-encrypted value and return the UTF-8 string.
+
+    Convenience wrapper around :func:`decrypt_value_bytes` for callers
+    that don't need raw bytes (passwords, autofill, cards). The
+    Chromium 130+ cookie HOST_KEY prefix is **not** stripped here —
+    cookies must call :func:`decrypt_value_bytes` directly and strip
+    32 bytes before decoding.
+
     Handles three blob formats:
 
     * **v10/v11 AES-GCM** with a 32-byte key (Windows Chromium 80+)
@@ -172,26 +209,12 @@ def decrypt_value(blob: bytes, master: ChromiumKey) -> str:
     """
     if not blob:
         return ""
+    raw = decrypt_value_bytes(blob, master)
     prefix = blob[:3]
     if prefix in (b"v10", b"v11"):
-        # 16-byte key => macOS/Linux CBC path; 32-byte key => Windows GCM path.
-        if len(master.key) == 16:
-            from foxport.crypto.keychain import ChromiumKeyV10, decrypt_value_v10
-            return decrypt_value_v10(blob, ChromiumKeyV10(key=master.key))
-        nonce = blob[3:15]
-        ct_and_tag = blob[15:]
-        aes = AESGCM(master.key)
-        try:
-            plaintext = aes.decrypt(nonce, ct_and_tag, None)
-        except Exception as exc:
-            raise DecryptionError(f"AES-GCM decrypt failed: {exc}") from exc
-        return plaintext.decode("utf-8", errors="replace")
+        return raw.decode("utf-8", errors="replace")
     # Pre-Chromium 80: raw DPAPI-encrypted UTF-16LE string (Windows only).
     try:
-        plaintext = _dpapi_unprotect(blob)
-    except DecryptionError:
-        raise
-    try:
-        return plaintext.decode("utf-16-le", errors="replace").rstrip("\x00")
+        return raw.decode("utf-16-le", errors="replace").rstrip("\x00")
     except UnicodeDecodeError:
-        return plaintext.decode("utf-8", errors="replace")
+        return raw.decode("utf-8", errors="replace")

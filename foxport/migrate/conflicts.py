@@ -71,6 +71,10 @@ def analyze_passwords(
         return result
     result.source_total = len(source_rows)
 
+    # GUIDs in logins.json are case-insensitive; ``uuid.uuid5`` always emits
+    # lowercase. Normalize both sides so the pre-flight count agrees with
+    # the merge skip count in ``migrate_passwords_via_nss`` even when an
+    # older Firefox or third-party tool wrote mixed-case GUIDs.
     target_guids: set[str] = set()
     logins_json = target.profile_dir / "logins.json"
     if logins_json.is_file():
@@ -83,14 +87,14 @@ def analyze_passwords(
                 if isinstance(login, dict):
                     guid = login.get("guid")
                     if isinstance(guid, str):
-                        target_guids.add(guid)
+                        target_guids.add(guid.lower())
 
     for row in source_rows:
         candidate = "{" + str(uuid.uuid5(
             _FOXPORT_LOGIN_NAMESPACE,
             f"{row.origin_url}\x00{row.username}",
         )) + "}"
-        if candidate in target_guids:
+        if candidate.lower() in target_guids:
             result.duplicates += 1
         else:
             result.new += 1

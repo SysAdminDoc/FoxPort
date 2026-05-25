@@ -42,7 +42,6 @@ from __future__ import annotations
 
 import json
 import shutil
-import tempfile
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -60,6 +59,7 @@ from foxport.crypto.dpapi import (
     load_master_key,
 )
 from foxport.crypto.nss import NSSError, NSSSession, open_session
+from foxport.fileops import write_text_atomic
 from foxport.migrate.passwords import (
     _FOXPORT_LOGIN_NAMESPACE,
     _chrome_micros_to_firefox_millis,
@@ -139,12 +139,17 @@ def _read_existing_logins(logins_json: Path) -> tuple[dict, set[str]]:
         raise LoginsCorruptError(
             f"existing {logins_json} is missing the 'logins' key — refusing to overwrite."
         )
+    # GUIDs are case-insensitive UUIDs surrounded by braces. Firefox itself
+    # normalizes to lowercase, but logins.json can legitimately contain
+    # mixed-case strings imported from older Firefox builds or third-party
+    # tools. ``uuid.uuid5()`` always emits lowercase, so we lower both sides
+    # at compare time to keep idempotent re-runs idempotent.
     guids: set[str] = set()
     for login in data.get("logins", []) or []:
         if isinstance(login, dict):
             guid = login.get("guid")
             if isinstance(guid, str):
-                guids.add(guid)
+                guids.add(guid.lower())
     return data, guids
 
 
@@ -163,18 +168,19 @@ def _backup_target(logins_json: Path) -> Path | None:
 
 
 def _atomic_write(path: Path, content: str) -> None:
-    """Write file atomically: temp file + os.replace."""
-    fd, tmp_name = tempfile.mkstemp(prefix=path.name + ".", dir=str(path.parent))
-    try:
-        with open(fd, "w", encoding="utf-8", newline="\n") as fh:
-            fh.write(content)
-        Path(tmp_name).replace(path)
-    except Exception:
-        try:
-            Path(tmp_name).unlink()
-        except OSError:
-            pass
-        raise
+    """Write file atomically through the canonical fileops helper.
+
+    Pre-v1.3.2 this was a local re-implementation that lacked
+    ``fh.flush()`` + ``os.fsync(fh.fileno())`` before the rename — on a
+    crash between the write and the rename, the temp file's bytes may
+    not have hit the disk and the replaced ``logins.json`` would have
+    pointed at zero-filled blocks. The canonical helper
+    :func:`foxport.fileops.write_text_atomic` adds the missing fsync
+    and shares the same ``.{name}.foxport-*`` tmpfile naming as every
+    other atomic emitter, so a torn write leaves no orphans.
+    """
+
+    write_text_atomic(path, content)
 
 
 def _decrypt_chromium_rows(
@@ -252,7 +258,10 @@ def migrate_passwords_via_nss(
                 _FOXPORT_LOGIN_NAMESPACE,
                 f"{row.origin_url}\x00{row.username}",
             )) + "}"
-            if stable_guid in existing_guids:
+            # ``existing_guids`` is already lowercased; ``stable_guid`` is
+            # lowercase by construction, but the explicit .lower() keeps the
+            # invariant obvious for the next reader.
+            if stable_guid.lower() in existing_guids:
                 skipped_existing += 1
                 continue
             try:

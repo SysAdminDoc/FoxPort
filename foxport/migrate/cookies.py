@@ -35,7 +35,7 @@ from foxport.browsers.detect import ChromiumProfile
 from foxport.crypto.dpapi import (
     ChromiumKey,
     DecryptionError,
-    decrypt_value,
+    decrypt_value_bytes,
     load_master_key,
 )
 from foxport.fileops import replace_file_atomic
@@ -184,12 +184,18 @@ def _iter_decrypted_cookies(
                 plaintext = value or ""
                 if blob:
                     try:
-                        plaintext = decrypt_value(blob, key)
+                        plaintext_bytes = decrypt_value_bytes(blob, key)
                     except DecryptionError as exc:
                         failures.append(f"{host_key} / {name}: {exc}")
                         continue
-                    if strip_host_key_prefix and len(plaintext) >= 32:
-                        plaintext = plaintext[32:]
+                    # Chrome 130+ prepends raw SHA-256(host_key) (32 bytes)
+                    # to the plaintext. The strip MUST happen in bytes-space —
+                    # decoding first and slicing 32 *characters* chews the
+                    # wrong amount because arbitrary SHA-256 bytes don't
+                    # map 1:1 to UTF-8 chars under errors='replace'.
+                    if strip_host_key_prefix and len(plaintext_bytes) >= 32:
+                        plaintext_bytes = plaintext_bytes[32:]
+                    plaintext = plaintext_bytes.decode("utf-8", errors="replace")
                 # Chromium's is_host_only is implied by leading dot in host_key.
                 is_host_only = not (host_key or "").startswith(".")
                 yield (

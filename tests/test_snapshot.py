@@ -104,7 +104,14 @@ def test_encrypted_bundle_requires_passphrase(tmp_path):
         restore_snapshot(bundle, tmp_path / "restored1")
 
 
-def test_wrong_passphrase_fails(tmp_path):
+def test_wrong_passphrase_raises_value_error_with_friendly_message(tmp_path):
+    """The CLI ``restore`` only catches ``ValueError`` — without the
+    InvalidTag → ValueError translation in ``_decrypt_bundle`` a wrong
+    passphrase would surface as an uncaught crypto traceback to the
+    end user. Pin the friendly-error contract so the CLI surfaces
+    "wrong passphrase or corrupted bundle".
+    """
+
     src = tmp_path / "src"
     src.mkdir()
     _populate(src)
@@ -112,8 +119,20 @@ def test_wrong_passphrase_fails(tmp_path):
     bundle = tmp_path / "out.fxport"
     create_snapshot(src, bundle, source_label="x", target_label="y", passphrase="correct")
 
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError, match="wrong passphrase or corrupted bundle"):
         restore_snapshot(bundle, tmp_path / "restored2", passphrase="wrong")
+
+
+def test_truncated_encrypted_bundle_raises_value_error(tmp_path):
+    """A bundle missing the AES-GCM tag is malformed; the helper should
+    translate the crypto failure into a friendly ValueError (CLI catch).
+    """
+
+    from foxport.snapshot import _MAGIC_ENCRYPTED, _decrypt_bundle
+    # Magic + 4-byte iters + 16-byte salt + 12-byte nonce — no ciphertext.
+    blob = _MAGIC_ENCRYPTED + (200_000).to_bytes(4, "little") + b"\x00" * 16 + b"\x00" * 12
+    with pytest.raises(ValueError, match="truncated or malformed"):
+        _decrypt_bundle(blob, "anything")
 
 
 def _craft_bundle(tmp_path, entries: list[tuple[str, bytes]],

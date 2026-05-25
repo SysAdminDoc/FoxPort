@@ -78,7 +78,7 @@ def test_migrate_cards_no_web_data_writes_nothing(tmp_path: Path, fake_chromium_
     result = migrate_cards(fake_chromium_profile, out_dir, dry_run=False)
     assert result.total == 0
     assert result.decrypted == 0
-    assert not (out_dir / "saved_cards.csv").exists()
+    assert not (out_dir / "saved-cards.csv").exists()
 
 
 def test_migrate_cards_empty_plaintext_skips_csv_emit(
@@ -106,9 +106,9 @@ def test_migrate_cards_empty_plaintext_skips_csv_emit(
     # The migrator now refuses to emit a header-only CSV when nothing
     # decrypted — the user shouldn't be tricked into importing an empty
     # file thinking they "lost" all their cards.
-    assert not (out_dir / "saved_cards.csv").exists()
+    assert not (out_dir / "saved-cards.csv").exists()
     # No orphaned tempfile from the atomic helper.
-    assert not list(out_dir.glob(".saved_cards.csv.foxport-*"))
+    assert not list(out_dir.glob(".saved-cards.csv.foxport-*"))
 
 
 def test_migrate_cards_dry_run_writes_nothing(
@@ -121,6 +121,6 @@ def test_migrate_cards_dry_run_writes_nothing(
 
     result = migrate_cards(fake_chromium_profile, out_dir, dry_run=True)
 
-    assert result.csv_path.name == "saved_cards.csv"
+    assert result.csv_path.name == "saved-cards.csv"
     # Dry-run never writes anything on disk.
     assert not result.csv_path.exists()

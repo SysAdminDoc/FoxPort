@@ -144,22 +144,35 @@ def load_master_key_linux(browser_display: str) -> ChromiumKeyV10:
     return derive_key(_linux_secret_password(browser_display), _ITERATIONS_LINUX)
 
 
-def decrypt_value_v10(blob: bytes, key: ChromiumKeyV10) -> str:
-    """Decrypt a macOS / Linux v10 (AES-128-CBC) blob into UTF-8.
+def decrypt_value_v10_bytes(blob: bytes, key: ChromiumKeyV10) -> bytes:
+    """Decrypt a macOS / Linux v10 (AES-128-CBC) blob into raw bytes.
+
+    Returns the bytes-after-padding-strip. Callers that want a string
+    should use :func:`decrypt_value_v10` instead. The bytes form exists
+    so the cookies migrator can strip a binary prefix BEFORE UTF-8
+    decoding (see ``foxport.crypto.dpapi.decrypt_value_bytes`` for the
+    Windows GCM counterpart and the rationale).
 
     Blobs missing the ``v10`` prefix are returned as-is (legacy plaintext,
     e.g. Chrome 79 and earlier on Linux without keyring).
     """
+
     if not blob:
-        return ""
+        return b""
     if blob[:3] != b"v10":
-        try:
-            return blob.decode("utf-8", errors="replace")
-        except UnicodeDecodeError:
-            return ""
+        return blob
     cipher = Cipher(algorithms.AES(key.key), modes.CBC(_IV), backend=default_backend())
     decryptor = cipher.decryptor()
     raw = decryptor.update(blob[3:]) + decryptor.finalize()
     unpadder = padding.PKCS7(128).unpadder()
-    plaintext = unpadder.update(raw) + unpadder.finalize()
-    return plaintext.decode("utf-8", errors="replace")
+    return unpadder.update(raw) + unpadder.finalize()
+
+
+def decrypt_value_v10(blob: bytes, key: ChromiumKeyV10) -> str:
+    """Decrypt a macOS / Linux v10 (AES-128-CBC) blob into UTF-8.
+
+    Convenience wrapper around :func:`decrypt_value_v10_bytes`. Blobs
+    missing the ``v10`` prefix are returned as-is (legacy plaintext,
+    e.g. Chrome 79 and earlier on Linux without keyring).
+    """
+    return decrypt_value_v10_bytes(blob, key).decode("utf-8", errors="replace")

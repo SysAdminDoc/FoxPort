@@ -128,6 +128,17 @@ def _encrypt_bundle(inner: bytes, passphrase: str) -> bytes:
 
 
 def _decrypt_bundle(blob: bytes, passphrase: str) -> bytes:
+    """Decrypt an encrypted ``.fxport`` blob.
+
+    Translates :class:`cryptography.exceptions.InvalidTag` into a plain
+    :class:`ValueError` so CLI / GUI consumers get a friendly
+    "wrong passphrase or corrupted bundle" message instead of a raw
+    crypto traceback. Other failure modes (truncated header, bad
+    iteration count) already raise ``struct.error`` → ``ValueError``
+    via the caller's catch-all.
+    """
+
+    from cryptography.exceptions import InvalidTag
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -135,13 +146,18 @@ def _decrypt_bundle(blob: bytes, passphrase: str) -> bytes:
     if not blob.startswith(_MAGIC_ENCRYPTED):
         raise ValueError("not a FoxPort encrypted snapshot")
     offset = _MAGIC_ENCRYPTED_LEN
-    (iterations,) = struct.unpack_from("<I", blob, offset)
+    try:
+        (iterations,) = struct.unpack_from("<I", blob, offset)
+    except struct.error as exc:
+        raise ValueError(f"truncated encrypted bundle header: {exc}") from exc
     offset += 4
     salt = blob[offset: offset + _SALT_LEN]
     offset += _SALT_LEN
     nonce = blob[offset: offset + _NONCE_LEN]
     offset += _NONCE_LEN
     ct = blob[offset:]
+    if len(salt) != _SALT_LEN or len(nonce) != _NONCE_LEN or not ct:
+        raise ValueError("encrypted bundle is truncated or malformed")
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
@@ -150,7 +166,13 @@ def _decrypt_bundle(blob: bytes, passphrase: str) -> bytes:
     )
     key = kdf.derive(passphrase.encode("utf-8"))
     aes = AESGCM(key)
-    return aes.decrypt(nonce, ct, _MAGIC_ENCRYPTED)
+    try:
+        return aes.decrypt(nonce, ct, _MAGIC_ENCRYPTED)
+    except InvalidTag as exc:
+        # Wrong passphrase, tampered bundle, or wrong AEAD associated data.
+        raise ValueError(
+            "snapshot decryption failed — wrong passphrase or corrupted bundle"
+        ) from exc
 
 
 def create_snapshot(
