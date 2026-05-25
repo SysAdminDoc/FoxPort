@@ -85,6 +85,27 @@ hardens the surfaces that the v1.3 GUI and release work will land on.
   button generation order, signal closure binding, reset cleanup,
   and failure-state action hiding.
 
+### Open-tabs partial-success warning (Phase D)
+- `migrate/open_tabs._extract_urls()` always computes the UTF-8 regex
+  fallback now and takes the union when the structural Pickle parser
+  returns less than half of what the regex would have returned. A
+  "schema drift" warning is appended to the failures list so the GUI
+  log and the run manifest can surface it. The pure-fallback path
+  (structural returns zero) is unchanged.
+- `tests/migrate/test_open_tabs_partial_success.py` — 3 tests pinning
+  the happy path (structural alone), the partial-success branch
+  (union + warning), and the regex-only branch.
+
+### Reverse curated-map auditor (Phase D)
+- `scripts/check_curated_map.py --include-reverse` walks the
+  hand-curated `AMO_GUID_TO_CHROME` table used by `migrate-reverse`,
+  URL-encodes each GUID, and queries the AMO detail endpoint. Broken
+  / disabled reverse entries exit non-zero just like forward ones.
+- The monthly `curated-map-audit.yml` workflow passes the flag and
+  the issue body now contains separate "Forward" and "Reverse"
+  tables. The JSON report shape is `{"forward": ..., "reverse": ...}`
+  with backward-compat for v1.2-era flat reports.
+
 ### Regression tests for the gaps the v1.3 audit found
 - `tests/migrate/test_downloads.py` — 4 tests for the CSV shape, the
   state-label mapping (0 = in_progress, 1 = complete, etc.),

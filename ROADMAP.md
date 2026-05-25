@@ -109,9 +109,21 @@ for the full list.
       explains the 1Password / Bitwarden importer expectations.
       Dedicated `tests/migrate/test_cards.py` covers the new shape +
       atomic write.
-- [ ] **P2** Open-tabs partial-success sanity check — log + fall back to
-      regex when structural parser yields suspiciously few URLs.
-- [ ] **P2** Reverse curated-map auditor in the monthly cron workflow.
+- [x] **P2** Open-tabs partial-success sanity check. `_extract_urls()`
+      always computes the regex fallback now and takes the union when
+      the structural parser returns < 50 % of what the regex finds,
+      logging a "schema drift" warning to the failures list so the
+      GUI/CLI surfaces it. Prevents the silent-undercount bug where a
+      new Chrome SNSS layout leaves us with 2 of 40 tabs and no flag.
+      `tests/migrate/test_open_tabs_partial_success.py` (3 tests) pins
+      happy-path / partial-success / pure-fallback.
+- [x] **P2** Reverse curated-map auditor. `scripts/check_curated_map.py
+      --include-reverse` walks every entry in `AMO_GUID_TO_CHROME` and
+      hits the AMO detail endpoint by URL-encoded GUID. The monthly
+      cron workflow passes the flag and reports broken / disabled
+      reverse entries in a separate table within the auto-filed issue.
+      Forward-compatible JSON output (`{"forward": ..., "reverse": ...}`)
+      with a fallback for v1.2-era flat reports.
 - [x] **P2** Documentation refresh — curated count 63 → 67, README
       "Security notes" rewritten to mention HIBP + manifest.json +
       atomic direct-write + NSS version guard, `firefox.py` docstring

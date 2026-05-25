@@ -157,9 +157,28 @@ def _scan_urls_utf8(data: bytes) -> list[str]:
     return list(seen)
 
 
-def _extract_urls(data: bytes) -> list[str]:
+# When the structural Pickle parser returns suspiciously few URLs compared
+# to the UTF-8 regex fallback, we want to log a warning AND take the union
+# instead of trusting the structural parse alone. Chrome SNSS schema drift
+# (new command IDs, payload layout tweaks) silently shrinks structural hits
+# in real-world profiles; before this guard, partial-success with wrong
+# results was undetectable and the user lost tabs.
+_PARTIAL_SUCCESS_RATIO = 0.5
+
+
+def _extract_urls(
+    data: bytes,
+    failures: list[str] | None = None,
+) -> list[str]:
     """Walk SNSS commands, extract URLs from navigation Pickles, fall back to
-    UTF-8 regex scanning when the structural parser finds nothing."""
+    UTF-8 regex scanning when the structural parser finds nothing.
+
+    When the structural parser returns *some* URLs but the regex fallback
+    would have returned substantially more, log a warning into ``failures``
+    and take the union. This catches the silent-undercount case where a
+    new Chrome version drifted the navigation-command layout enough that
+    we miss most tabs but still return a couple.
+    """
     seen: dict[str, None] = {}
     for command_id, payload in _iter_snss_commands(data):
         if command_id not in _NAVIGATION_COMMAND_IDS:
@@ -167,10 +186,33 @@ def _extract_urls(data: bytes) -> list[str]:
         url = _extract_url_from_navigation_payload(payload)
         if url and not is_browser_internal_url(url):
             seen.setdefault(url, None)
-    if seen:
-        return list(seen)
-    # Fallback: regex scan the whole file.
-    return _scan_urls_utf8(data)
+    structural = list(seen)
+
+    # Always compute the regex fallback so we can sanity-check the
+    # structural result. The regex is cheap relative to the disk read.
+    regex_urls = _scan_urls_utf8(data)
+    if not structural:
+        return regex_urls
+
+    # Take the union when the regex would return materially more URLs than
+    # the structural parser. The threshold has to be loose enough that a
+    # handful of false positives in the regex (e.g. URL-like ad-blocker
+    # config fragments) don't drown out a healthy structural parse, but
+    # tight enough that "structural found 2, regex found 40" is caught.
+    if len(structural) < len(regex_urls) * _PARTIAL_SUCCESS_RATIO:
+        if failures is not None:
+            failures.append(
+                f"SNSS structural parser returned {len(structural)} URL(s) "
+                f"but the regex fallback would have returned {len(regex_urls)}; "
+                "taking the union. Likely Chrome SNSS schema drift — "
+                "the curated Pickle layout may need an update."
+            )
+        # Union (dedup) so we recover the tabs we'd otherwise drop.
+        union: dict[str, None] = {u: None for u in structural}
+        for u in regex_urls:
+            union.setdefault(u, None)
+        return list(union)
+    return structural
 
 
 def _build_session_json(urls: list[str]) -> bytes:
@@ -233,7 +275,7 @@ def migrate_open_tabs(
         except OSError as exc:
             failures.append(f"read {snss.name}: {exc}")
             continue
-        for url in _extract_urls(raw):
+        for url in _extract_urls(raw, failures=failures):
             all_urls.setdefault(url, None)
 
     urls = list(all_urls)

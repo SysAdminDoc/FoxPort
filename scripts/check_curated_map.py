@@ -66,6 +66,63 @@ def _check_slug(session: requests.Session, slug: str) -> dict:
     }
 
 
+def _audit_reverse_map(session: requests.Session, sleep: float) -> tuple[list[tuple[str, str]], dict]:
+    """Audit the hand-curated AMO-GUID -> Chrome-ID table used by reverse mode.
+
+    Returns ``(broken_entries, results_by_guid)``. An entry is broken when
+    the AMO detail endpoint returns 404 or marks ``is_disabled=true`` for
+    the GUID. Network errors are not treated as broken so a flaky run
+    doesn't paper over real removals.
+    """
+
+    from foxport.migrate_reverse.extensions import AMO_GUID_TO_CHROME
+
+    results: dict[str, dict] = {}
+    broken: list[tuple[str, str]] = []
+    detail_by_guid = f"{_AMO_DETAIL}"
+    print(f"Auditing {len(AMO_GUID_TO_CHROME)} reverse-map GUIDs against AMO...")
+    for i, (guid, chrome_id) in enumerate(sorted(AMO_GUID_TO_CHROME.items())):
+        # AMO's detail endpoint accepts a GUID (URL-encoded) in the slug
+        # position. The forward auditor uses slugs; for reverse we use
+        # GUIDs because the curated table is keyed on them.
+        from urllib.parse import quote
+        encoded = quote(guid, safe="")
+        try:
+            resp = session.get(f"{detail_by_guid}/{encoded}/", timeout=10)
+        except requests.RequestException as exc:
+            results[guid] = {"chrome_id": chrome_id, "status": "network-error",
+                              "error": str(exc)}
+            continue
+        if resp.status_code == 404:
+            results[guid] = {"chrome_id": chrome_id, "status": "404"}
+            broken.append((guid, "404"))
+            print(f"  [BROKEN] guid={guid} -> chrome={chrome_id}: 404")
+        elif resp.status_code != 200:
+            results[guid] = {"chrome_id": chrome_id,
+                              "status": f"http-{resp.status_code}"}
+        else:
+            try:
+                data = resp.json()
+            except ValueError:
+                results[guid] = {"chrome_id": chrome_id, "status": "non-json"}
+                continue
+            is_disabled = bool(data.get("is_disabled", False))
+            results[guid] = {
+                "chrome_id": chrome_id,
+                "status": "ok",
+                "is_disabled": is_disabled,
+                "slug": data.get("slug"),
+                "users": data.get("average_daily_users"),
+            }
+            if is_disabled:
+                broken.append((guid, "is_disabled"))
+                print(f"  [DISABLED] guid={guid}: AMO marks is_disabled=true")
+        if (i + 1) % 5 == 0:
+            print(f"  ... {i + 1}/{len(AMO_GUID_TO_CHROME)} reverse-map entries checked")
+        time.sleep(sleep)
+    return broken, results
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", type=Path,
@@ -76,6 +133,10 @@ def main() -> int:
                         help="Exit non-zero if any entry is stale (default: stale is informational)")
     parser.add_argument("--sleep", type=float, default=0.5,
                         help="Seconds between AMO requests to avoid rate limiting (default 0.5)")
+    parser.add_argument("--include-reverse", action="store_true",
+                        help="Also audit the AMO-GUID -> Chrome-ID reverse table used by "
+                             "migrate-reverse. A broken reverse entry exits non-zero just like "
+                             "a broken forward entry.")
     args = parser.parse_args()
 
     map_path = data_file("curated_extension_map.json")
@@ -117,14 +178,26 @@ def main() -> int:
             print(f"  ... {i + 1}/{len(flat)} checked")
         time.sleep(args.sleep)
 
+    reverse_broken: list[tuple[str, str]] = []
+    reverse_results: dict[str, dict] = {}
+    if args.include_reverse:
+        print()
+        reverse_broken, reverse_results = _audit_reverse_map(session, args.sleep)
+
     if args.json:
         args.json.parent.mkdir(parents=True, exist_ok=True)
-        args.json.write_text(json.dumps(results, indent=2), encoding="utf-8")
+        payload = {"forward": results}
+        if args.include_reverse:
+            payload["reverse"] = reverse_results
+        args.json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         print(f"Report written to {args.json}")
 
     print()
-    print(f"Summary: {len(flat)} total, {len(broken)} broken/disabled, {len(stale)} stale (>{args.stale_months} months)")
-    if broken:
+    print(f"Forward summary: {len(flat)} total, {len(broken)} broken/disabled, "
+          f"{len(stale)} stale (>{args.stale_months} months)")
+    if args.include_reverse:
+        print(f"Reverse summary: {len(reverse_results)} total, {len(reverse_broken)} broken/disabled")
+    if broken or reverse_broken:
         return 1
     if stale and args.strict_stale:
         return 2

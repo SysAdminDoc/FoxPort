@@ -37,6 +37,10 @@ jobs:
           if [ "${{ inputs.strict_stale }}" = "true" ]; then
             flags+=("--strict-stale")
           fi
+          # --include-reverse audits the AMO_GUID -> Chrome ID table used
+          # by migrate-reverse; reverse direction degrades silently when
+          # GUIDs go missing on AMO so the monthly cron should catch it.
+          flags+=("--include-reverse")
           python scripts/check_curated_map.py --json audit.json ${flags[@]}
         continue-on-error: true
       - name: Upload audit report
@@ -52,20 +56,40 @@ jobs:
           script: |
             const fs = require('fs');
             const report = JSON.parse(fs.readFileSync('audit.json', 'utf8'));
-            const broken = Object.entries(report)
-                .filter(([_, info]) => info.status !== 'ok' || info.is_disabled);
-            const body = [
-              `The monthly AMO audit found ${broken.length} broken or disabled entries in the curated extension map.`,
+            // v1.3 split report into {forward: {...}, reverse: {...}}. Old
+            // reports (pre-1.3) used the flat shape; tolerate both so the
+            // workflow doesn't fail to file an issue on a partial rollout.
+            const forward = report.forward || report;
+            const reverse = report.reverse || {};
+            const brokenForward = Object.entries(forward)
+                .filter(([_, info]) => info && (info.status !== 'ok' || info.is_disabled));
+            const brokenReverse = Object.entries(reverse)
+                .filter(([_, info]) => info && (info.status !== 'ok' || info.is_disabled));
+            const lines = [
+              `The monthly AMO audit found ${brokenForward.length} broken / disabled forward entries and ${brokenReverse.length} broken / disabled reverse entries.`,
               '',
-              '| Chrome ID | Slug | Status |',
-              '|---|---|---|',
-              ...broken.map(([id, info]) =>
-                  `| \`${id}\` | \`${info.slug}\` | ${info.is_disabled ? 'is_disabled' : info.status} |`),
-            ].join('\n');
+            ];
+            if (brokenForward.length) {
+              lines.push('## Forward (Chrome ID -> AMO slug)', '',
+                '| Chrome ID | Slug | Status |',
+                '|---|---|---|');
+              for (const [id, info] of brokenForward) {
+                lines.push(`| \`${id}\` | \`${info.slug}\` | ${info.is_disabled ? 'is_disabled' : info.status} |`);
+              }
+              lines.push('');
+            }
+            if (brokenReverse.length) {
+              lines.push('## Reverse (AMO GUID -> Chrome ID)', '',
+                '| AMO GUID | Chrome ID | Status |',
+                '|---|---|---|');
+              for (const [guid, info] of brokenReverse) {
+                lines.push(`| \`${guid}\` | \`${info.chrome_id}\` | ${info.is_disabled ? 'is_disabled' : info.status} |`);
+              }
+            }
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
               title: `Curated extension map audit ${new Date().toISOString().slice(0,10)}`,
-              body,
+              body: lines.join('\n'),
               labels: ['curated-map'],
             });
