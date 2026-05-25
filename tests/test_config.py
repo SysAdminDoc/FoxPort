@@ -2,7 +2,13 @@
 
 import json
 
-from foxport.config import Settings, load_settings, save_settings, config_path
+from foxport.config import (
+    Settings,
+    config_path,
+    load_settings,
+    reset_to_defaults,
+    save_settings,
+)
 
 
 def test_defaults_round_trip(tmp_path, monkeypatch):
@@ -55,3 +61,29 @@ def test_unknown_keys_are_ignored(tmp_path, monkeypatch):
     )
     loaded = load_settings()
     assert loaded.hibp_scan_default is True
+
+
+def test_nss_path_override_round_trip(tmp_path, monkeypatch):
+    monkeypatch.setattr("foxport.config.config_dir", lambda: tmp_path)
+    s = Settings(nss_path_override="C:/Portable Firefox/nss3.dll")
+    save_settings(s)
+    loaded = load_settings()
+    assert loaded.nss_path_override == "C:/Portable Firefox/nss3.dll"
+
+
+def test_reset_to_defaults_overwrites_persisted_values(tmp_path, monkeypatch):
+    monkeypatch.setattr("foxport.config.config_dir", lambda: tmp_path)
+    custom = Settings(
+        output_dir="/tmp/custom",
+        hibp_scan_default=True,
+        nss_path_override="/opt/firefox/libnss3.so",
+    )
+    save_settings(custom)
+    assert load_settings() == custom
+
+    reset = reset_to_defaults()
+    # Returned settings are the v1.3 defaults.
+    assert reset == Settings()
+    # And were persisted — a subsequent load gets the same defaults, not the
+    # custom values we just clobbered.
+    assert load_settings() == Settings()

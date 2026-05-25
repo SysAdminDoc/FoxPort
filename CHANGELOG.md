@@ -85,6 +85,25 @@ hardens the surfaces that the v1.3 GUI and release work will land on.
   button generation order, signal closure binding, reset cleanup,
   and failure-state action hiding.
 
+### Settings + Help menu polish (Phase D)
+- `Settings.nss_path_override` — new persisted field surfaced in a new
+  Settings dialog "Advanced" section with a file picker scoped to
+  `nss3.dll` / `libnss3.dylib` / `libnss3.so`. The override joins
+  `crypto/nss.find_nss()`'s search order: env var > config > default
+  install list. Portable Firefox users no longer have to discover
+  `FOXPORT_NSS_PATH`.
+- `Settings dialog "Reset to defaults"` button — calls a new
+  `foxport.config.reset_to_defaults()` helper that builds a fresh
+  Settings, persists it, and returns it. Lets a user who has
+  accumulated experimental toggles recover the v1.3 baseline without
+  manually editing the JSON file.
+- Help menu grew "View change log" (opens CHANGELOG.md alongside the
+  install — works for source checkouts AND a PyInstaller `_MEIPASS`
+  bundle) and "Report a problem (GitHub)" (opens the issue tracker
+  via the user's default browser).
+- `tests/test_config.py` — 2 new tests for the override round-trip
+  and the reset-to-defaults persistence behavior. 151 tests pass.
+
 ### Open-tabs partial-success warning (Phase D)
 - `migrate/open_tabs._extract_urls()` always computes the UTF-8 regex
   fallback now and takes the union when the structural Pickle parser

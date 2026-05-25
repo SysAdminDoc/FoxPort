@@ -138,7 +138,19 @@ _NSS_SEARCH_LINUX = [
 
 
 def find_nss() -> Path | None:
-    """Return the first Firefox-shipped NSS library we can find, or None."""
+    """Return the first Firefox-shipped NSS library we can find, or None.
+
+    Search order (first match wins):
+
+    1. ``FOXPORT_NSS_PATH`` env var — power-user pin that survives even if
+       the persisted config is later cleared.
+    2. ``Settings.nss_path_override`` from the user's config.json — the
+       Settings dialog writes here when the user picks a portable Firefox
+       install. Cheap fail-open: any import / IO error here drops back to
+       the default search list rather than blocking decryption.
+    3. The per-platform default install list (``_NSS_SEARCH_WIN`` etc.).
+    """
+
     if sys.platform == "win32":
         candidates: list[str] = list(_NSS_SEARCH_WIN)
     elif sys.platform == "darwin":
@@ -147,10 +159,20 @@ def find_nss() -> Path | None:
         candidates = list(_NSS_SEARCH_LINUX)
     else:
         return None
-    # Allow override via env var for advanced users / portable installs.
-    override = os.environ.get("FOXPORT_NSS_PATH")
-    if override:
-        candidates.insert(0, override)
+    # Config-file override (Settings dialog). Wrapped in try/except because
+    # crypto modules must keep working even if foxport.config can't import
+    # for some reason — e.g. partial install.
+    try:
+        from foxport.config import load_settings  # local import to avoid cycle
+        settings_override = load_settings().nss_path_override.strip()
+    except Exception:  # noqa: BLE001 — defensive fall-back
+        settings_override = ""
+    if settings_override:
+        candidates.insert(0, settings_override)
+    # Env-var override wins over config so power users can pin temporarily.
+    env_override = os.environ.get("FOXPORT_NSS_PATH")
+    if env_override:
+        candidates.insert(0, env_override)
     for candidate in candidates:
         path = Path(candidate)
         if path.is_file():

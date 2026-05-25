@@ -130,7 +130,14 @@ for the full list.
       reflects direct-write reality, CLAUDE.md curated count synced.
       Screenshot refresh remains pending until the v1.3 Items + Run
       polish UI stabilizes (separate iteration on the polish branch).
-- [ ] **P2** Settings: NSS path override + Reset-to-defaults.
+- [x] **P2** Settings: NSS path override + Reset-to-defaults.
+      `Settings.nss_path_override` joins the search order in
+      `crypto/nss.find_nss()` (env var > config > default search list).
+      The Settings dialog grew an Advanced section with a file-picker
+      for the override and a Reset-to-defaults button calling
+      `reset_to_defaults()`. Help menu adds "View change log" (opens
+      CHANGELOG.md alongside the install) and "Report a problem
+      (GitHub)" (opens the issue tracker).
 - [ ] **P2** Done "Reveal backups" action.
 - [ ] **P2** Downloads direct-write into Firefox `moz_annos` when history
       direct-write is selected.
@@ -142,8 +149,9 @@ for the full list.
 - [ ] **P3** Passkey inventory CXF prototype.
 - [ ] **P3** Extension settings allowlist (uBlock Origin filter lists,
       Stylus userstyles).
-- [ ] **P3** Help menu affordances (Open documentation, Report a problem,
-      Change log).
+- [x] **P3** Help menu affordances — Change log + Report a problem
+      shipped alongside the Settings polish. Open documentation deferred
+      until the v1.3 docs/ subdir is restructured.
 - [ ] **P3** Curated map hot-reload + in-run AMO cache.
 - [ ] **P3** macOS / Linux distribution path (PyInstaller per OS;
       signed/notarized macOS; AppImage or `.deb` on Linux).

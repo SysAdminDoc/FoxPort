@@ -33,6 +33,25 @@ class Settings:
     hibp_scan_default: bool = False
     telemetry_opt_in: bool = False           # for the v1.3 Glean wiring
     crash_reporting_opt_in: bool = False     # for the v1.3 Sentry wiring
+    # Empty string = autodetect via foxport.crypto.nss.find_nss().
+    # When set, overrides the per-platform search list — useful for
+    # portable Firefox installs that aren't in the standard paths. The
+    # FOXPORT_NSS_PATH env var still takes precedence over this field
+    # so power users can pin a value without changing their config.
+    nss_path_override: str = ""
+
+
+def reset_to_defaults() -> Settings:
+    """Construct a fresh ``Settings`` instance and persist it.
+
+    Used by the Settings dialog's "Reset to defaults" button so a user who
+    has accumulated experimental toggles can recover the v1.3 defaults
+    without manually editing the JSON file.
+    """
+
+    settings = Settings()
+    save_settings(settings)
+    return settings
 
 
 def config_dir() -> Path:

@@ -34,7 +34,12 @@ from foxport.browsers.chromium import (
     read_password_rows,
 )
 from foxport.browsers.detect import ChromiumProfile
-from foxport.config import Settings, config_path, save_settings
+from foxport.config import (
+    Settings,
+    config_path,
+    reset_to_defaults,
+    save_settings,
+)
 from foxport.crypto.dpapi import decrypt_value, load_master_key
 
 from PyQt6.QtWidgets import QFileDialog, QInputDialog
@@ -564,6 +569,44 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(privacy_card)
 
+        # Advanced section — surfaces the NSS path override (previously only
+        # available as the FOXPORT_NSS_PATH env var) plus the Reset action.
+        advanced_label = QLabel("Advanced")
+        advanced_label.setObjectName("SectionLabel")
+        layout.addWidget(advanced_label)
+
+        advanced_card = QFrame()
+        advanced_card.setObjectName("Card")
+        advanced_layout = QVBoxLayout(advanced_card)
+        advanced_layout.setContentsMargins(16, 14, 16, 14)
+        advanced_layout.setSpacing(10)
+
+        nss_help = QLabel(
+            "Path to a portable Firefox's nss3.dll / libnss3.dylib / libnss3.so. "
+            "Leave blank to autodetect from the standard install locations. "
+            "The FOXPORT_NSS_PATH environment variable always overrides this field."
+        )
+        nss_help.setStyleSheet("color: #a6adc8;")
+        nss_help.setWordWrap(True)
+        advanced_layout.addWidget(nss_help)
+
+        nss_row = QHBoxLayout()
+        nss_row.addWidget(QLabel("NSS path:"))
+        self._nss_edit = QLineEdit(settings.nss_path_override or "")
+        self._nss_edit.setPlaceholderText("(autodetect)")
+        nss_row.addWidget(self._nss_edit, 1)
+        nss_btn = QPushButton("Choose…")
+        nss_btn.clicked.connect(self._pick_nss)  # type: ignore[arg-type]
+        nss_row.addWidget(nss_btn)
+        advanced_layout.addLayout(nss_row)
+
+        reset_btn = QPushButton("Reset to defaults")
+        reset_btn.setObjectName("QuietButton")
+        reset_btn.clicked.connect(self._reset)  # type: ignore[arg-type]
+        advanced_layout.addWidget(reset_btn)
+
+        layout.addWidget(advanced_card)
+
         layout.addStretch(1)
 
         buttons = QDialogButtonBox(
@@ -580,12 +623,44 @@ class SettingsDialog(QDialog):
         if chosen:
             self._out_edit.setText(chosen)
 
+    def _pick_nss(self) -> None:
+        """File picker scoped to ``nss3`` library files for the target browser.
+
+        The picker filter lets the user spot the right file inside a
+        portable Firefox install; it doesn't validate that the chosen file
+        is actually an NSS library (that happens at session-open time via
+        the version guard).
+        """
+
+        from pathlib import Path
+        start = self._nss_edit.text() or str(Path.home())
+        chosen, _ = QFileDialog.getOpenFileName(
+            self, "Pick nss3 library",
+            start,
+            "NSS library (nss3.dll libnss3.dylib libnss3.so);;All files (*)",
+        )
+        if chosen:
+            self._nss_edit.setText(chosen)
+
+    def _reset(self) -> None:
+        """Replace the current Settings with the v1.3 defaults + persist.
+
+        Closes the dialog with ``Accepted`` so the caller picks up the new
+        Settings via :meth:`settings`. Configurations the user has built
+        up over time (HIBP defaults, output dirs, NSS overrides) all
+        return to factory values.
+        """
+
+        self._settings = reset_to_defaults()
+        self.accept()
+
     def _save(self) -> None:
         self._settings.output_dir = self._out_edit.text().strip()
         self._settings.mask_passwords_in_preview = self._mask_cb.isChecked()
         self._settings.allow_online_amo_lookup = self._amo_cb.isChecked()
         self._settings.default_dry_run = self._dry_cb.isChecked()
         self._settings.hibp_scan_default = self._hibp_cb.isChecked()
+        self._settings.nss_path_override = self._nss_edit.text().strip()
         # Future flags persist current value (disabled checkbox doesn't change it).
         save_settings(self._settings)
         self.accept()

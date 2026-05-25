@@ -136,7 +136,19 @@ class MainWindow(QMainWindow):
         quit_act = QAction("Quit", self)
         quit_act.triggered.connect(self.close)
         file_menu.addAction(quit_act)
+
         help_menu = menu.addMenu("&Help")
+        # "View change log" — opens the repo CHANGELOG.md so the user can
+        # see what's new since their last run without leaving the app.
+        # We resolve the path from the foxport package so a PyInstaller
+        # bundle finds it inside the unpacked _MEIPASS dir.
+        changelog_act = QAction("View change log", self)
+        changelog_act.triggered.connect(self._open_changelog)
+        help_menu.addAction(changelog_act)
+        report_act = QAction("Report a problem (GitHub)", self)
+        report_act.triggered.connect(self._open_issue_tracker)
+        help_menu.addAction(report_act)
+        help_menu.addSeparator()
         about = QAction("About FoxPort", self)
         about.triggered.connect(self._about)
         help_menu.addAction(about)
@@ -430,6 +442,39 @@ class MainWindow(QMainWindow):
                 subprocess.Popen(["xdg-open", str(path.parent)])
         except OSError as exc:
             QMessageBox.warning(self, "FoxPort", f"Could not reveal {path}:\n{exc}")
+
+    def _open_changelog(self) -> None:
+        """Open CHANGELOG.md in the registered OS handler.
+
+        Tries the development repo location first (one level up from the
+        installed package), then falls back to the bundled CHANGELOG that
+        PyInstaller drops alongside the executable. Falls open with a
+        QMessageBox if neither is reachable.
+        """
+
+        from foxport import __file__ as _foxport_init
+
+        package_dir = Path(_foxport_init).resolve().parent
+        candidates = [
+            package_dir.parent / "CHANGELOG.md",
+            package_dir / "CHANGELOG.md",
+            Path(getattr(sys, "_MEIPASS", "")) / "CHANGELOG.md" if hasattr(sys, "_MEIPASS") else Path(),
+        ]
+        for path in candidates:
+            if path and path.is_file():
+                self._open_path(path)
+                return
+        QMessageBox.information(
+            self, "FoxPort",
+            "Could not locate CHANGELOG.md alongside this install.\n"
+            "See https://github.com/SysAdminDoc/FoxPort/blob/main/CHANGELOG.md",
+        )
+
+    def _open_issue_tracker(self) -> None:
+        """Open the GitHub issue tracker in the user's default browser."""
+
+        import webbrowser
+        webbrowser.open("https://github.com/SysAdminDoc/FoxPort/issues/new")
 
     def _about(self) -> None:
         QMessageBox.about(
