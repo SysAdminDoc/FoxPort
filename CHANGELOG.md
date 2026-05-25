@@ -4,11 +4,13 @@ All notable changes to FoxPort are documented here. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/), versioning per
 [SemVer](https://semver.org/).
 
-## [Unreleased] — v1.3.1 (in progress, 2026-05-25)
+## [Unreleased]
 
-Audit-batch regressions caught by the 2026-05-25 research pass. Three
-real bugs the v1.3.0 doc/code work left behind plus an auditor self-check
-that prevents the curated-map drift recurring.
+## [1.3.1] — 2026-05-25
+
+Six commits closing the audit regressions the post-v1.3.0 research
+pass surfaced, plus the curated-map cleanup that removed seven dead
+AMO slugs surfaced by a live audit on the same day.
 
 ### Fixed
 - **Curated-map doc drift (63 vs 67)** — README, CLAUDE.md, and the
@@ -34,6 +36,22 @@ that prevents the curated-map drift recurring.
   small `OpenTabsDirectWriteResult` with both paths; worker wires
   the backup the same way it does for cookies/history. New regression
   test in `tests/migrate/test_open_tabs.py`.
+
+### Removed
+- **Seven dead curated-map entries.** `python scripts/check_curated_map.py`
+  reported live AMO breakage for: `vpn_proxy/touch-vpn` (401),
+  `shopping_coupons/rakuten` (404), `ai_assistants/perplexity-companion`
+  (404), `ad_tracker_privacy/i-still-dont-care-about-cookies` (404),
+  `github_dev_workflow/zotero-connector` (401),
+  `github_dev_workflow/bukubrow` (404), and `vpn_proxy/browsec-vpn`
+  (401). A curated 404 in `extensions.html` is strictly worse than no
+  curated match (the AMO search fallback still runs for unmapped IDs),
+  so those entries are dropped. `_meta.entry_count` 63 → 56;
+  `_meta.last_verified` refreshed; `_meta.description` documents the
+  "drop on 404/401" policy so future maintainers don't re-add and
+  re-break the same rows.
+- **`foxport/__init__.py:__version__`** bumped 1.3.0 → 1.3.1. CLI +
+  AMO/HIBP User-Agent strings now report the truthful version.
 
 ### Added
 - **`foxport/migrate/conflicts.analyze_open_tabs()`** — pre-flight count

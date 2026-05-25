@@ -13,26 +13,25 @@ is the to-do list and nothing else.
 
 ---
 
-## v1.3.1 — Audit-batch regressions  🚧 in progress
+## v1.3.1 — Audit-batch regressions + curated cleanup  ✅ shipped 2026-05-25
 
-Phase A of the post-v1.3.0 plan. Three real bugs the v1.3 audit pass left
-behind plus a doc refresh.
+Six commits closed Phase A of the post-v1.3.0 plan. Three regressions
+the v1.3 audit pass left behind plus the open-tabs pre-flight, the
+restore-inspect inner-manifest read, HIBP tri-state, CLI --json on every
+action subcommand, atomic-replace failure recovery tests, the curated-
+map cleanup that removed 7 broken AMO slugs (63 → 56), and the version
+bump. See CHANGELOG.md.
 
-- [ ] **P1** Fix curated-map documentation drift (63 vs 67)
-      Docs claim 67 entries; `load_curated_map()` returns 63. Either grow
-      the map to 67 (real AMO-verified slugs) or revert the docs to 63.
-      Add `_meta.entry_count` so the auditor catches drift next time.
-- [ ] **P1** Fix `extensions.py` hardcoded User-Agent
-      Mirror `crypto/hibp.py:32`'s pattern: `f"FoxPort/{__version__} (...)"`.
-      Touches `foxport/migrate/extensions.py:44`.
-- [ ] **P1** Fix open-tabs direct-write backup path emission
-      `write_session_into_target()` creates `recovery.foxport-backup-*.jsonlz4`
-      but returns only the target path. Worker can't surface a Reveal-backup
-      button. Change the return to a small dataclass with `target_path` +
-      `backup_path`; wire `direct_write_backups["open_tabs"]` in the worker.
-- [ ] **P2** Refresh CLAUDE.md status block to v1.3.0
-      Today says "v1.2.1 shipped 2026-05-24"; reality is v1.3.0 + 13
-      follow-on commits.
+- [x] **P1** Fix curated-map documentation drift (was 67 vs 63)
+- [x] **P1** Fix `extensions.py` hardcoded User-Agent
+- [x] **P1** Fix open-tabs direct-write backup path emission
+- [x] **P1** Curated-map cleanup — drop 7 broken AMO slugs
+      (touch-vpn, rakuten, perplexity-companion, i-still-dont-care-
+      about-cookies, zotero-connector, bukubrow, browsec-vpn).
+      `_meta.entry_count` 63 → 56; `_meta.last_verified` refreshed.
+      `_meta.description` documents the "drop on 404/401" policy.
+- [x] **P1** Bump `__version__` 1.3.0 → 1.3.1
+- [x] **P2** Refresh CLAUDE.md status block
 
 ## v1.3.2 — Distribution path  ⏸ blocked on cert + icon
 
