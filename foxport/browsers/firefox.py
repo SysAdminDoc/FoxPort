@@ -198,6 +198,8 @@ def import_instructions(profile, exports: dict[str, Path | str]) -> str:
             f"  File: {p('downloads')}",
             "  Firefox does not expose a stable native download-history import. Keep this CSV",
             "  as a portable reference for file names, source URLs, target paths, and timestamps.",
+            "  When Downloads are selected with history direct-write, matching rows are also",
+            "  annotated in the installed places.sqlite for Firefox's history/download views.",
             "",
         ])
     lines.append("Keep this folder until you have verified the import. FoxPort does not modify")

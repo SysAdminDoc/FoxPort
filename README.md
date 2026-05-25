@@ -215,10 +215,11 @@ in `RESEARCH_FEATURE_PLAN.md` plus a basket of P1/P2 trust + polish wins.
 | **Bookmarks** | `Bookmarks` JSON | Netscape HTML | Library (`Ctrl+Shift+O`) → Import Bookmarks from HTML |
 | **Extensions** | Profile `Extensions/<id>/<ver>/manifest.json` | HTML page of AMO install links | Open the HTML in Firefox, click each link |
 | **Cookies** | `Network/Cookies` SQLite + DPAPI key | Firefox `cookies.sqlite` (v17) | Close Firefox, back up existing, drop in |
-| **History** | `History` SQLite (`urls` + `visits`) | Firefox `places.sqlite` (v77) | Close Firefox, back up existing, drop in |
+| **History** | `History` SQLite (`urls` + `visits`) | Firefox `places.sqlite` (v77; includes matching download annotations when paired with history direct-write) | Close Firefox, back up existing, drop in |
 | **Form autofill** | `Web Data.autofill` SQLite | Firefox `formhistory.sqlite` | Close Firefox, back up existing, drop in |
 | **Saved cards** | `Web Data.credit_cards` + AES key | CSV (1Password import shape) | Firefox has no native store — import into a password manager |
 | **Search engines** | `Web Data.keywords` SQLite | OpenSearch XML per engine + JSON inventory | Open each XML in Firefox → Settings → Search → Add |
+| **Downloads** | `History.downloads` + `downloads_url_chains` | Portable CSV, plus Firefox `moz_annos` download metadata when history direct-write is applied | CSV is a reference artifact; direct-write makes matching rows visible in Firefox history/download surfaces |
 
 ---
 

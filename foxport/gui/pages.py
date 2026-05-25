@@ -599,8 +599,8 @@ class ItemsPage(WizardPage):
         self._open_tabs_row = self._make_row("open_tabs", "Open tabs",
             "Recover current session URLs into Firefox recovery.jsonlz4.",
             default_checked=False)
-        self._downloads_row = self._make_row("downloads", "Downloads (CSV)",
-            "Export download history with source URL, path, and completion time.",
+        self._downloads_row = self._make_row("downloads", "Downloads",
+            "Export CSV; history direct-write also annotates matching rows.",
             default_checked=False)
         for key in ("passwords", "bookmarks", "extensions", "cookies", "history",
                     "autofill", "cards", "search_engines", "open_tabs", "downloads"):
@@ -1123,7 +1123,7 @@ class PreviewPage(WizardPage):
                 ctx.counts["downloads"] = count
                 self._tree.addTopLevelItem(QTreeWidgetItem([
                     f"Downloads ({count:,})",
-                    "downloads.csv -> portable reference",
+                    "downloads.csv; history direct-write annotates matching rows",
                 ]))
 
         source_node.setExpanded(True)

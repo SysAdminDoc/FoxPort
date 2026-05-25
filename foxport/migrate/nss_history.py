@@ -49,12 +49,18 @@ def write_history_into_target(
     source: ChromiumProfile,
     target: FirefoxProfile,
     staging_dir: Path,
+    *,
+    include_download_annotations: bool = False,
 ) -> HistoryDirectWriteResult:
     if is_firefox_profile_locked(target):
         raise ProfileLockedError(
             f"target profile {target.label} is locked — close Firefox before importing"
         )
-    history_result = migrate_history(source, staging_dir)
+    history_result = migrate_history(
+        source,
+        staging_dir,
+        include_download_annotations=include_download_annotations,
+    )
     target_path = target.profile_dir / "places.sqlite"
 
     backup_path = timestamped_backup_path(target_path)

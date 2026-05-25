@@ -50,13 +50,14 @@ foxport/
 │   │                           #   tracks __version__
 │   ├── cookies.py              # writes cookies.sqlite (v17) from scratch; Chrome 130+
 │   │                           #   HOST_KEY prefix stripped in bytes-space
-│   ├── history.py              # writes places.sqlite (v86) from scratch
+│   ├── history.py              # writes places.sqlite (v86) from scratch; can add
+│   │                           #   download moz_annos when history direct-write applies
 │   ├── autofill.py             # writes formhistory.sqlite (v5) from scratch
 │   ├── cards.py                # saved-cards.csv (Firefox has no native card store)
 │   ├── search_engines.py       # OpenSearch XML per engine
 │   ├── open_tabs.py            # SNSS Pickle parser → recovery.jsonlz4; direct-write
 │   │                           #   returns OpenTabsDirectWriteResult(target, backup)
-│   ├── downloads.py            # downloads.csv
+│   ├── downloads.py            # downloads.csv reference artifact
 │   ├── conflicts.py            # NON-mutating pre-flight analyzers for the four
 │   │                           #   direct-write categories (passwords/cookies/history/
 │   │                           #   open_tabs). Counts source vs. target rows so the
@@ -125,9 +126,13 @@ foxport/
    torn write can't leave a half-finished artifact at the README-
    referenced path.
 9. Optional direct-write paths run after the artifact is produced —
-   they capture `timestamped_backup_path(target)` (via the shared
-   `foxport.fileops` helper), copy the existing file aside, and swap
-   the new one in atomically.
+    they capture `timestamped_backup_path(target)` (via the shared
+    `foxport.fileops` helper), copy the existing file aside, and swap
+    the new one in atomically. When Downloads and history direct-write
+    are both selected with `apply`, `migrate_history(...,
+    include_download_annotations=True)` also writes Firefox's
+    `downloads/destinationFileURI` + `downloads/metaData` annotations
+    into the generated `places.sqlite`.
 10. `MigrationWorker._write_run_manifest` writes `manifest.json` next
     to `README.txt`. Schema-versioned (`schema_version: 1`), records
     per-artifact path/size/sha256/sensitivity/count/direct_write/
@@ -165,13 +170,13 @@ BEFORE UTF-8 decoding.
     ├── extensions.html            # one-click AMO install page
     ├── extensions.json            # machine-readable
     ├── cookies.sqlite             # swap in to closed profile
-    ├── places.sqlite              # swap in to closed profile
+    ├── places.sqlite              # swap in to closed profile; may include download moz_annos
     ├── formhistory.sqlite         # swap in to closed profile
     ├── recovery.jsonlz4           # sessionstore-backups/
     ├── saved-cards.csv            # 1Password / Bitwarden import format
     ├── search-engines.json
     ├── search-engines/<slug>.xml  # one OpenSearch XML per engine
-    ├── downloads.csv
+    ├── downloads.csv              # portable download-history reference
     ├── README.txt                 # per-run import instructions
     └── manifest.json              # schema-versioned per-run registry
 ```

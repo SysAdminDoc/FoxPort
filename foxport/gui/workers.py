@@ -428,6 +428,11 @@ class MigrationWorker(QObject):
                     self.log.emit("Migrating history...")
                 history_result = migrate_history(
                     req.source, out_dir, dry_run=req.dry_run,
+                    include_download_annotations=(
+                        req.do_downloads
+                        and req.direct_write_history
+                        and req.policy_history == "apply"
+                    ),
                     date_from_us=req.history_date_from_us,
                     date_to_us=req.history_date_to_us,
                 )
@@ -477,7 +482,12 @@ class MigrationWorker(QObject):
                             self.log.emit(f"  Backup-only failed: {exc}")
                     else:
                         try:
-                            hdw = write_history_into_target(req.source, req.target, out_dir)
+                            hdw = write_history_into_target(
+                                req.source,
+                                req.target,
+                                out_dir,
+                                include_download_annotations=req.do_downloads,
+                            )
                         except ProfileLockedError as exc:
                             self.log.emit(f"  History direct-write aborted: {exc}")
                         else:
@@ -497,6 +507,11 @@ class MigrationWorker(QObject):
                                 f"  Wrote places.sqlite into {hdw.target_path}; "
                                 f"{places_note}.{favicons_note}"
                             )
+                            if hdw.written.downloads_annotated:
+                                self.log.emit(
+                                    f"  Annotated {hdw.written.downloads_annotated} "
+                                    "download(s) in places.sqlite."
+                                )
 
             if req.do_autofill:
                 current += 1

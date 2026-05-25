@@ -9,8 +9,10 @@ For the non-direct-write case we emit a **CSV** of downloads (filename,
 source URL, target path, size, mime type, completion time) the user can
 keep for reference or import into a download manager.
 
-Direct-write into ``places.sqlite.moz_annos`` is a v1.3 candidate that
-depends on the history migrator already running for the same target.
+When downloads are selected alongside history direct-write, the history
+migrator also annotates matching ``moz_places`` rows with Firefox's
+``downloads/destinationFileURI`` + ``downloads/metaData`` records. This
+module still emits the portable CSV as the audit/reference artifact.
 """
 
 from __future__ import annotations

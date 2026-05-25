@@ -108,6 +108,12 @@ Key tables (subset of what we populate):
 * `moz_historyvisits` — `(id, from_visit, place_id, visit_date,
   visit_type, session, source, triggeringPlaceId)` — at least one per
   place_id or Firefox's maintenance task expires the orphan place row.
+* `moz_anno_attributes` + `moz_annos` — present in every generated
+  `places.sqlite`; populated only when Downloads are selected with
+  history direct-write `apply`. FoxPort writes the Firefox download
+  annotations `downloads/destinationFileURI` (a `file://` URI) and
+  `downloads/metaData` (JSON with `state`, `endTime`, and `fileSize`)
+  for source URLs that match imported `moz_places` rows.
 
 ### `url_hash` algorithm
 

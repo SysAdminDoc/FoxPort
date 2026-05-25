@@ -197,10 +197,12 @@ the last P1 (conflict-review dialog) plus the P2/P3 follow-ons.
 
 ## v1.4 — Larger bets
 
-- [ ] **P2** Downloads → `places.sqlite.moz_annos` direct-write
+- [x] **P2** Downloads → `places.sqlite.moz_annos` direct-write
       When history direct-write is selected. ROADMAP Phase D P2; the
-      missing piece keeps downloads as CSV-only when the same migration
-      is already touching places.sqlite.
+      history migrator now annotates matching `moz_places` rows with
+      `downloads/destinationFileURI` + `downloads/metaData` when
+      Downloads are selected with history direct-write `apply`. The
+      standalone CSV remains the portable reference artifact.
 - [ ] **P2** Extension settings allowlist
       uBO filter lists, Stylus userstyles, Bitwarden vault URL. Three
       stable WebExtension storage formats; opt-in per extension.

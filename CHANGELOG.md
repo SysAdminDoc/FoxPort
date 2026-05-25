@@ -19,6 +19,15 @@ All notable changes to FoxPort are documented here. Format roughly follows
   sizes continue to grow.
 
 ### Added
+- **Downloads → `places.sqlite.moz_annos` direct-write.** When
+  Downloads are selected alongside history direct-write with the
+  `apply` policy, `migrate_history(...,
+  include_download_annotations=True)` now writes Firefox-compatible
+  `downloads/destinationFileURI` and `downloads/metaData` annotations
+  into the generated `places.sqlite`. The standalone `downloads.csv`
+  still ships as the portable reference/audit artifact. Three new
+  history tests pin the annotation shape, the default opt-out path,
+  and the direct-write target wiring.
 - **Restore-from-backup wizard (regret-undo for direct-write runs).**
   Closes the loop on the v1.3 direct-write trust arc: when a user
   enables direct-write and later changes their mind, FoxPort now
