@@ -166,13 +166,36 @@ jobs:
           "ZIP_NAME=$zip" >> $env:GITHUB_ENV
           "ZIP_SHA256_NAME=$zip.sha256" >> $env:GITHUB_ENV
 
+      - name: Generate signed WinSparkle appcast (when key secret is present)
+        shell: pwsh
+        env:
+          WINSPARKLE_EDDSA_PRIVATE_KEY_BASE64: ${{ secrets.WINSPARKLE_EDDSA_PRIVATE_KEY_BASE64 }}
+        run: |
+          if (-not $env:WINSPARKLE_EDDSA_PRIVATE_KEY_BASE64) {
+            Write-Host "Skipping appcast - WINSPARKLE_EDDSA_PRIVATE_KEY_BASE64 secret not set."
+            exit 0
+          }
+          $version = "${{ inputs.tag }}".TrimStart("v")
+          $downloadUrl = "https://github.com/${{ github.repository }}/releases/download/${{ inputs.tag }}/$env:ZIP_NAME"
+          $releaseNotesUrl = "https://github.com/${{ github.repository }}/releases/tag/${{ inputs.tag }}"
+          python scripts/generate_winsparkle_appcast.py `
+            --artifact "$env:ZIP_NAME" `
+            --version "$version" `
+            --download-url "$downloadUrl" `
+            --release-notes-url "$releaseNotesUrl" `
+            --private-key-base64 "$env:WINSPARKLE_EDDSA_PRIVATE_KEY_BASE64" `
+            --output appcast.xml
+          "APPCAST_NAME=appcast.xml" >> $env:GITHUB_ENV
+
       - name: Upload bundle artifact
         uses: actions/upload-artifact@v4
         with:
           name: FoxPort-windows-x64
+          if-no-files-found: warn
           path: |
             ${{ env.ZIP_NAME }}
             ${{ env.ZIP_SHA256_NAME }}
+            appcast.xml
 
       - name: Create GitHub release
         shell: pwsh
@@ -185,10 +208,11 @@ jobs:
           git tag -a "${{ inputs.tag }}" -m "Release ${{ inputs.tag }}"
           git push origin "${{ inputs.tag }}"
           $prereleaseFlag = if ("${{ inputs.prerelease }}" -eq "true") { "--prerelease" } else { "" }
-          $argList = @(
-            "release", "create", "${{ inputs.tag }}",
-            "$env:ZIP_NAME",
-            "$env:ZIP_SHA256_NAME",
+          $assets = @("$env:ZIP_NAME", "$env:ZIP_SHA256_NAME")
+          if ($env:APPCAST_NAME -and (Test-Path $env:APPCAST_NAME)) {
+            $assets += $env:APPCAST_NAME
+          }
+          $argList = @("release", "create", "${{ inputs.tag }}") + $assets + @(
             "--title", "FoxPort ${{ inputs.tag }}",
             "--notes-file", "CHANGELOG.md"
           )

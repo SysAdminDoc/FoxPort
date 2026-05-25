@@ -226,7 +226,12 @@ the last P1 (conflict-review dialog) plus the P2/P3 follow-ons.
       context, skips Sentry's default argv/log/module integrations, strips
       Windows/UNC/POSIX paths in `before_send`, and removes user/request/
       server/module/frame-local context.
-- [ ] **P3** Signed update appcast (WinSparkle)
+- [x] **P3** Signed update appcast (WinSparkle)
+      Release workflow emits `appcast.xml` when
+      `WINSPARKLE_EDDSA_PRIVATE_KEY_BASE64` is configured. The appcast
+      signs the exact Windows ZIP bytes with Ed25519 and carries
+      `sparkle:edSignature`, version, shortVersionString, `sparkle:os`,
+      and length. No update checks are enabled in-app yet.
 - [ ] **P3** Passkey inventory CXF prototype
       `passkeys inventory` CLI; presence + counts only. No export until
       FIDO CXF/CXP destination support lands.

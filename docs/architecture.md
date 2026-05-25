@@ -78,6 +78,9 @@ foxport/
 ├── import_/                    # External bookmark sources (Pinboard/Pocket/OPML/Netscape)
 │   └── adapters.py             # detect_format + parse_file + write_netscape_html
 │
+├── ../scripts/generate_winsparkle_appcast.py
+│                               # release helper: Ed25519-signed WinSparkle RSS appcast
+│
 ├── data/
 │   ├── curated_extension_map.json   # 56 Chrome ID → AMO slug pairs across 14 categories;
 │   │                                #   _meta.entry_count asserted by the auditor

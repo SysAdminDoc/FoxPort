@@ -19,6 +19,14 @@ All notable changes to FoxPort are documented here. Format roughly follows
   sizes continue to grow.
 
 ### Added
+- **Signed WinSparkle appcast generation.** The release workflow now emits a
+  signed `appcast.xml` when `WINSPARKLE_EDDSA_PRIVATE_KEY_BASE64` is
+  configured. `scripts/generate_winsparkle_appcast.py` signs the Windows
+  ZIP with Ed25519 and writes a WinSparkle-compatible RSS appcast containing
+  `sparkle:version`, `sparkle:shortVersionString`, `sparkle:os="windows"`,
+  ZIP `length`, and `sparkle:edSignature`. The script accepts base64 PEM or
+  raw 32-byte Ed25519 private seeds; no key material is committed. One new
+  test verifies the generated signature against the ZIP bytes.
 - **Opt-in Sentry crash reporting with path stripping.** Crash reporting is
   off by default and also requires a configured `FOXPORT_SENTRY_DSN` or
   `SENTRY_DSN`. The GUI first-run trust prompt and Settings dialog expose

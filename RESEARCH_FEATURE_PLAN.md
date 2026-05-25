@@ -34,6 +34,9 @@ when the work ships.
 - v1.4 opt-in Sentry crash reporting is now shipped: no DSN is committed;
   users must configure `FOXPORT_SENTRY_DSN`/`SENTRY_DSN`, and the wrapper
   disables locals/source context plus strips local paths before send.
+- v1.4 WinSparkle appcast generation is now shipped: release builds can
+  emit a signed `appcast.xml` when the Ed25519 private key secret is
+  configured. The in-app update checker remains future work.
 
 ## Current Process
 
