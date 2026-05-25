@@ -1,0 +1,14 @@
+---
+$schema: moz://mozilla.org/schemas/glean/pings/2-0-0
+
+migration:
+  description: >
+    Submitted after an explicitly opted-in FoxPort migration attempt. This
+    ping carries only aggregate run metadata and declared item counts.
+  include_client_id: false
+  notification_emails:
+    - sysadmindoc@users.noreply.github.com
+  bugs:
+    - https://github.com/SysAdminDoc/FoxPort/issues
+  data_reviews:
+    - https://github.com/SysAdminDoc/FoxPort/blob/main/docs/telemetry.md

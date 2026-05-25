@@ -4,6 +4,22 @@ Reference for the on-disk shapes FoxPort produces. Useful for debugging
 "why didn't Firefox accept my import" or for porting the same emitters
 into another tool.
 
+## Glean telemetry registries
+
+Telemetry is opt-in and declared in two checked-in YAML files:
+
+* `foxport/data/glean_metrics.yaml` — `migration.direction`,
+  `migration.surface`, `migration.outcome`, `migration.dry_run`,
+  `migration.direct_write`, `migration.selected_items`, and
+  `migration.item_counts`.
+* `foxport/data/glean_pings.yaml` — custom `migration` ping with
+  `include_client_id: false`.
+
+The telemetry wrapper records only aggregate category slugs/counts and run
+flags. It never records artifact file contents, profile labels, filesystem
+paths, URLs, hostnames, usernames, filenames, exception text, or secrets.
+See `docs/telemetry.md` for the privacy contract.
+
 ## `passwords.csv` — `about:logins` import
 
 Comma-delimited, RFC 4180 quoting (every field double-quoted via

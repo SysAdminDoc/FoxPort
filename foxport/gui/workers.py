@@ -42,6 +42,11 @@ from foxport.migrate.search_engines import migrate_search_engines
 from foxport.migrate_reverse.bookmarks import migrate_bookmarks_reverse
 from foxport.migrate_reverse.extensions import migrate_extensions_reverse
 from foxport.migrate_reverse.passwords import migrate_passwords_reverse
+from foxport.telemetry import (
+    TELEMETRY_HOST,
+    MigrationTelemetryPayload,
+    record_migration,
+)
 
 
 @dataclass
@@ -83,6 +88,7 @@ class MigrationRequest:
     policy_history: str = "apply"
     policy_open_tabs: str = "apply"
     hibp_scan: bool = False
+    telemetry_opt_in: bool = False
     direction: str = "forward"      # "forward" (chromium->firefox) or "reverse"
     master_password: str = ""
     # When True, the on-disk manifest.json scrubs the current user's
@@ -662,6 +668,15 @@ class MigrationWorker(QObject):
                                     "(no previous file to back up)"
                                 )
 
+            telemetry_status = _record_migration_telemetry(
+                req=req,
+                counts=counts,
+                outcome="dry_run" if req.dry_run else "completed",
+                surface="gui",
+            )
+            if req.telemetry_opt_in:
+                self.log.emit(_telemetry_log_line(telemetry_status))
+
             if not req.dry_run:
                 instructions_path = out_dir / "README.txt"
                 instructions_path.write_text(
@@ -675,6 +690,7 @@ class MigrationWorker(QObject):
                     direct_write_backups=direct_write_backups,
                     counts=counts,
                     hibp_status=hibp_status,
+                    telemetry_status=telemetry_status,
                 )
                 self.log.emit(f"Manifest written to {manifest_path.name}")
             else:
@@ -690,6 +706,14 @@ class MigrationWorker(QObject):
             self.finished.emit(True, str(out_dir), {k: str(v) for k, v in exports.items()})
 
         except Exception as exc:
+            telemetry_status = _record_migration_telemetry(
+                req=req,
+                counts=counts,
+                outcome="failed",
+                surface="gui",
+            )
+            if req.telemetry_opt_in:
+                self.log.emit(_telemetry_log_line(telemetry_status))
             self.log.emit(f"FATAL: {exc}")
             self.finished.emit(False, str(exc), {})
 
@@ -706,6 +730,7 @@ class MigrationWorker(QObject):
             self.log.emit("DRY RUN — counts only; no files will be written.")
         current = 0
         exports: dict[str, str] = {}
+        counts: dict[str, int] = {}
         try:
             if req.do_passwords:
                 current += 1
@@ -718,6 +743,7 @@ class MigrationWorker(QObject):
                 self.log.emit(
                     f"  {r.written} written, {len(r.failures)} failed of {r.total} total."
                 )
+                counts["passwords"] = r.written
                 if not req.dry_run and r.written:
                     exports["passwords"] = str(r.csv_path)
             if req.do_bookmarks:
@@ -726,6 +752,7 @@ class MigrationWorker(QObject):
                 self.log.emit("Converting Firefox bookmarks to Chrome HTML...")
                 r = migrate_bookmarks_reverse(req.source, out_dir, dry_run=req.dry_run)
                 self.log.emit(f"  {r.urls} URLs across {r.folders} folders.")
+                counts["bookmarks"] = r.urls
                 if not req.dry_run:
                     exports["bookmarks"] = str(r.html_path)
             if req.do_extensions:
@@ -736,8 +763,18 @@ class MigrationWorker(QObject):
                 self.log.emit(
                     f"  {r.matched} matched, {r.unmatched} unmatched of {len(r.matches)} installed."
                 )
+                counts["extensions"] = len(r.matches)
                 if not req.dry_run:
                     exports["extensions"] = str(r.html_path)
+            telemetry_status = _record_migration_telemetry(
+                req=req,
+                counts=counts,
+                outcome="dry_run" if req.dry_run else "completed",
+                surface="gui",
+            )
+            if req.telemetry_opt_in:
+                self.log.emit(_telemetry_log_line(telemetry_status))
+
             if exports and not req.dry_run:
                 instructions_path = out_dir / "README.txt"
                 instructions_path.write_text(
@@ -751,10 +788,19 @@ class MigrationWorker(QObject):
                     req=req,
                     exports={k: Path(v) for k, v in exports.items()},
                     direct_write_backups={},
-                    counts={},
+                    counts=counts,
+                    telemetry_status=telemetry_status,
                 )
             self.finished.emit(True, str(out_dir), exports)
         except Exception as exc:  # noqa: BLE001
+            telemetry_status = _record_migration_telemetry(
+                req=req,
+                counts=counts,
+                outcome="failed",
+                surface="gui",
+            )
+            if req.telemetry_opt_in:
+                self.log.emit(_telemetry_log_line(telemetry_status))
             self.log.emit(f"FATAL: {exc}")
             self.finished.emit(False, str(exc), {})
 
@@ -786,6 +832,7 @@ def _write_run_manifest(
     direct_write_backups: dict[str, Path | None],
     counts: dict[str, int],
     hibp_status: str = "",
+    telemetry_status: str = "disabled",
 ) -> Path:
     """Hash every emitted file and write the run manifest next to README.txt.
 
@@ -841,6 +888,7 @@ def _write_run_manifest(
         "api.pwnedpasswords.com": hibp_status or (
             "enabled" if req.hibp_scan and req.do_passwords else "disabled"
         ),
+        TELEMETRY_HOST: telemetry_status,
     }
 
     manifest = RunManifest(
@@ -857,6 +905,43 @@ def _write_run_manifest(
         manifest, out_dir,
         privacy_redact=req.privacy_redact_manifest,
     )
+
+
+def _record_migration_telemetry(
+    *,
+    req: MigrationRequest,
+    counts: dict[str, int],
+    outcome: str,
+    surface: str,
+) -> str:
+    result = record_migration(
+        MigrationTelemetryPayload(
+            direction=req.direction,
+            surface=surface,
+            outcome=outcome,
+            dry_run=req.dry_run,
+            direct_write=(
+                req.direct_write_passwords
+                or req.direct_write_cookies
+                or req.direct_write_history
+                or req.direct_write_open_tabs
+            ),
+            items=_selected_items(req),
+            counts=counts,
+        ),
+        enabled=req.telemetry_opt_in,
+    )
+    return result.status
+
+
+def _telemetry_log_line(status: str) -> str:
+    if status == "submitted":
+        return "Telemetry: submitted aggregate migration metrics."
+    if status == "unavailable":
+        return "Telemetry: Glean SDK unavailable; migration metrics were not sent."
+    if status == "failed":
+        return "Telemetry: failed to submit migration metrics."
+    return "Telemetry: disabled."
 
 
 def make_thread(worker: QObject) -> QThread:

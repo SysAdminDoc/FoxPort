@@ -19,6 +19,8 @@ _version_info = Path("assets/version_info.txt")
 
 datas = [
     ("foxport/data/curated_extension_map.json", "foxport/data"),
+    ("foxport/data/glean_metrics.yaml", "foxport/data"),
+    ("foxport/data/glean_pings.yaml", "foxport/data"),
 ]
 # Optional ABE sidecar — only bundled if a build artifact exists.
 _abe = Path("foxport/data/foxport_abe.exe")

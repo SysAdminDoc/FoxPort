@@ -47,6 +47,7 @@ from foxport.gui.widgets import (
     Tile,
     WizardPage,
 )
+from foxport.telemetry import TELEMETRY_HOST
 
 
 # ----------------------------------------------------------- shared model
@@ -94,6 +95,7 @@ class MigrationContext:
         self.policy_history: str = "apply"
         self.policy_open_tabs: str = "apply"
         self.hibp_scan: bool = False
+        self.telemetry_opt_in: bool = False
         self.mask_passwords_in_preview: bool = True
         self.out_root: Path = Path.home() / "Documents" / "FoxPort"
         # Preview counts, keyed by item slug. PreviewPage fills this in;
@@ -1175,8 +1177,13 @@ class PreviewPage(WizardPage):
              if hibp_enabled else "disabled"),
         ]))
         net_node.addChild(QTreeWidgetItem([
-            "  telemetry / crash / update",
-            "off (no opt-in surface in v1.3)",
+            f"  {TELEMETRY_HOST}",
+            ("ENABLED — aggregate migration metrics"
+             if ctx.telemetry_opt_in else "disabled"),
+        ]))
+        net_node.addChild(QTreeWidgetItem([
+            "  crash / update",
+            "off (no opt-in surface yet)",
         ]))
         self._tree.addTopLevelItem(net_node)
         net_node.setExpanded(True)

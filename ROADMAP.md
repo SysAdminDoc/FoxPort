@@ -209,7 +209,15 @@ the last P1 (conflict-review dialog) plus the P2/P3 follow-ons.
       through an explicit CLI flag or the Extensions-row Settings
       picker. Raw extension storage and unknown keys are intentionally
       omitted.
-- [ ] **P3** Opt-in Glean telemetry with declared metrics
+- [x] **P3** Opt-in Glean telemetry with declared metrics
+      Telemetry is off by default. GUI Settings + the first-run trust
+      re-prompt expose an explicit opt-in; CLI `migrate` and
+      `migrate-reverse` accept `--telemetry`. Declared Glean files live
+      under `foxport/data/glean_metrics.yaml` and
+      `foxport/data/glean_pings.yaml`; the custom `migration` ping has
+      `include_client_id: false` and records only aggregate item slugs,
+      counts, direction, surface, dry-run/direct-write flags, and
+      outcome. No paths/profile labels/URLs/secrets/exception text.
 - [ ] **P3** Opt-in Sentry crash reporting (path-stripped)
 - [ ] **P3** Signed update appcast (WinSparkle)
 - [ ] **P3** Passkey inventory CXF prototype

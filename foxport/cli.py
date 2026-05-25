@@ -61,6 +61,11 @@ from foxport.migrate.search_engines import migrate_search_engines
 from foxport.migrate_reverse.bookmarks import migrate_bookmarks_reverse
 from foxport.migrate_reverse.extensions import migrate_extensions_reverse
 from foxport.migrate_reverse.passwords import migrate_passwords_reverse
+from foxport.telemetry import (
+    TELEMETRY_HOST,
+    MigrationTelemetryPayload,
+    record_migration,
+)
 
 
 ALL_ITEMS = (
@@ -460,6 +465,24 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
         if not args.dry_run and r.written > 0:
             exports["downloads"] = r.csv_path
 
+    telemetry_status = _record_cli_telemetry(
+        enabled=getattr(args, "telemetry", False),
+        direction="forward",
+        outcome="dry_run" if args.dry_run else "completed",
+        dry_run=bool(args.dry_run),
+        items=sorted(items),
+        counts=json_counts,
+        direct_write=False,
+    )
+    if getattr(args, "telemetry", False):
+        _log(_telemetry_status_line(telemetry_status))
+
+    network = {
+        "addons.mozilla.org": "disabled" if args.no_online else "enabled",
+        "api.pwnedpasswords.com": hibp_status_for_network,
+        TELEMETRY_HOST: telemetry_status,
+    }
+
     manifest_path: Path | None = None
     if exports:
         instructions_path = out_dir / "README.txt"
@@ -475,10 +498,7 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
             dry_run=args.dry_run,
             items=sorted(items),
             exports=exports,
-            network={
-                "addons.mozilla.org": "disabled" if args.no_online else "enabled",
-                "api.pwnedpasswords.com": hibp_status_for_network,
-            },
+            network=network,
             privacy_redact=getattr(args, "privacy_redact", False),
         )
         _log(f"Manifest:     {manifest_path}")
@@ -499,10 +519,8 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
             "counts": json_counts,
             "exports": {k: str(v) for k, v in exports.items()},
             "manifest_path": str(manifest_path) if manifest_path else "",
-            "network": {
-                "addons.mozilla.org": "disabled" if args.no_online else "enabled",
-                "api.pwnedpasswords.com": hibp_status_for_network,
-            },
+            "network": network,
+            "telemetry": {"status": telemetry_status},
         }
         _emit_json(payload)
     return 0
@@ -546,6 +564,41 @@ def _write_cli_manifest(
         artifacts=artifacts,
     )
     return write_manifest(manifest, out_dir, privacy_redact=privacy_redact)
+
+
+def _record_cli_telemetry(
+    *,
+    enabled: bool,
+    direction: str,
+    outcome: str,
+    dry_run: bool,
+    items: list[str],
+    counts: dict[str, int],
+    direct_write: bool,
+) -> str:
+    result = record_migration(
+        MigrationTelemetryPayload(
+            direction=direction,
+            surface="cli",
+            outcome=outcome,
+            dry_run=dry_run,
+            direct_write=direct_write,
+            items=items,
+            counts=counts,
+        ),
+        enabled=enabled,
+    )
+    return result.status
+
+
+def _telemetry_status_line(status: str) -> str:
+    if status == "submitted":
+        return "\nTelemetry: submitted aggregate migration metrics."
+    if status == "unavailable":
+        return "\nTelemetry: Glean SDK unavailable; migration metrics were not sent."
+    if status == "failed":
+        return "\nTelemetry: failed to submit migration metrics."
+    return "\nTelemetry: disabled."
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -593,6 +646,11 @@ def build_parser() -> argparse.ArgumentParser:
                           "from backup_path / labels in the on-disk manifest.json. "
                           "Use this when uploading the manifest for support so the "
                           "username doesn't leak. Backups themselves stay where they are.")
+    mig.add_argument("--telemetry", action="store_true",
+                     help="Opt in to Glean migration telemetry for this run. Sends only "
+                          "aggregate item counts, selected item slugs, direction, "
+                          "dry-run/direct-write flags, and outcome; never paths, "
+                          "profile labels, URLs, usernames, or secrets.")
     mig.add_argument("--direct-write-policy", default="apply",
                      choices=("apply", "skip", "backup-only"),
                      help="Per-category direct-write disposition applied to every "
@@ -669,6 +727,9 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Emit a schema-versioned JSON payload instead of human text")
     rev.add_argument("--privacy-redact", action="store_true",
                      help="Strip user-dir prefixes from manifest backup_path / labels")
+    rev.add_argument("--telemetry", action="store_true",
+                     help="Opt in to Glean migration telemetry for this reverse run "
+                          "(aggregate counts and run flags only)")
 
     rbk = sub.add_parser("restore-backup",
                          help="Restore a *.foxport-backup-<mtime>.* file over its original target "
@@ -739,6 +800,24 @@ def _cmd_migrate_reverse(args: argparse.Namespace) -> int:
         json_counts["extensions"] = len(r.matches)
         if not args.dry_run and r.matches:
             exports["extensions"] = r.html_path
+    telemetry_status = _record_cli_telemetry(
+        enabled=getattr(args, "telemetry", False),
+        direction="reverse",
+        outcome="dry_run" if args.dry_run else "completed",
+        dry_run=bool(args.dry_run),
+        items=sorted(items),
+        counts=json_counts,
+        direct_write=False,
+    )
+    if getattr(args, "telemetry", False):
+        _log(_telemetry_status_line(telemetry_status))
+
+    network = {
+        "addons.mozilla.org": "disabled",
+        "api.pwnedpasswords.com": "disabled",
+        TELEMETRY_HOST: telemetry_status,
+    }
+
     manifest_path: Path | None = None
     if exports:
         instructions_path = out_dir / "README.txt"
@@ -754,10 +833,7 @@ def _cmd_migrate_reverse(args: argparse.Namespace) -> int:
             dry_run=args.dry_run,
             items=sorted(items),
             exports=exports,
-            network={
-                "addons.mozilla.org": "disabled",
-                "api.pwnedpasswords.com": "disabled",
-            },
+            network=network,
             privacy_redact=getattr(args, "privacy_redact", False),
         )
         _log(f"Manifest:     {manifest_path}")
@@ -773,6 +849,8 @@ def _cmd_migrate_reverse(args: argparse.Namespace) -> int:
             "counts": json_counts,
             "exports": {k: str(v) for k, v in exports.items()},
             "manifest_path": str(manifest_path) if manifest_path else "",
+            "network": network,
+            "telemetry": {"status": telemetry_status},
         })
     return 0
 

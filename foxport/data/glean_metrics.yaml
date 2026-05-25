@@ -1,0 +1,144 @@
+---
+$schema: moz://mozilla.org/schemas/glean/metrics/2-0-0
+
+migration:
+  direction:
+    type: string
+    description: >
+      Direction for an opted-in migration telemetry ping: forward for
+      Chromium-family to Firefox-family, or reverse for Firefox-family to
+      Chromium-importable output.
+    notification_emails:
+      - sysadmindoc@users.noreply.github.com
+    bugs:
+      - https://github.com/SysAdminDoc/FoxPort/issues
+    data_reviews:
+      - https://github.com/SysAdminDoc/FoxPort/blob/main/docs/telemetry.md
+    expires: never
+    lifetime: ping
+    send_in_pings:
+      - migration
+    data_sensitivity:
+      - technical
+
+  surface:
+    type: string
+    description: >
+      User surface that ran the migration: cli or gui.
+    notification_emails:
+      - sysadmindoc@users.noreply.github.com
+    bugs:
+      - https://github.com/SysAdminDoc/FoxPort/issues
+    data_reviews:
+      - https://github.com/SysAdminDoc/FoxPort/blob/main/docs/telemetry.md
+    expires: never
+    lifetime: ping
+    send_in_pings:
+      - migration
+    data_sensitivity:
+      - technical
+
+  outcome:
+    type: string
+    description: >
+      Outcome for the migration attempt: completed, dry_run, or failed.
+      Failure telemetry intentionally excludes exception text and paths.
+    notification_emails:
+      - sysadmindoc@users.noreply.github.com
+    bugs:
+      - https://github.com/SysAdminDoc/FoxPort/issues
+    data_reviews:
+      - https://github.com/SysAdminDoc/FoxPort/blob/main/docs/telemetry.md
+    expires: never
+    lifetime: ping
+    send_in_pings:
+      - migration
+    data_sensitivity:
+      - technical
+
+  dry_run:
+    type: boolean
+    description: >
+      Whether the migration attempt ran in dry-run mode.
+    notification_emails:
+      - sysadmindoc@users.noreply.github.com
+    bugs:
+      - https://github.com/SysAdminDoc/FoxPort/issues
+    data_reviews:
+      - https://github.com/SysAdminDoc/FoxPort/blob/main/docs/telemetry.md
+    expires: never
+    lifetime: ping
+    send_in_pings:
+      - migration
+    data_sensitivity:
+      - technical
+
+  direct_write:
+    type: boolean
+    description: >
+      Whether any direct-write target-profile option was selected for the
+      migration attempt.
+    notification_emails:
+      - sysadmindoc@users.noreply.github.com
+    bugs:
+      - https://github.com/SysAdminDoc/FoxPort/issues
+    data_reviews:
+      - https://github.com/SysAdminDoc/FoxPort/blob/main/docs/telemetry.md
+    expires: never
+    lifetime: ping
+    send_in_pings:
+      - migration
+    data_sensitivity:
+      - technical
+
+  selected_items:
+    type: string_list
+    description: >
+      Canonical item slugs selected for the migration attempt. The list is
+      constrained to FoxPort category names and excludes profile labels,
+      paths, URLs, hostnames, usernames, filenames, and secrets.
+    notification_emails:
+      - sysadmindoc@users.noreply.github.com
+    bugs:
+      - https://github.com/SysAdminDoc/FoxPort/issues
+    data_reviews:
+      - https://github.com/SysAdminDoc/FoxPort/blob/main/docs/telemetry.md
+    expires: never
+    lifetime: ping
+    send_in_pings:
+      - migration
+    data_sensitivity:
+      - technical
+
+  item_counts:
+    type: labeled_quantity
+    description: >
+      Aggregate count by selected item category for the migration attempt.
+      Labels are fixed to FoxPort item slugs. Values are counts only and do
+      not contain paths, URLs, hostnames, usernames, filenames, or secrets.
+    notification_emails:
+      - sysadmindoc@users.noreply.github.com
+    bugs:
+      - https://github.com/SysAdminDoc/FoxPort/issues
+    data_reviews:
+      - https://github.com/SysAdminDoc/FoxPort/blob/main/docs/telemetry.md
+    expires: never
+    lifetime: ping
+    send_in_pings:
+      - migration
+    data_sensitivity:
+      - technical
+    unit: records
+    labels:
+      - passwords
+      - bookmarks
+      - extensions
+      - extension_settings
+      - cookies
+      - history
+      - autofill
+      - cards
+      - search_engines
+      - open_tabs
+      - downloads
+      - hibp

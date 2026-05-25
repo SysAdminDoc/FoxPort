@@ -192,6 +192,7 @@ class MainWindow(QMainWindow):
         self._ctx.extensions_online = s.allow_online_amo_lookup
         self._ctx.dry_run = s.default_dry_run
         self._ctx.hibp_scan = s.hibp_scan_default
+        self._ctx.telemetry_opt_in = s.telemetry_opt_in
         self._ctx.mask_passwords_in_preview = s.mask_passwords_in_preview
 
     def _show_first_run_dialog(self) -> None:
@@ -438,6 +439,7 @@ class MainWindow(QMainWindow):
             policy_history=self._ctx.policy_history,
             policy_open_tabs=self._ctx.policy_open_tabs,
             hibp_scan=self._ctx.hibp_scan,
+            telemetry_opt_in=self._ctx.telemetry_opt_in,
             direction=self._ctx.direction,
             master_password=self._ctx.master_password,
             privacy_redact_manifest=self._settings.privacy_redact_manifest,

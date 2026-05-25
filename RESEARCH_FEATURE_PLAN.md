@@ -28,6 +28,9 @@ when the work ships.
 - v1.4 Extension settings allowlist is now shipped: uBlock Origin,
   Stylus, and Bitwarden settings are exported only through explicit opt-in
   and only as allowlisted fields in `extension-settings.json`.
+- v1.4 opt-in Glean telemetry is now shipped: declared metrics/pings live
+  under `foxport/data/`, the GUI/CLI opt-in sends only aggregate run
+  metadata, and `docs/telemetry.md` documents the never-send boundary.
 
 ## Current Process
 

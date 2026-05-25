@@ -19,6 +19,19 @@ All notable changes to FoxPort are documented here. Format roughly follows
   sizes continue to grow.
 
 ### Added
+- **Opt-in Glean telemetry with declared metrics.** Telemetry remains off by
+  default. The GUI Settings dialog and first-run trust prompt now expose
+  an explicit migration-metrics opt-in, and CLI `migrate` /
+  `migrate-reverse` accept `--telemetry`. `foxport/data/glean_metrics.yaml`
+  declares only aggregate migration fields (direction, surface, outcome,
+  dry-run/direct-write flags, selected item slugs, and item counts);
+  `foxport/data/glean_pings.yaml` declares a custom `migration` ping with
+  `include_client_id: false`. Paths, profile labels, URLs, hostnames,
+  usernames, filenames, exception text, and secrets are never passed into
+  the telemetry wrapper. `manifest.json` records the telemetry network
+  status under `network.incoming.telemetry.mozilla.org`. Three new tests
+  pin disabled/no-SDK behavior, payload sanitization, and settings
+  persistence.
 - **Extension settings allowlist.** Extensions now have a separate,
   opt-in settings export for three stable WebExtension surfaces:
   uBlock Origin filter/user rules, Stylus user styles, and Bitwarden

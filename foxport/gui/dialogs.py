@@ -46,6 +46,7 @@ from foxport.migrate.extension_settings import (
     SUPPORTED_EXTENSION_SETTINGS,
     installed_supported_settings,
 )
+from foxport.telemetry import TELEMETRY_HOST
 
 from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 
@@ -359,9 +360,9 @@ class FirstRunDialog(QDialog):
     1. Source profiles are read-only.
     2. Output files contain plaintext credentials and should be deleted
        after import.
-    3. The only outbound network requests are AMO + HIBP — both opt-in,
-       both able to be disabled before the run.
-    4. There is no telemetry / crash reporting / update check.
+    3. The outbound network requests are AMO, HIBP, and Glean telemetry —
+       all opt-in, all able to be disabled before the run.
+    4. There is no crash reporting or update check.
 
     The dialog also lets the user pre-set the two optional toggles
     (AMO + HIBP defaults) so they don't have to repeat the choice on
@@ -371,8 +372,8 @@ class FirstRunDialog(QDialog):
     Acknowledging the dialog writes the current ISO timestamp into
     ``Settings.first_run_acked_iso`` so the next launch skips the
     dialog. A future version that materially changes the trust model
-    (e.g. v1.4 turns on opt-in telemetry) can re-prompt by clearing
-    that field on upgrade.
+    (e.g. v1.4 turns on opt-in telemetry) re-prompts by bumping the
+    trust revision.
     """
 
     def __init__(self, settings: Settings, parent: QWidget | None = None) -> None:
@@ -429,6 +430,11 @@ class FirstRunDialog(QDialog):
             " scan. <i>K-anonymity</i> — only the first five hex characters"
             " of each <code>SHA-1(password)</code> are sent; plaintext"
             " never leaves the box.</td></tr>"
+            f"<tr><td><b>{TELEMETRY_HOST}</b></td><td>Optional Glean"
+            " telemetry. Sends only selected category slugs, aggregate"
+            " counts, direction, dry-run/direct-write flags, and outcome;"
+            " never paths, profile labels, URLs, hostnames, usernames,"
+            " filenames, or secrets.</td></tr>"
             "</table>"
         )
         net.setTextFormat(Qt.TextFormat.RichText)
@@ -439,17 +445,24 @@ class FirstRunDialog(QDialog):
         self._amo_cb.setChecked(settings.allow_online_amo_lookup)
         self._hibp_cb = QCheckBox("Run the HIBP scan by default")
         self._hibp_cb.setChecked(settings.hibp_scan_default)
+        self._telemetry_cb = QCheckBox("Send anonymous migration metrics by default")
+        self._telemetry_cb.setChecked(settings.telemetry_opt_in)
+        self._telemetry_cb.setToolTip(
+            "Opt-in Glean telemetry to incoming.telemetry.mozilla.org. "
+            "Only aggregate category counts and run flags are sent."
+        )
         outer.addWidget(self._amo_cb)
         outer.addWidget(self._hibp_cb)
+        outer.addWidget(self._telemetry_cb)
 
-        no_telemetry = QLabel(
-            "FoxPort never sends telemetry, crash reports, or version"
-            " update probes. The Settings dialog placeholders for those"
-            " are wired off until v1.4 lands an opt-in surface."
+        no_crash_update = QLabel(
+            "FoxPort still does not send crash reports or version update"
+            " probes. Those stay wired off until separate opt-in surfaces"
+            " ship."
         )
-        no_telemetry.setStyleSheet("color: #94e2d5; font-style: italic;")
-        no_telemetry.setWordWrap(True)
-        outer.addWidget(no_telemetry)
+        no_crash_update.setStyleSheet("color: #94e2d5; font-style: italic;")
+        no_crash_update.setWordWrap(True)
+        outer.addWidget(no_crash_update)
 
         outer.addStretch(1)
 
@@ -466,6 +479,7 @@ class FirstRunDialog(QDialog):
         from foxport.config import _TRUST_REVISION
         self._settings.allow_online_amo_lookup = self._amo_cb.isChecked()
         self._settings.hibp_scan_default = self._hibp_cb.isChecked()
+        self._settings.telemetry_opt_in = self._telemetry_cb.isChecked()
         self._settings.first_run_acked_iso = datetime.now(timezone.utc).isoformat()
         # Pin the revision so a future bump (e.g. v1.4 adds telemetry)
         # triggers a fresh re-prompt instead of silently inheriting the
@@ -1208,29 +1222,26 @@ class SettingsDialog(QDialog):
         )
         privacy_layout.addWidget(self._privacy_redact_cb)
 
-        # Future-wired flags (Glean / Sentry). Hidden behind a feature flag
-        # until the opt-in surfaces actually ship — three minor releases of
-        # "disabled but visible" checkboxes was confusing noise. Set
-        # ``_FUTURE_TELEMETRY = True`` here when wiring v1.4's telemetry/
-        # crash plumbing so the checkboxes return in lockstep.
-        _FUTURE_TELEMETRY = False
-        if _FUTURE_TELEMETRY:
-            self._telemetry_cb = QCheckBox(
-                "Send anonymous usage metrics (category counts, no URLs)"
-            )
-            self._telemetry_cb.setChecked(settings.telemetry_opt_in)
-            privacy_layout.addWidget(self._telemetry_cb)
-            self._crash_cb = QCheckBox(
-                "Send crash reports (no user data)"
-            )
+        self._telemetry_cb = QCheckBox(
+            "Send anonymous migration metrics (category counts, no URLs)"
+        )
+        self._telemetry_cb.setChecked(settings.telemetry_opt_in)
+        self._telemetry_cb.setToolTip(
+            f"Opt-in Glean telemetry to {TELEMETRY_HOST}. Sends only "
+            "selected item slugs, aggregate counts, direction, dry-run/"
+            "direct-write flags, and outcome."
+        )
+        privacy_layout.addWidget(self._telemetry_cb)
+
+        # Future-wired Sentry flag. Hidden until the crash-reporting task
+        # ships; the placeholder preserves the stored value so _save() can
+        # keep the field round-tripping without branching.
+        _FUTURE_CRASH_REPORTING = False
+        if _FUTURE_CRASH_REPORTING:
+            self._crash_cb = QCheckBox("Send crash reports (no user data)")
             self._crash_cb.setChecked(settings.crash_reporting_opt_in)
             privacy_layout.addWidget(self._crash_cb)
         else:
-            # Stable placeholder so _save() can read the field without a
-            # hasattr() dance. The disabled QCheckBox isn't added to the
-            # layout, so it never paints.
-            self._telemetry_cb = QCheckBox()
-            self._telemetry_cb.setChecked(settings.telemetry_opt_in)
             self._crash_cb = QCheckBox()
             self._crash_cb.setChecked(settings.crash_reporting_opt_in)
 
@@ -1328,8 +1339,9 @@ class SettingsDialog(QDialog):
         self._settings.default_dry_run = self._dry_cb.isChecked()
         self._settings.hibp_scan_default = self._hibp_cb.isChecked()
         self._settings.privacy_redact_manifest = self._privacy_redact_cb.isChecked()
+        self._settings.telemetry_opt_in = self._telemetry_cb.isChecked()
+        self._settings.crash_reporting_opt_in = self._crash_cb.isChecked()
         self._settings.nss_path_override = self._nss_edit.text().strip()
-        # Future flags persist current value (disabled checkbox doesn't change it).
         save_settings(self._settings)
         self.accept()
 

@@ -27,8 +27,9 @@ from pathlib import Path
 #
 # Revision history:
 #   0 — v1.3.0 baseline (AMO + HIBP only, both opt-in, no telemetry).
-#   1 — reserved for the v1.4 telemetry / crash / update opt-in surface.
-_TRUST_REVISION: int = 0
+#   1 — v1.4 Glean migration telemetry opt-in.
+#   2 — reserved for the v1.4 crash / update opt-in surface.
+_TRUST_REVISION: int = 1
 
 
 @dataclass
@@ -43,8 +44,8 @@ class Settings:
     allow_online_amo_lookup: bool = True
     default_dry_run: bool = False
     hibp_scan_default: bool = False
-    telemetry_opt_in: bool = False           # for the v1.3 Glean wiring
-    crash_reporting_opt_in: bool = False     # for the v1.3 Sentry wiring
+    telemetry_opt_in: bool = False           # Glean aggregate run telemetry
+    crash_reporting_opt_in: bool = False     # for future Sentry wiring
     # Empty string = autodetect via foxport.crypto.nss.find_nss().
     # When set, overrides the per-platform search list — useful for
     # portable Firefox installs that aren't in the standard paths. The
@@ -57,7 +58,7 @@ class Settings:
     # re-prompt when the trust model changes (e.g. v1.4 adds telemetry).
     first_run_acked_iso: str = ""
     # Trust-revision counter bumps in lockstep with new trust-model
-    # changes (the first one will be telemetry/crash in v1.4). The
+    # changes (for example telemetry/crash in v1.4). The
     # FirstRunDialog re-prompts when this stored value is below the
     # current ``foxport.config._TRUST_REVISION`` constant — that way a
     # user who acked the v1.3 trust model sees a fresh consent surface

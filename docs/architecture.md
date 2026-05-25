@@ -21,6 +21,7 @@ foxport/
 │                               #   Sensitivity labels + action_kind defaults per key.
 ├── snapshot.py                 # .fxport bundle create/restore + AES-256-GCM with
 │                               #   InvalidTag → friendly ValueError translation
+├── telemetry.py                # opt-in Glean wrapper; aggregate run metrics only
 │
 ├── browsers/                   # Detection + read paths
 │   ├── detect.py               # per-platform _CHROMIUM_SPECS + _FIREFOX_PROFILES_ROOT
@@ -77,8 +78,10 @@ foxport/
 │   └── adapters.py             # detect_format + parse_file + write_netscape_html
 │
 ├── data/
-│   └── curated_extension_map.json   # 56 Chrome ID → AMO slug pairs across 14 categories;
-│                                    #   _meta.entry_count asserted by the auditor
+│   ├── curated_extension_map.json   # 56 Chrome ID → AMO slug pairs across 14 categories;
+│   │                                #   _meta.entry_count asserted by the auditor
+│   ├── glean_metrics.yaml           # declared Glean metrics for opt-in telemetry
+│   └── glean_pings.yaml             # custom migration ping declaration
 │
 └── gui/                        # PyQt6 wizard
     ├── main_window.py          # 5-step QStackedWidget shell; first-run trust dialog
@@ -111,7 +114,7 @@ foxport/
    dialogs + direct-write toggles + HIBP toggle.
 4. `PreviewPage` reads the source profile to compute per-category counts
    (`ctx.counts: dict[str, int]`) and renders the
-   network-activity sub-tree (AMO + HIBP ENABLED / disabled).
+   network-activity sub-tree (AMO + HIBP + telemetry ENABLED / disabled).
 5. User clicks Run → `MainWindow._start_migration` builds a
    `MigrationRequest`, kicks off `MigrationWorker` on a QThread.
 6. For each direct-write category, the worker calls
@@ -134,11 +137,16 @@ foxport/
     include_download_annotations=True)` also writes Firefox's
     `downloads/destinationFileURI` + `downloads/metaData` annotations
     into the generated `places.sqlite`.
-10. `MigrationWorker._write_run_manifest` writes `manifest.json` next
+10. If the persistent telemetry opt-in is enabled, `MigrationWorker`
+    records the Glean `migration` ping using only direction, surface,
+    outcome, dry-run/direct-write booleans, selected item slugs, and
+    aggregate counts. Paths, profile labels, URLs, exception text, and
+    secrets are never passed to `foxport.telemetry`.
+11. `MigrationWorker._write_run_manifest` writes `manifest.json` next
     to `README.txt`. Schema-versioned (`schema_version: 1`), records
     per-artifact path/size/sha256/sensitivity/count/direct_write/
-    backup_path + the live HIBP tri-state under `network`.
-11. Worker emits `directWriteBackups` then `finished` → Done page shows
+    backup_path + the live HIBP and telemetry status under `network`.
+12. Worker emits `directWriteBackups` then `finished` → Done page shows
     "Open output folder" plus per-artifact Open/Reveal buttons + a
     Reveal-backup button per direct-write category that produced one
     + a trailing "Save as snapshot…" button.
