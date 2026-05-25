@@ -69,8 +69,15 @@ class MainWindow(QMainWindow):
         self._start_detection()
         # First-run trust + network disclosure. Runs on a 0-ms timer so the
         # main window paints first and the modal lands on top instead of
-        # racing the Qt event loop. Already-acked users skip the dialog.
-        if not self._settings.first_run_acked_iso:
+        # racing the Qt event loop. Users who already acked the *current*
+        # trust revision skip the dialog; bumping ``_TRUST_REVISION`` in
+        # foxport.config re-prompts a user whose ack predates the change.
+        from foxport.config import _TRUST_REVISION
+        already_acked = (
+            bool(self._settings.first_run_acked_iso)
+            and self._settings.first_run_acked_trust_revision >= _TRUST_REVISION
+        )
+        if not already_acked:
             from PyQt6.QtCore import QTimer
             QTimer.singleShot(0, self._show_first_run_dialog)
 
@@ -385,6 +392,7 @@ class MainWindow(QMainWindow):
             hibp_scan=self._ctx.hibp_scan,
             direction=self._ctx.direction,
             master_password=self._ctx.master_password,
+            privacy_redact_manifest=self._settings.privacy_redact_manifest,
         )
         self._run_page.reset()
         self._run_page.set_busy()

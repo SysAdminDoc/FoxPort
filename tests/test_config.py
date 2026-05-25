@@ -27,10 +27,38 @@ def test_changed_values_round_trip(tmp_path, monkeypatch):
         allow_online_amo_lookup=False,
         default_dry_run=True,
         hibp_scan_default=True,
+        privacy_redact_manifest=True,
+        first_run_acked_trust_revision=2,
     )
     save_settings(s)
     loaded = load_settings()
     assert loaded == s
+    assert loaded.privacy_redact_manifest is True
+    assert loaded.first_run_acked_trust_revision == 2
+
+
+def test_legacy_config_without_new_fields_loads_defaults(tmp_path, monkeypatch):
+    """A user upgrading from v1.3.1 has a config.json without the new
+    privacy_redact_manifest / first_run_acked_trust_revision fields. Those
+    must default to False / 0 rather than blowing up the load."""
+
+    monkeypatch.setattr("foxport.config.config_dir", lambda: tmp_path)
+    legacy = {
+        "output_dir": "",
+        "mask_passwords_in_preview": True,
+        "allow_online_amo_lookup": True,
+        "default_dry_run": False,
+        "hibp_scan_default": False,
+        "telemetry_opt_in": False,
+        "crash_reporting_opt_in": False,
+        "nss_path_override": "",
+        "first_run_acked_iso": "2026-05-24T00:00:00+00:00",
+    }
+    (tmp_path / "config.json").write_text(json.dumps(legacy), encoding="utf-8")
+    loaded = load_settings()
+    assert loaded.first_run_acked_iso == "2026-05-24T00:00:00+00:00"
+    assert loaded.privacy_redact_manifest is False
+    assert loaded.first_run_acked_trust_revision == 0
 
 
 def test_missing_file_returns_defaults(tmp_path, monkeypatch):

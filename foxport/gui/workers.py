@@ -73,6 +73,12 @@ class MigrationRequest:
     hibp_scan: bool = False
     direction: str = "forward"      # "forward" (chromium->firefox) or "reverse"
     master_password: str = ""
+    # When True, the on-disk manifest.json scrubs the current user's
+    # home-dir prefix from backup_path / labels so a manifest uploaded
+    # for support doesn't leak the username. Driven by
+    # Settings.privacy_redact_manifest in the GUI; the CLI uses
+    # ``--privacy-redact`` for the same effect.
+    privacy_redact_manifest: bool = False
 
 
 class DetectWorker(QObject):
@@ -668,7 +674,10 @@ def _write_run_manifest(
         network=network,
         artifacts=artifacts,
     )
-    return write_manifest(manifest, out_dir)
+    return write_manifest(
+        manifest, out_dir,
+        privacy_redact=req.privacy_redact_manifest,
+    )
 
 
 def make_thread(worker: QObject) -> QThread:

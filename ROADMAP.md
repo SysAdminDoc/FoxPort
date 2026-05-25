@@ -48,6 +48,48 @@ secrets); these two are the only remaining gates.
       already produced it locally; the release workflow does build it.
       Verify the signed build attaches a signed sidecar to the release.
 
+## v1.3.2 — Deep audit hardening  ✅ shipped 2026-05-25
+
+Four commits closed an extreme-audit pass on top of v1.3.1. Real
+correctness bugs in destructive paths plus UX/robustness polish across
+the GUI + CLI + parser surfaces. See CHANGELOG.md for details.
+
+- [x] **P0** Cookies Chrome 130+ HOST_KEY prefix strip in *bytes-space*
+      (was stripping characters; SHA-256 bytes can include multi-byte
+      UTF-8 sequences so the slice chewed the wrong amount and
+      corrupted Chrome 130+ cookie values on Windows). New
+      `decrypt_value_bytes` / `decrypt_value_v10_bytes` helpers.
+- [x] **P1** `nss_passwords._atomic_write` was missing
+      `flush()` + `fsync()` before rename; replaced with
+      `foxport.fileops.write_text_atomic`.
+- [x] **P1** GUID compare in passwords merge + pre-flight analyzer is
+      now case-insensitive (`uuid.uuid5` emits lowercase but
+      `logins.json` may carry mixed case from older Firefox / 3rd-party
+      tools).
+- [x] **P1** Snapshot wrong-passphrase / truncated-bundle now raises
+      `ValueError` (the CLI's catch) instead of an uncaught
+      `cryptography.exceptions.InvalidTag` traceback.
+- [x] **P1** Failed-migration footer state machine: dead "Run
+      Migration" button on a failed run now relabels to "Try Again" and
+      restarts in-place. Back-button is also gated while a migration
+      is actively running.
+- [x] **P1** `_parse_profiles_ini` defensive: tolerates
+      `IsRelative=yes`, hand-edited values, `UnicodeDecodeError`,
+      and `OSError`. Five new tests.
+- [x] **P2** Cards CSV filename: migrator wrote `saved_cards.csv`
+      (underscore) while every user-facing surface said
+      `saved-cards.csv` (hyphen); migrator renamed for consistency.
+- [x] **P2** Cookies samesite clamp: Chromium `samesite=-1`
+      (unspecified) → Firefox `0` (no SameSite attribute), keeping
+      `moz_cookies.sameSite` within Firefox's valid `[0..3]` range.
+- [x] **P2** `import-bookmarks --json` completes the CLI JSON arc.
+- [x] **P2** `tests/migrate/test_downloads.py:119` ResourceWarning fix
+      (file handle leak under `pytest -W error::ResourceWarning`).
+- [x] **P2** `docs/architecture.md` refresh covering `manifest.py`,
+      `conflicts.py`, `fileops.py`, the per-run manifest schema, the
+      `.fxport` bundle layout, the HIBP tri-state, and the
+      `decrypt_value_bytes` cookie-decryption helper.
+
 ## v1.3.3 — Trust + completeness arc continues
 
 Phase C of the v1.3 plan — most of it shipped in v1.3.0, these are the
@@ -81,9 +123,11 @@ follow-ons.
       `network.api.pwnedpasswords.com` records the live status so
       snapshot consumers can tell "scan ran cleanly" from "scan
       failed". 4 new tests in `tests/crypto/test_hibp.py`.
-- [ ] **P2** Pre-flight conflict analysis for open_tabs
+- [x] **P2** Pre-flight conflict analysis for open_tabs
       `analyze_open_tabs()` reads target `sessionstore-backups/recovery.jsonlz4`
-      (decode mozLz40), counts URLs, logs replacement before mutation.
+      via mozLz40 decode, counts URLs, logs "N source tabs will REPLACE M
+      existing session tab(s)" before the destructive write. Worker wires
+      it alongside the existing passwords/cookies/history pre-flight calls.
 - [x] **P2** All-artifact Done UI render test
       Already covered by `test_run_page_done_renders_action_per_artifact`
       in `tests/test_gui_run_actions.py` — exhausts all 11 artifact keys
@@ -105,18 +149,33 @@ follow-ons.
       Feature-flagged behind a `_FUTURE_TELEMETRY = False` constant in
       `SettingsDialog`. The hidden QCheckBox objects still hold the
       persisted value so `_save()` doesn't need a hasattr() dance.
-- [ ] **P2** Manifest privacy: `--privacy-redact` flag
-      Strip `C:\Users\<name>` from backup_path strings on demand.
-- [ ] **P2** README install snippet: cross-platform softening
-      Says "Requires Python 3.11+ on Windows" while CI matrix covers
-      Windows/macOS/Linux.
+- [x] **P2** Manifest privacy: `--privacy-redact` flag
+      `foxport.manifest.redact_manifest()` strips the running user's
+      home-dir prefix (per-platform: `C:\Users\<name>\`, `/Users/...`,
+      `/home/...`) from `backup_path` + label strings, swapping for
+      `<redacted>`. Exposed three ways: CLI `--privacy-redact` on
+      `migrate` + `migrate-reverse`; persistent
+      `Settings.privacy_redact_manifest` toggle in the Privacy section
+      of the Settings dialog; `write_manifest(..., privacy_redact=True)`
+      kwarg for programmatic callers. Six new tests in
+      `tests/test_manifest.py` + 2 new tests in `tests/test_config.py`.
+- [x] **P2** README install snippet: cross-platform softening
+      Was "Requires Python 3.11+ on Windows" despite the cross-platform
+      CI matrix; now reflects Windows-first with macOS / Linux via the
+      same install steps (different venv activation command noted).
 - [ ] **P2** Re-run `scripts/capture_screenshots.py`
       Current PNGs are 2026-05-23 — predate the downloads row, 4 direct-
       write checkboxes, dry-run banner, network-activity sub-tree, and the
       per-artifact Done action bar.
-- [ ] **P3** First-run trust dialog re-prompt on trust-model change
-      `Settings.first_run_acked_for_trust_revision: int` with module-level
-      `_TRUST_REVISION` constant. Bumps trigger re-prompt.
+- [x] **P3** First-run trust dialog re-prompt on trust-model change
+      `Settings.first_run_acked_trust_revision: int = 0` field +
+      module-level `foxport.config._TRUST_REVISION` constant. The
+      dialog persists the current revision on accept; MainWindow
+      gates on `acked_iso AND acked_revision >= current` so a user
+      who acked the v1.3 trust surface gets a fresh consent moment
+      when v1.4 bumps the revision (with the introduction of opt-in
+      telemetry / crash reporting / update appcast). Backward-
+      compatible: legacy configs without the field default to 0.
 
 ## v1.4 — Larger bets
 

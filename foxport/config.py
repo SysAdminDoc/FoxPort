@@ -19,6 +19,18 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 
+# Bump this constant in lockstep with new trust-model changes. The
+# ``FirstRunDialog`` re-prompts when the stored
+# ``Settings.first_run_acked_trust_revision`` is below this value so a
+# user who acked the previous trust surface gets a fresh consent moment
+# the next time FoxPort introduces a new optional network endpoint.
+#
+# Revision history:
+#   0 — v1.3.0 baseline (AMO + HIBP only, both opt-in, no telemetry).
+#   1 — reserved for the v1.4 telemetry / crash / update opt-in surface.
+_TRUST_REVISION: int = 0
+
+
 @dataclass
 class Settings:
     """User-facing FoxPort settings.
@@ -44,6 +56,19 @@ class Settings:
     # We persist a timestamp instead of a bool so future versions can
     # re-prompt when the trust model changes (e.g. v1.4 adds telemetry).
     first_run_acked_iso: str = ""
+    # Trust-revision counter bumps in lockstep with new trust-model
+    # changes (the first one will be telemetry/crash in v1.4). The
+    # FirstRunDialog re-prompts when this stored value is below the
+    # current ``foxport.config._TRUST_REVISION`` constant — that way a
+    # user who acked the v1.3 trust model sees a fresh consent surface
+    # when v1.4 introduces a new optional network endpoint, instead of
+    # being silently opted into new behavior.
+    first_run_acked_trust_revision: int = 0
+    # When True, on-disk manifest.json scrubs the current user's home-
+    # dir prefix from backup_path / label strings so support uploads
+    # don't leak the username. CLI ``--privacy-redact`` is the per-run
+    # override; this is the persistent default.
+    privacy_redact_manifest: bool = False
 
 
 def reset_to_defaults() -> Settings:

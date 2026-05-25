@@ -13,8 +13,11 @@ from foxport.manifest import (
     SCHEMA_VERSION,
     RunArtifact,
     RunManifest,
+    _redact_path,
+    _user_home_prefixes,
     build_artifact,
     load_manifest,
+    redact_manifest,
     write_manifest,
 )
 
@@ -173,3 +176,127 @@ def test_manifest_never_contains_plaintext_secret_values(tmp_path: Path):
     rendered = path.read_text(encoding="utf-8")
     assert "hunter2" not in rendered
     assert "bank.example" not in rendered
+
+
+def test_redact_path_strips_windows_user_prefix():
+    """C:/Users/Alice/AppData/... becomes <redacted>/AppData/..."""
+
+    prefixes = ["C:\\Users\\Alice\\", "C:\\Users\\"]
+    out = _redact_path(
+        "C:\\Users\\Alice\\AppData\\Roaming\\Mozilla\\Firefox\\Profiles\\xyz\\logins.foxport-backup-1.json",
+        prefixes,
+    )
+    assert out.startswith("<redacted>"), out
+    assert "Alice" not in out
+    assert out.endswith("logins.foxport-backup-1.json")
+
+
+def test_redact_path_strips_posix_home_prefix():
+    """/home/alice/.mozilla/... becomes <redacted>/.mozilla/..."""
+
+    prefixes = ["/home/alice", "/home/"]
+    out = _redact_path("/home/alice/.mozilla/firefox/abc/logins.json", prefixes)
+    assert out.startswith("<redacted>"), out
+    assert "alice" not in out
+
+
+def test_redact_path_leaves_non_user_paths_alone():
+    """A backup that doesn't live under a user dir (e.g. /var/...) is
+    returned verbatim — we don't want to over-redact and lose
+    debuggability."""
+
+    prefixes = ["C:\\Users\\Alice\\"]
+    assert _redact_path("/var/log/foo.log", prefixes) == "/var/log/foo.log"
+
+
+def test_redact_path_handles_empty_string():
+    assert _redact_path("", ["C:\\Users\\"]) == ""
+
+
+def test_redact_manifest_scrubs_backup_paths_but_leaves_artifact_paths(tmp_path: Path):
+    """The on-disk manifest stores artifact paths as POSIX strings RELATIVE
+    to the run's out_dir; those never contain the user prefix and must
+    be left alone. backup_path is absolute and IS user-prefix-bearing.
+    """
+
+    f = tmp_path / "passwords.csv"
+    f.write_bytes(b"x,y,z\n")
+    art = build_artifact(
+        "passwords", f, tmp_path,
+        direct_write=True,
+        backup_path=Path("C:\\Users\\Alice\\AppData\\Roaming\\Mozilla\\Firefox\\logins.foxport-backup-1.json"),
+    )
+    manifest = RunManifest(
+        created_iso="2026-05-25T00:00:00+00:00",
+        source_label="Brave - Default", target_label="Firefox - default-release",
+        artifacts=[art],
+    )
+
+    # Force the same prefix list the redactor would derive on Windows
+    # so the test is platform-agnostic.
+    from foxport import manifest as manifest_mod
+    original = manifest_mod._user_home_prefixes
+    try:
+        manifest_mod._user_home_prefixes = lambda: ["C:\\Users\\Alice\\", "C:\\Users\\"]
+        redacted = redact_manifest(manifest)
+    finally:
+        manifest_mod._user_home_prefixes = original
+
+    # Artifact path stays as the relative POSIX form (out_dir-relative).
+    assert redacted.artifacts[0].path == "passwords.csv"
+    # Backup_path has user prefix scrubbed.
+    bp = redacted.artifacts[0].backup_path
+    assert bp is not None
+    assert bp.startswith("<redacted>")
+    assert "Alice" not in bp
+    # Original manifest is untouched (redact_manifest returns a new copy).
+    assert manifest.artifacts[0].backup_path != redacted.artifacts[0].backup_path
+
+
+def test_write_manifest_privacy_redact_round_trip(tmp_path: Path):
+    """Serialized JSON file must reflect the redacted form when
+    privacy_redact=True; the normal (default) form keeps absolutes.
+
+    Builds ``RunArtifact`` directly so the backup_path stays a literal
+    POSIX-style string — Path() on Windows would silently swap
+    separators and break the prefix match in a platform-specific way
+    we don't want to test against.
+    """
+
+    f = tmp_path / "places.sqlite"
+    f.write_bytes(b"SQLite format 3\x00")
+    real = build_artifact("history", f, tmp_path)
+    art = RunArtifact(
+        key=real.key,
+        path=real.path,
+        size_bytes=real.size_bytes,
+        sha256=real.sha256,
+        sensitivity=real.sensitivity,
+        action_kind=real.action_kind,
+        count=real.count,
+        direct_write=True,
+        backup_path="/home/alice/.mozilla/firefox/abc/places.foxport-backup-1.sqlite",
+        notes=real.notes,
+    )
+    manifest = RunManifest(
+        created_iso="2026-05-25T00:00:00+00:00",
+        source_label="Brave/Default", target_label="Firefox/default-release",
+        artifacts=[art],
+    )
+
+    from foxport import manifest as manifest_mod
+    original = manifest_mod._user_home_prefixes
+    try:
+        manifest_mod._user_home_prefixes = lambda: ["/home/alice", "/home/"]
+        path = write_manifest(manifest, tmp_path, privacy_redact=True)
+    finally:
+        manifest_mod._user_home_prefixes = original
+
+    rendered = path.read_text(encoding="utf-8")
+    assert "/home/alice" not in rendered
+    assert "<redacted>" in rendered
+
+    # Non-redacted write keeps the absolute path.
+    path2 = write_manifest(manifest, tmp_path / "again", privacy_redact=False)
+    rendered2 = path2.read_text(encoding="utf-8")
+    assert "/home/alice/.mozilla" in rendered2

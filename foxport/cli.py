@@ -445,6 +445,7 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
                 "addons.mozilla.org": "disabled" if args.no_online else "enabled",
                 "api.pwnedpasswords.com": hibp_status_for_network,
             },
+            privacy_redact=getattr(args, "privacy_redact", False),
         )
         _log(f"Manifest:     {manifest_path}")
     if json_mode:
@@ -483,11 +484,15 @@ def _write_cli_manifest(
     items: list[str],
     exports: dict[str, Path],
     network: dict[str, str],
+    privacy_redact: bool = False,
 ) -> Path:
     """CLI-side helper that mirrors the worker's manifest emission.
 
-    Lives next to README.txt; consumed by the snapshot bundler, the future
-    ``--json`` CLI, and support diagnostics.
+    Lives next to README.txt; consumed by the snapshot bundler, the
+    ``--json`` CLI, and support diagnostics. When ``privacy_redact`` is
+    set, the on-disk manifest's backup_path / label fields have the
+    current user's home-dir prefix scrubbed (see
+    :func:`foxport.manifest.redact_manifest`).
     """
 
     artifacts = []
@@ -506,7 +511,7 @@ def _write_cli_manifest(
         network=network,
         artifacts=artifacts,
     )
-    return write_manifest(manifest, out_dir)
+    return write_manifest(manifest, out_dir, privacy_redact=privacy_redact)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -545,6 +550,11 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Suppress per-category text output and emit a schema-versioned "
                           "JSON payload on stdout instead (same shape as the on-disk "
                           "manifest.json plus an out_dir pointer). Errors still print to stderr.")
+    mig.add_argument("--privacy-redact", action="store_true",
+                     help="Strip the current user's home-dir prefix (e.g. C:/Users/<name>) "
+                          "from backup_path / labels in the on-disk manifest.json. "
+                          "Use this when uploading the manifest for support so the "
+                          "username doesn't leak. Backups themselves stay where they are.")
 
     snap = sub.add_parser("snapshot",
                           help="Bundle a previous output folder into a portable .fxport archive")
@@ -607,6 +617,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Output root directory (default: ~/Documents/FoxPort)")
     rev.add_argument("--json", action="store_true",
                      help="Emit a schema-versioned JSON payload instead of human text")
+    rev.add_argument("--privacy-redact", action="store_true",
+                     help="Strip user-dir prefixes from manifest backup_path / labels")
     return parser
 
 
@@ -682,6 +694,7 @@ def _cmd_migrate_reverse(args: argparse.Namespace) -> int:
                 "addons.mozilla.org": "disabled",
                 "api.pwnedpasswords.com": "disabled",
             },
+            privacy_redact=getattr(args, "privacy_redact", False),
         )
         _log(f"Manifest:     {manifest_path}")
     if json_mode:

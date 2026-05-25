@@ -458,9 +458,14 @@ class FirstRunDialog(QDialog):
 
     def _save_and_accept(self) -> None:
         from datetime import datetime, timezone
+        from foxport.config import _TRUST_REVISION
         self._settings.allow_online_amo_lookup = self._amo_cb.isChecked()
         self._settings.hibp_scan_default = self._hibp_cb.isChecked()
         self._settings.first_run_acked_iso = datetime.now(timezone.utc).isoformat()
+        # Pin the revision so a future bump (e.g. v1.4 adds telemetry)
+        # triggers a fresh re-prompt instead of silently inheriting the
+        # ack made against an older trust surface.
+        self._settings.first_run_acked_trust_revision = _TRUST_REVISION
         save_settings(self._settings)
         self.accept()
 
@@ -975,6 +980,23 @@ class SettingsDialog(QDialog):
         self._hibp_cb.setChecked(settings.hibp_scan_default)
         privacy_layout.addWidget(self._hibp_cb)
 
+        # Privacy redact: strip C:\Users\<name> (or the macOS / Linux
+        # equivalents) from the on-disk manifest's backup_path / label
+        # strings so a manifest uploaded for support doesn't leak the
+        # username. Local backups + on-disk artifacts are untouched —
+        # this only changes the JSON that you might share with someone
+        # else.
+        self._privacy_redact_cb = QCheckBox(
+            "Redact my username from the run manifest (for support uploads)"
+        )
+        self._privacy_redact_cb.setChecked(settings.privacy_redact_manifest)
+        self._privacy_redact_cb.setToolTip(
+            "When enabled, manifest.json scrubs C:/Users/<name> "
+            "(or the macOS/Linux equivalent) from backup_path strings. "
+            "The actual backup files are not moved or renamed."
+        )
+        privacy_layout.addWidget(self._privacy_redact_cb)
+
         # Future-wired flags (Glean / Sentry). Hidden behind a feature flag
         # until the opt-in surfaces actually ship — three minor releases of
         # "disabled but visible" checkboxes was confusing noise. Set
@@ -1094,6 +1116,7 @@ class SettingsDialog(QDialog):
         self._settings.allow_online_amo_lookup = self._amo_cb.isChecked()
         self._settings.default_dry_run = self._dry_cb.isChecked()
         self._settings.hibp_scan_default = self._hibp_cb.isChecked()
+        self._settings.privacy_redact_manifest = self._privacy_redact_cb.isChecked()
         self._settings.nss_path_override = self._nss_edit.text().strip()
         # Future flags persist current value (disabled checkbox doesn't change it).
         save_settings(self._settings)

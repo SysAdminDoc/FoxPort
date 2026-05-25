@@ -21,6 +21,8 @@ user about cleanup obligations.
 from __future__ import annotations
 
 import json
+import os
+import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from hashlib import sha256
@@ -165,12 +167,136 @@ def build_artifact(
     )
 
 
-def write_manifest(manifest: RunManifest, out_dir: Path) -> Path:
-    """Write ``out_dir/manifest.json`` and return its path."""
+_REDACTED = "<redacted>"
+
+
+def _user_home_prefixes() -> list[str]:
+    """Return a list of canonical strings that should be redacted from
+    absolute paths when ``privacy_redact=True`` is requested.
+
+    The list is built dynamically from the running user's home dir + a
+    handful of per-platform conventions so a manifest uploaded for
+    support doesn't leak the username inside ``backup_path`` strings.
+
+    Lists are emitted longest-first so ``C:\\Users\\Alice\\AppData``
+    matches before ``C:\\Users``.
+    """
+
+    candidates: set[str] = set()
+    try:
+        home = str(Path.home())
+    except (RuntimeError, OSError):
+        home = ""
+    if home:
+        candidates.add(home)
+    # Per-platform canonical "user dir parent" — even if Path.home() points
+    # somewhere unusual, these are the conventional roots we want to
+    # collapse for privacy.
+    if sys.platform == "win32":
+        users_root = os.environ.get("SystemDrive", "C:") + "\\Users\\"
+        userprofile = os.environ.get("USERPROFILE", "")
+        if userprofile:
+            candidates.add(userprofile)
+        # Add the entire \Users\<name> prefix for any path that happens
+        # to start with the Windows convention even when USERPROFILE
+        # disagrees (e.g. a service account migrating someone else's
+        # profile).
+        candidates.add(users_root)
+    elif sys.platform == "darwin":
+        candidates.add("/Users/")
+    else:
+        candidates.add("/home/")
+    return sorted((c for c in candidates if c), key=len, reverse=True)
+
+
+def _redact_path(value: str, prefixes: list[str]) -> str:
+    """Return ``value`` with the longest matching prefix swapped for
+    ``<redacted>``. Preserves the path beyond the username component.
+
+    ``C:\\Users\\Alice\\AppData\\Roaming\\Mozilla\\...`` becomes
+    ``<redacted>\\AppData\\Roaming\\Mozilla\\...``.
+    """
+
+    if not value:
+        return value
+    for prefix in prefixes:
+        if value.startswith(prefix):
+            # Strip the prefix, then strip ONE more path component
+            # (the username) so the remainder begins after the user dir.
+            tail = value[len(prefix):]
+            # Find the next separator (Windows or POSIX) so we drop the
+            # username segment that lives under \Users\ or /home/.
+            for sep in ("\\", "/"):
+                idx = tail.find(sep)
+                if idx >= 0:
+                    return _REDACTED + tail[idx:]
+            # No further separator — the whole thing was the user dir.
+            return _REDACTED
+    return value
+
+
+def redact_manifest(manifest: RunManifest) -> RunManifest:
+    """Return a copy of ``manifest`` with backup_path / source_label /
+    target_label scrubbed of the current user's home-dir prefix.
+
+    Used by ``--privacy-redact`` so a manifest uploaded for support
+    doesn't leak ``C:\\Users\\<username>`` (or its mac / Linux
+    equivalents). The on-disk migration data is untouched — only the
+    in-memory ``RunManifest`` that ``write_manifest`` then serializes.
+    """
+
+    prefixes = _user_home_prefixes()
+    redacted_artifacts: list[RunArtifact] = []
+    for art in manifest.artifacts:
+        redacted_artifacts.append(RunArtifact(
+            key=art.key,
+            path=art.path,                       # always relative; never absolute
+            size_bytes=art.size_bytes,
+            sha256=art.sha256,
+            sensitivity=art.sensitivity,
+            action_kind=art.action_kind,
+            count=art.count,
+            direct_write=art.direct_write,
+            backup_path=(_redact_path(art.backup_path, prefixes)
+                         if art.backup_path else None),
+            notes=art.notes,
+        ))
+    return RunManifest(
+        schema_version=manifest.schema_version,
+        foxport_version=manifest.foxport_version,
+        created_iso=manifest.created_iso,
+        # Profile labels are human-friendly strings like "Brave — Default";
+        # they don't contain usernames today, but the redactor is a no-op
+        # on them so it's still safe to apply.
+        source_label=_redact_path(manifest.source_label, prefixes),
+        target_label=_redact_path(manifest.target_label, prefixes),
+        direction=manifest.direction,
+        dry_run=manifest.dry_run,
+        items_requested=list(manifest.items_requested),
+        network=dict(manifest.network),
+        artifacts=redacted_artifacts,
+        warnings=list(manifest.warnings),
+    )
+
+
+def write_manifest(
+    manifest: RunManifest,
+    out_dir: Path,
+    *,
+    privacy_redact: bool = False,
+) -> Path:
+    """Write ``out_dir/manifest.json`` and return its path.
+
+    When ``privacy_redact=True``, runs the in-memory manifest through
+    :func:`redact_manifest` before serialization so ``backup_path``
+    strings don't carry the current user's home-dir prefix. Default is
+    ``False`` — the user-private manifest still keeps absolute paths
+    so they can actually find their backups when something goes wrong.
+    """
 
     out_dir.mkdir(parents=True, exist_ok=True)
     target = out_dir / MANIFEST_FILENAME
-    payload = asdict(manifest)
+    payload = asdict(redact_manifest(manifest) if privacy_redact else manifest)
     # asdict() walks the dataclass tree; RunArtifact dataclasses become
     # nested dicts automatically.
     text = json.dumps(payload, indent=2, sort_keys=False)

@@ -6,6 +6,29 @@ All notable changes to FoxPort are documented here. Format roughly follows
 
 ## [Unreleased]
 
+### Added
+- **Manifest privacy redact (`--privacy-redact` / Settings toggle).**
+  `foxport.manifest.redact_manifest()` strips the running user's
+  home-dir prefix (per-platform: `C:\\Users\\<name>\\`, `/Users/...`,
+  `/home/...`) from `backup_path` + label strings, swapping for
+  `<redacted>`. Exposed three ways: CLI `--privacy-redact` on
+  `migrate` + `migrate-reverse`; a persistent
+  `Settings.privacy_redact_manifest` toggle in the Privacy section of
+  the Settings dialog; `write_manifest(..., privacy_redact=True)`
+  kwarg for programmatic callers. The actual backup files are
+  untouched — this only changes the JSON serialization a user might
+  share for support. Six new tests in `tests/test_manifest.py`.
+- **First-run trust-revision scaffolding.** New
+  `Settings.first_run_acked_trust_revision: int = 0` field and
+  module-level `foxport.config._TRUST_REVISION` constant. The
+  `FirstRunDialog` persists the current revision on accept; MainWindow
+  re-prompts when the stored revision is below the current one. A
+  user who acked the v1.3 trust surface (AMO + HIBP, no telemetry)
+  will see a fresh consent moment the next time the constant bumps,
+  rather than being silently opted into a new optional network
+  endpoint. Backward-compatible: legacy configs without the field
+  default to 0. New tests cover the legacy-config branch.
+
 ## [1.3.1] — 2026-05-25
 
 Six commits closing the audit regressions the post-v1.3.0 research
