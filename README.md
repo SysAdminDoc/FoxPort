@@ -221,6 +221,7 @@ in `RESEARCH_FEATURE_PLAN.md` plus a basket of P1/P2 trust + polish wins.
 | **Saved cards** | `Web Data.credit_cards` + AES key | CSV (1Password import shape) | Firefox has no native store — import into a password manager |
 | **Search engines** | `Web Data.keywords` SQLite | OpenSearch XML per engine + JSON inventory | Open each XML in Firefox → Settings → Search → Add |
 | **Downloads** | `History.downloads` + `downloads_url_chains` | Portable CSV, plus Firefox `moz_annos` download metadata when history direct-write is applied | CSV is a reference artifact; direct-write makes matching rows visible in Firefox history/download surfaces |
+| **Passkeys** | Known/likely WebAuthn stores | Inventory only (`passkeys inventory`) | No export yet; counts only until CXF/CXP support exists |
 
 ---
 

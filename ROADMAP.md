@@ -232,9 +232,13 @@ the last P1 (conflict-review dialog) plus the P2/P3 follow-ons.
       signs the exact Windows ZIP bytes with Ed25519 and carries
       `sparkle:edSignature`, version, shortVersionString, `sparkle:os`,
       and length. No update checks are enabled in-app yet.
-- [ ] **P3** Passkey inventory CXF prototype
+- [x] **P3** Passkey inventory CXF prototype
       `passkeys inventory` CLI; presence + counts only. No export until
       FIDO CXF/CXP destination support lands.
+      CLI now reports aggregate counts for known/likely WebAuthn/passkey
+      stores and marks Chromium Sync Data/LevelDB findings as heuristic.
+      It never emits credential IDs, relying-party IDs, user IDs, keys,
+      protobuf payloads, or source paths.
 - [ ] **P3** macOS DMG + Linux AppImage distribution
       Apple Developer ID + notarization for macOS; AppImage for Linux
       (bundle NSS or document `FOXPORT_NSS_PATH`).

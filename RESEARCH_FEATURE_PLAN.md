@@ -37,6 +37,9 @@ when the work ships.
 - v1.4 WinSparkle appcast generation is now shipped: release builds can
   emit a signed `appcast.xml` when the Ed25519 private key secret is
   configured. The in-app update checker remains future work.
+- v1.4 passkey inventory is now shipped: `passkeys inventory` reports
+  presence/counts only for known or likely local passkey stores. No export
+  or CXF/CXP conversion is attempted.
 
 ## Current Process
 

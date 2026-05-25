@@ -40,6 +40,7 @@ from foxport.manifest import (
     now_iso,
     write_manifest,
 )
+from foxport.passkeys import inventory_profiles
 from foxport.browsers.detect import (
     ChromiumProfile,
     FirefoxProfile,
@@ -96,6 +97,7 @@ _JSON_SCHEMA_VERSIONS = {
     "restore": 1,
     "import-bookmarks": 1,
     "restore-backup": 1,
+    "passkeys-inventory": 1,
 }
 
 
@@ -758,6 +760,15 @@ def build_parser() -> argparse.ArgumentParser:
                           "flag reserved for future interactive use)")
     rbk.add_argument("--json", action="store_true",
                      help="Emit a schema-versioned JSON payload instead of human text")
+
+    passkeys = sub.add_parser("passkeys", help="Passkey/WebAuthn helper commands")
+    passkeys_sub = passkeys.add_subparsers(dest="passkeys_command", required=True)
+    inv = passkeys_sub.add_parser(
+        "inventory",
+        help="Count known/likely local passkey stores without exporting credentials",
+    )
+    inv.add_argument("--json", action="store_true",
+                     help="Emit schema-versioned JSON instead of text")
     return parser
 
 
@@ -1123,6 +1134,41 @@ def _cmd_restore_backup(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_passkeys_inventory(args: argparse.Namespace) -> int:
+    chromium = detect_chromium()
+    firefox = detect_firefox()
+    profiles = inventory_profiles(chromium, firefox)
+    total = sum(profile.count for profile in profiles)
+    with_passkeys = sum(1 for profile in profiles if profile.count > 0)
+    if getattr(args, "json", False):
+        _emit_json({
+            "schema_version": _JSON_SCHEMA_VERSIONS["passkeys-inventory"],
+            "command": "passkeys inventory",
+            "totals": {
+                "profiles": len(profiles),
+                "profiles_with_passkeys": with_passkeys,
+                "known_or_possible_passkeys": total,
+            },
+            "profiles": [profile.to_json() for profile in profiles],
+            "export_supported": False,
+        })
+        return 0
+
+    print("Passkey inventory (presence/count only; no export)")
+    print(f"Profiles scanned: {len(profiles)}")
+    print(f"Profiles with known/possible passkeys: {with_passkeys}")
+    print(f"Known/possible passkey rows or markers: {total}")
+    for profile in profiles:
+        label = f"{profile.browser}/{profile.profile_name}"
+        marker = f"{profile.count}" if profile.count else "none found"
+        print(f"\n{label} ({profile.family}): {marker}")
+        for store in profile.stores:
+            print(f"  - {store.store}: {store.count} ({store.confidence})")
+        for note in profile.notes[:2]:
+            print(f"    note: {note}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -1145,6 +1191,9 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_import_bookmarks(args)
     if args.command == "restore-backup":
         return _cmd_restore_backup(args)
+    if args.command == "passkeys":
+        if args.passkeys_command == "inventory":
+            return _cmd_passkeys_inventory(args)
     parser.error("no command")
     return 2
 

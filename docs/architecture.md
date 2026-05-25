@@ -13,6 +13,7 @@ foxport/
 │                               #   Every action subcommand supports `--json`.
 ├── config.py                   # persistent Settings (JSON in %APPDATA%/FoxPort etc.)
 ├── diff.py                     # `diff` subcommand engine
+├── passkeys.py                 # passkey/WebAuthn inventory counts only; no export
 ├── fileops.py                  # atomic file helpers — write_bytes_atomic,
 │                               #   write_text_atomic, replace_file_atomic,
 │                               #   timestamped_backup_path

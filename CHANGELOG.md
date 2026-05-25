@@ -19,6 +19,16 @@ All notable changes to FoxPort are documented here. Format roughly follows
   sizes continue to grow.
 
 ### Added
+- **Passkey inventory CLI prototype.** `python -m foxport.cli passkeys
+  inventory [--json]` now scans detected Chromium-family and Firefox-family
+  profiles for known/likely local WebAuthn/passkey stores. It reports only
+  profile-level aggregate counts and store labels, never credential IDs,
+  user IDs, relying-party IDs, public keys, private-key material, protobuf
+  payloads, or paths. Chromium coverage includes SQLite tables with
+  `webauthn`/`passkey` names plus heuristic `Sync Data/LevelDB`
+  `WebauthnCredentialSpecifics` markers. Four tests cover SQLite counts,
+  LevelDB marker counts, Firefox generic table detection, and JSON CLI
+  output. Export remains unsupported until CXF/CXP import targets exist.
 - **Signed WinSparkle appcast generation.** The release workflow now emits a
   signed `appcast.xml` when `WINSPARKLE_EDDSA_PRIVATE_KEY_BASE64` is
   configured. `scripts/generate_winsparkle_appcast.py` signs the Windows
