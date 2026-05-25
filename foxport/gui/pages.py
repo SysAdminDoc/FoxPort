@@ -87,12 +87,9 @@ class MigrationContext:
         self.hibp_scan: bool = False
         self.mask_passwords_in_preview: bool = True
         self.out_root: Path = Path.home() / "Documents" / "FoxPort"
-        # Preview counts
-        self.password_count: int = 0
-        self.bookmark_count: int = 0
-        self.extension_count: int = 0
-        self.cookie_count: int = 0
-        self.history_count: int = 0
+        # Preview counts, keyed by item slug. PreviewPage fills this in;
+        # ItemsPage reads it on back-nav to show per-row count badges.
+        self.counts: dict[str, int] = {}
         # ABE warning
         self.source_uses_abe: bool = False
         self.source_has_classic_key: bool = True
@@ -514,6 +511,10 @@ class ItemsPage(WizardPage):
             parent,
         )
         self._ctx = ctx
+        # Per-category row registry. _make_row appends to this in declaration
+        # order so set_counts() can iterate by key and the wizard doesn't have
+        # to remember 10 attribute names.
+        self._rows: dict[str, tuple] = {}
         self._body = QWidget()
         body_layout = QVBoxLayout(self._body)
         body_layout.setContentsMargins(0, 0, 0, 0)
@@ -530,49 +531,42 @@ class ItemsPage(WizardPage):
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(12, 12, 12, 12)
         card_layout.setSpacing(6)
-        self._passwords_row = self._make_row("Passwords",
+        self._passwords_row = self._make_row("passwords", "Passwords",
             "Export saved logins to a CSV for Firefox about:logins import.",
             customize_callback=self._customize_passwords,
             customize_label="Review")
-        self._bookmarks_row = self._make_row("Bookmarks",
+        self._bookmarks_row = self._make_row("bookmarks", "Bookmarks",
             "Create a Netscape HTML file for Firefox Library import.",
             customize_callback=self._customize_bookmarks,
             customize_label="Folders")
-        self._extensions_row = self._make_row("Extensions",
+        self._extensions_row = self._make_row("extensions", "Extensions",
             "Map installed Chrome extensions to Firefox Add-ons install links.")
-        self._cookies_row = self._make_row("Cookies",
+        self._cookies_row = self._make_row("cookies", "Cookies",
             "Create a Firefox cookies.sqlite for a closed target profile.",
             default_checked=False)
-        self._history_row = self._make_row("Browsing history",
+        self._history_row = self._make_row("history", "Browsing history",
             "Create a Firefox places.sqlite from source URLs and visits.",
             default_checked=False,
             customize_callback=self._customize_history,
             customize_label="Range")
-        self._autofill_row = self._make_row("Form autofill",
+        self._autofill_row = self._make_row("autofill", "Form autofill",
             "Translate saved form entries into Firefox formhistory.sqlite.",
             default_checked=False)
-        self._cards_row = self._make_row("Saved credit cards (CSV)",
+        self._cards_row = self._make_row("cards", "Saved credit cards (CSV)",
             "Write card records to CSV for password-manager import.",
             default_checked=False)
-        self._search_engines_row = self._make_row("Search engines",
+        self._search_engines_row = self._make_row("search_engines", "Search engines",
             "Export custom search engines as Firefox-installable OpenSearch XML.",
             default_checked=False)
-        self._open_tabs_row = self._make_row("Open tabs",
+        self._open_tabs_row = self._make_row("open_tabs", "Open tabs",
             "Recover current session URLs into Firefox recovery.jsonlz4.",
             default_checked=False)
-        self._downloads_row = self._make_row("Downloads (CSV)",
+        self._downloads_row = self._make_row("downloads", "Downloads (CSV)",
             "Export download history with source URL, path, and completion time.",
             default_checked=False)
-        card_layout.addWidget(self._passwords_row[0])
-        card_layout.addWidget(self._bookmarks_row[0])
-        card_layout.addWidget(self._extensions_row[0])
-        card_layout.addWidget(self._cookies_row[0])
-        card_layout.addWidget(self._history_row[0])
-        card_layout.addWidget(self._autofill_row[0])
-        card_layout.addWidget(self._cards_row[0])
-        card_layout.addWidget(self._search_engines_row[0])
-        card_layout.addWidget(self._open_tabs_row[0])
-        card_layout.addWidget(self._downloads_row[0])
+        for key in ("passwords", "bookmarks", "extensions", "cookies", "history",
+                    "autofill", "cards", "search_engines", "open_tabs", "downloads"):
+            card_layout.addWidget(self._rows[key][0])
         body_layout.addWidget(card)
 
         # Online lookup checkbox
@@ -645,7 +639,7 @@ class ItemsPage(WizardPage):
 
         body_layout.addStretch(1)
 
-    def _make_row(self, title: str, subtitle: str, *,
+    def _make_row(self, key: str, title: str, subtitle: str, *,
                    default_checked: bool = True,
                    customize_callback=None,
                    customize_label: str = "Customize"):
@@ -692,7 +686,9 @@ class ItemsPage(WizardPage):
         row.clicked.connect(toggle_from_row)  # type: ignore[arg-type]
         cb.stateChanged.connect(on_checkbox_changed)  # type: ignore[arg-type]
         row.set_checked(default_checked)
-        return row, cb, badge, customize_btn
+        row_tuple = (row, cb, badge, customize_btn)
+        self._rows[key] = row_tuple
+        return row_tuple
 
     def _pick_dir(self) -> None:
         chosen = QFileDialog.getExistingDirectory(self, "Output folder", str(self._ctx.out_root))
@@ -721,21 +717,35 @@ class ItemsPage(WizardPage):
         self._ctx.hibp_scan = self._hibp_cb.isChecked()
         self.canAdvanceChanged.emit(self.can_advance())
 
-    def set_counts(self, passwords: int, bookmarks: int, extensions: int,
-                   cookies: int = 0, history: int = 0) -> None:
-        self._set_badge(self._passwords_row[2], f"{passwords:,} found")
-        self._set_badge(self._bookmarks_row[2], f"{bookmarks:,} found")
-        self._set_badge(self._extensions_row[2], f"{extensions:,} found")
-        self._set_badge(self._cookies_row[2], f"{cookies:,} found")
-        self._set_badge(self._history_row[2], f"{history:,} visits")
+    # Suffix shown next to each badge — visits read better than "found"
+    # for History; the rest are uniform.
+    _COUNT_SUFFIX = {
+        "history": "visits",
+        "open_tabs": "tabs",
+    }
+
+    def set_counts(self, counts: dict[str, int]) -> None:
+        """Update per-row count badges from a preview pass.
+
+        Keys are item slugs (``passwords``, ``bookmarks``, ..., ``downloads``);
+        unknown keys are ignored, and missing keys leave the existing badge
+        alone. The dict version replaced the positional 5-arg signature when
+        the Items step grew the five "advanced" categories.
+        """
+        for key, count in counts.items():
+            row = self._rows.get(key)
+            if row is None:
+                continue
+            suffix = self._COUNT_SUFFIX.get(key, "found")
+            self._set_badge(row[2], f"{count:,} {suffix}")
         if self._ctx.source_uses_abe and not self._ctx.source_has_classic_key:
             self._set_row_available(
-                self._passwords_row,
+                self._rows["passwords"],
                 False,
                 "Disabled because this source profile only exposes App-Bound Encryption.",
             )
             self._set_row_available(
-                self._cookies_row,
+                self._rows["cookies"],
                 False,
                 "Disabled because this source profile only exposes App-Bound Encryption.",
             )
@@ -815,18 +825,7 @@ class ItemsPage(WizardPage):
         )
 
     def can_advance(self) -> bool:
-        return any([
-            self._passwords_row[1].isChecked(),
-            self._bookmarks_row[1].isChecked(),
-            self._extensions_row[1].isChecked(),
-            self._cookies_row[1].isChecked(),
-            self._history_row[1].isChecked(),
-            self._autofill_row[1].isChecked(),
-            self._cards_row[1].isChecked(),
-            self._search_engines_row[1].isChecked(),
-            self._open_tabs_row[1].isChecked(),
-            self._downloads_row[1].isChecked(),
-        ])
+        return any(row[1].isChecked() for row in self._rows.values())
 
     def apply_context_defaults(self) -> None:
         """Push the migration context's per-flag defaults INTO the checkboxes.
@@ -918,11 +917,7 @@ class PreviewPage(WizardPage):
     def on_enter(self) -> None:
         self._tree.clear()
         ctx = self._ctx
-        ctx.password_count = 0
-        ctx.bookmark_count = 0
-        ctx.extension_count = 0
-        ctx.cookie_count = 0
-        ctx.history_count = 0
+        ctx.counts = {}
 
         source_node = QTreeWidgetItem([f"Source: {ctx.source.label if ctx.source else '(manual)'}", ""])
         source_node.addChild(QTreeWidgetItem(
@@ -967,13 +962,13 @@ class PreviewPage(WizardPage):
         if ctx.source:
             if ctx.do_passwords:
                 count = sum(1 for _ in read_password_rows(ctx.source))
-                ctx.password_count = count
+                ctx.counts["passwords"] = count
                 node = QTreeWidgetItem([f"Passwords ({count:,})", "passwords.csv → about:logins"])
                 self._tree.addTopLevelItem(node)
             if ctx.do_bookmarks:
                 roots = read_bookmarks(ctx.source)
                 count = _count_bookmarks(roots)
-                ctx.bookmark_count = count
+                ctx.counts["bookmarks"] = count
                 node = QTreeWidgetItem([f"Bookmarks ({count:,})", "bookmarks.html → Library import"])
                 for root in roots:
                     child = QTreeWidgetItem([f"   {root.name}", f"{_count_bookmarks([root])} entries"])
@@ -982,7 +977,7 @@ class PreviewPage(WizardPage):
                 node.setExpanded(True)
             if ctx.do_extensions:
                 extensions = read_extensions(ctx.source)
-                ctx.extension_count = len(extensions)
+                ctx.counts["extensions"] = len(extensions)
                 node = QTreeWidgetItem([f"Extensions ({len(extensions):,})", "extensions.html → click each Install link"])
                 for ext in extensions[:10]:
                     child = QTreeWidgetItem([f"   {ext.name}", f"{ext.extension_id} · v{ext.version}"])
@@ -993,12 +988,13 @@ class PreviewPage(WizardPage):
                 node.setExpanded(True)
             if ctx.do_cookies:
                 cookie_count = self._count_cookies(ctx.source)
-                ctx.cookie_count = cookie_count
+                ctx.counts["cookies"] = cookie_count
                 node = QTreeWidgetItem([f"Cookies ({cookie_count:,})", "cookies.sqlite → swap into closed Firefox profile"])
                 self._tree.addTopLevelItem(node)
             if ctx.do_history:
                 hist_urls, hist_visits = self._count_history(ctx.source)
-                ctx.history_count = hist_visits
+                # History badge shows visit count — that's what gets migrated.
+                ctx.counts["history"] = hist_visits
                 node = QTreeWidgetItem(
                     [f"History ({hist_urls:,} URLs / {hist_visits:,} visits)",
                      "places.sqlite → swap into closed Firefox profile"],
@@ -1008,6 +1004,7 @@ class PreviewPage(WizardPage):
                 count = self._count_web_data(ctx.source, (
                     "SELECT COUNT(*) FROM autofill WHERE name <> '' AND value <> ''",
                 ))
+                ctx.counts["autofill"] = count
                 self._tree.addTopLevelItem(QTreeWidgetItem([
                     f"Form autofill ({count:,})",
                     "formhistory.sqlite -> closed Firefox profile",
@@ -1016,6 +1013,7 @@ class PreviewPage(WizardPage):
                 count = self._count_web_data(ctx.source, (
                     "SELECT COUNT(*) FROM credit_cards",
                 ))
+                ctx.counts["cards"] = count
                 self._tree.addTopLevelItem(QTreeWidgetItem([
                     f"Saved cards ({count:,})",
                     "saved-cards.csv -> password-manager review/import",
@@ -1024,12 +1022,14 @@ class PreviewPage(WizardPage):
                 count = self._count_web_data(ctx.source, (
                     "SELECT COUNT(*) FROM keywords WHERE keyword IS NOT NULL AND keyword <> ''",
                 ))
+                ctx.counts["search_engines"] = count
                 self._tree.addTopLevelItem(QTreeWidgetItem([
                     f"Search engines ({count:,})",
                     "search-engines.json + OpenSearch XML files",
                 ]))
             if ctx.do_open_tabs:
                 tabs, failures = self._count_open_tabs(ctx.source)
+                ctx.counts["open_tabs"] = tabs
                 detail = "recovery.jsonlz4 -> Firefox session restore"
                 if failures:
                     detail += f" ({failures} warning(s))"
@@ -1039,6 +1039,7 @@ class PreviewPage(WizardPage):
                 ]))
             if ctx.do_downloads:
                 count = self._count_downloads(ctx.source)
+                ctx.counts["downloads"] = count
                 self._tree.addTopLevelItem(QTreeWidgetItem([
                     f"Downloads ({count:,})",
                     "downloads.csv -> portable reference",
@@ -1109,7 +1110,38 @@ class PreviewPage(WizardPage):
 # ----------------------------------------------------------- Step 5: Run
 
 class RunPage(WizardPage):
-    """Live progress + log + Done screen."""
+    """Live progress + log + Done screen.
+
+    Done-screen actions are generated from the artifact metadata below, so a
+    new export category gets a button as soon as the worker emits it. Each
+    button fires :pyattr:`artifactActionRequested` with ``(key, action_kind)``
+    — ``action_kind`` is ``"open"`` (launch the file) or ``"reveal"`` (open
+    the parent folder with the file selected, used for SQLite databases
+    that aren't meant to be double-clicked).
+    """
+
+    # Declared order is the on-screen order. Keys mirror the worker `exports`
+    # dict. Action kind: "open" launches the file; "reveal" opens the
+    # containing folder with the file selected (use for *.sqlite where
+    # double-clicking would otherwise launch a registered SQLite app).
+    ARTIFACT_ACTIONS: list[tuple[str, str, str]] = [
+        ("passwords", "Open passwords.csv", "open"),
+        ("hibp", "Open compromised-passwords.txt", "open"),
+        ("bookmarks", "Open bookmarks.html", "open"),
+        ("extensions", "Open extensions.html", "open"),
+        ("cookies", "Reveal cookies.sqlite", "reveal"),
+        ("history", "Reveal places.sqlite", "reveal"),
+        ("autofill", "Reveal formhistory.sqlite", "reveal"),
+        ("cards", "Open saved-cards.csv", "open"),
+        ("search_engines", "Open search-engines.json", "open"),
+        ("open_tabs", "Reveal recovery.jsonlz4", "reveal"),
+        ("downloads", "Open downloads.csv", "open"),
+    ]
+
+    # Sentinel "key" the open-output-folder button emits.
+    OUTPUT_FOLDER_KEY = "_out"
+
+    artifactActionRequested = pyqtSignal(str, str)  # (key, action_kind)
 
     def __init__(self, ctx: MigrationContext, parent: QWidget | None = None) -> None:
         super().__init__(
@@ -1146,29 +1178,35 @@ class RunPage(WizardPage):
         self._log.setPlaceholderText("Migration details will appear here as each category completes.")
         self.add_content(self._log, stretch=1)
 
-        # Done-screen button bar (hidden until done).
+        # Done-screen action bar. Buttons are rebuilt on every set_done() so
+        # newly-shipped artifact keys appear without code changes here. The
+        # bar is hidden until set_done(ok=True, exports=non-empty).
         self._actions = QFrame()
-        actions_layout = QHBoxLayout(self._actions)
-        actions_layout.setContentsMargins(0, 0, 0, 0)
-        actions_layout.setSpacing(10)
-        self.open_out_btn = QPushButton("Open output folder")
-        self.open_pw_btn = QPushButton("Open passwords.csv")
-        self.open_bm_btn = QPushButton("Open bookmarks.html")
-        self.open_ext_btn = QPushButton("Open extensions.html")
-        self.open_cookies_btn = QPushButton("Reveal cookies.sqlite")
-        self.open_history_btn = QPushButton("Reveal places.sqlite")
-        for btn in (self.open_out_btn, self.open_pw_btn, self.open_bm_btn,
-                    self.open_ext_btn, self.open_cookies_btn, self.open_history_btn):
-            actions_layout.addWidget(btn)
-        actions_layout.addStretch(1)
+        self._actions_layout = QHBoxLayout(self._actions)
+        self._actions_layout.setContentsMargins(0, 0, 0, 0)
+        self._actions_layout.setSpacing(10)
         self._actions.setVisible(False)
         self.add_content(self._actions)
+        # Track button widgets so reset() can dispose of them deterministically.
+        self._action_buttons: list[QPushButton] = []
 
     def on_enter(self) -> None:
         self._dry_banner.setVisible(bool(self._ctx.dry_run))
 
     def append_log(self, text: str) -> None:
         self._log.appendPlainText(text)
+
+    def _clear_action_buttons(self) -> None:
+        for btn in self._action_buttons:
+            btn.setParent(None)
+        self._action_buttons.clear()
+        # Remove the trailing stretch too if it's there; it gets re-added when
+        # the next set_done() runs.
+        while self._actions_layout.count():
+            item = self._actions_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
 
     def reset(self) -> None:
         self._log.clear()
@@ -1178,6 +1216,7 @@ class RunPage(WizardPage):
         self._status.setText("Ready to run")
         self._summary.setVisible(False)
         self._actions.setVisible(False)
+        self._clear_action_buttons()
         # Re-sync the dry-run banner in case the user changed the setting
         # between runs without leaving the Run page (rare but possible via
         # the Back → Items → Forward path).
@@ -1212,10 +1251,29 @@ class RunPage(WizardPage):
             self._summary.set_variant("error")
             self._summary.set_text(f"Migration failed: {summary}")
         self._summary.setVisible(True)
-        self._actions.setVisible(ok and bool(exports))
-        # Show/hide per-file buttons based on what got produced.
-        self.open_pw_btn.setVisible("passwords" in exports)
-        self.open_bm_btn.setVisible("bookmarks" in exports)
-        self.open_ext_btn.setVisible("extensions" in exports)
-        self.open_cookies_btn.setVisible("cookies" in exports)
-        self.open_history_btn.setVisible("history" in exports)
+        self._clear_action_buttons()
+        if ok:
+            # Open-output-folder button always comes first when the run
+            # produced any artifacts (or succeeded but emitted nothing in
+            # dry-run mode; covered by the outer ok check).
+            out_btn = QPushButton("Open output folder")
+            out_btn.clicked.connect(
+                lambda _checked=False, k=self.OUTPUT_FOLDER_KEY: self.artifactActionRequested.emit(k, "open")
+            )  # type: ignore[arg-type]
+            self._actions_layout.addWidget(out_btn)
+            self._action_buttons.append(out_btn)
+            for key, title, action_kind in self.ARTIFACT_ACTIONS:
+                if key not in exports:
+                    continue
+                btn = QPushButton(title)
+                # Bind key + action_kind at definition time so the lambda
+                # captures the *current* iteration's values, not the last.
+                btn.clicked.connect(
+                    lambda _checked=False, k=key, a=action_kind: self.artifactActionRequested.emit(k, a)
+                )  # type: ignore[arg-type]
+                self._actions_layout.addWidget(btn)
+                self._action_buttons.append(btn)
+            self._actions_layout.addStretch(1)
+            self._actions.setVisible(bool(self._action_buttons))
+        else:
+            self._actions.setVisible(False)

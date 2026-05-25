@@ -38,10 +38,14 @@ for the full list.
       from the Items page.
 
 ### Phase B — Wizard + run-artifact parity
-- [ ] **P0** Done screen + Items badges parity with all ten categories.
-      Replace the six hardcoded buttons in `RunPage` with a generated
-      artifact list; switch `ItemsPage.set_counts()` to a keyed `dict`
-      and persist counts on `MigrationContext`.
+- [x] **P0** Done screen + Items badges parity with all ten categories.
+      `RunPage.ARTIFACT_ACTIONS` drives generated buttons; one signal
+      `artifactActionRequested(key, action_kind)` routes Open vs Reveal
+      through `MainWindow._on_artifact_action`. `ItemsPage.set_counts()`
+      now accepts `dict[str, int]` keyed by item slug, and
+      `MigrationContext.counts` replaces the five positional fields.
+      Five new GUI smoke tests in `tests/test_gui_run_actions.py`
+      (under `QT_QPA_PLATFORM=offscreen`) pin both surfaces.
 - [ ] **P0** Emit `manifest.json` per non-dry-run migration. Single
       registry consumed by Done UI, generated README, snapshot, future
       `--json` CLI, and support diagnostics. Schema-versioned, no

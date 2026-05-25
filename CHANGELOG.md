@@ -60,6 +60,31 @@ hardens the surfaces that the v1.3 GUI and release work will land on.
   milestones collapsed; v1.3 phases A–D promoted from
   RESEARCH_FEATURE_PLAN.md.
 
+### Phase B — Done + Items parity (in progress)
+- `RunPage` Done-screen action bar is now generated from
+  `ARTIFACT_ACTIONS` instead of six hardcoded buttons. Every artifact
+  the worker emits (passwords, HIBP report, bookmarks, extensions,
+  cookies, history, autofill, cards, search engines, open tabs,
+  downloads) gets an Open or Reveal button on completion. The page
+  exposes a single signal `artifactActionRequested(key, action_kind)`;
+  `MainWindow._on_artifact_action` routes it to `_open_path` /
+  `_reveal_path`. Adding a new artifact only requires appending one
+  row to `ARTIFACT_ACTIONS` and the worker's `exports` map.
+- `ItemsPage.set_counts()` now takes `dict[str, int]` and updates
+  every registered category badge (was: positional 5-arg signature
+  that left autofill / cards / search-engines / open-tabs / downloads
+  perpetually unbadged on back-nav).
+- `MigrationContext.counts: dict[str, int]` replaces the five
+  positional `*_count` attributes. `PreviewPage` populates it on
+  every entry; `_start_migration` forwards it to the Items page.
+- `.github/workflows/ci.yml` runs `python -m foxport.cli --help` as
+  a regression guard against the v1.2.1 cp1252 crash, and sets
+  `QT_QPA_PLATFORM=offscreen` so the new GUI smoke tests run on Linux.
+- `tests/test_gui_run_actions.py` — 5 new tests covering
+  `ItemsPage.set_counts(dict)`, unknown-key resilience, Done-screen
+  button generation order, signal closure binding, reset cleanup,
+  and failure-state action hiding. **102 tests pass.**
+
 ## [1.2.1] — 2026-05-24
 
 Extreme hardening pass — five batches of audit fixes across correctness,

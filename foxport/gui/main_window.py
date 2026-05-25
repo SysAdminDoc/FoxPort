@@ -110,15 +110,14 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Scanning for installed browsers...")
         self._show_step(0)
 
-        # Done-page action wiring
-        self._run_page.open_out_btn.clicked.connect(lambda: self._open_path(Path(self._last_out_dir)))
-        self._run_page.open_pw_btn.clicked.connect(lambda: self._open_path(Path(self._last_exports.get("passwords", ""))))
-        self._run_page.open_bm_btn.clicked.connect(lambda: self._open_path(Path(self._last_exports.get("bookmarks", ""))))
-        self._run_page.open_ext_btn.clicked.connect(lambda: self._open_path(Path(self._last_exports.get("extensions", ""))))
-        self._run_page.open_cookies_btn.clicked.connect(lambda: self._reveal_path(self._last_exports.get("cookies", "")))
-        self._run_page.open_history_btn.clicked.connect(lambda: self._reveal_path(self._last_exports.get("history", "")))
+        # Done-page action wiring. RunPage emits (key, action_kind) and we
+        # resolve the path from the most recent exports map. Decoupling the
+        # button widget from the file routing keeps RunPage free of any
+        # filesystem / process-launch logic (testable headless) and lets us
+        # add new artifact keys without touching MainWindow.
         self._last_out_dir: str = ""
         self._last_exports: dict[str, str] = {}
+        self._run_page.artifactActionRequested.connect(self._on_artifact_action)
 
     def _build_menu(self) -> None:
         menu = self.menuBar()
@@ -284,13 +283,8 @@ class MainWindow(QMainWindow):
                 )
                 return
         # Push counts into Items page so the user sees them on back-nav too.
-        self._items_page.set_counts(
-            self._ctx.password_count,
-            self._ctx.bookmark_count,
-            self._ctx.extension_count,
-            self._ctx.cookie_count,
-            self._ctx.history_count,
-        )
+        # PreviewPage filled ctx.counts on the way in; this just forwards.
+        self._items_page.set_counts(dict(self._ctx.counts))
         request = MigrationRequest(
             source=self._ctx.source,
             target=self._ctx.target,
@@ -385,6 +379,28 @@ class MainWindow(QMainWindow):
     def _open_output_root(self) -> None:
         self._ctx.out_root.mkdir(parents=True, exist_ok=True)
         self._open_path(self._ctx.out_root)
+
+    def _on_artifact_action(self, key: str, action_kind: str) -> None:
+        """Resolve a Done-screen button click to a filesystem action.
+
+        ``key == RunPage.OUTPUT_FOLDER_KEY`` opens the most recent run's
+        output directory. Any other key looks up the path from
+        ``self._last_exports`` and either launches it (``open``) or reveals
+        it in the OS file manager (``reveal``). Silent no-op for unknown
+        keys — the worker's exports map is the single source of truth.
+        """
+        from foxport.gui.pages import RunPage
+        if key == RunPage.OUTPUT_FOLDER_KEY:
+            if self._last_out_dir:
+                self._open_path(Path(self._last_out_dir))
+            return
+        raw_path = self._last_exports.get(key, "")
+        if not raw_path:
+            return
+        if action_kind == "reveal":
+            self._reveal_path(raw_path)
+        else:
+            self._open_path(Path(raw_path))
 
     def _open_path(self, path: Path) -> None:
         if not path or str(path) == "":

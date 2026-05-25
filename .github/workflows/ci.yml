@@ -42,10 +42,19 @@ jobs:
         run: |
           python -m foxport.cli --version
 
+      - name: CLI --help (must stay ASCII-safe for legacy Windows consoles)
+        run: |
+          python -m foxport.cli --help
+
       - name: CLI list (allowed to find zero profiles in CI)
         run: |
           python -m foxport.cli list
 
       - name: Run unit tests
+        env:
+          # GUI smoke tests instantiate QApplication; the offscreen platform
+          # plugin keeps them headless on the Linux runner which has no
+          # display server.
+          QT_QPA_PLATFORM: offscreen
         run: |
           pytest -ra -q
