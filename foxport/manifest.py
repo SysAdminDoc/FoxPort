@@ -53,6 +53,11 @@ _SENSITIVITY: dict[str, str] = {
 # Default action the Done screen wires for each key. "reveal" opens the
 # containing folder (use for *.sqlite files that aren't meant to be
 # launched); "open" launches the file with the registered handler.
+# ``cards`` is "reveal" deliberately — the CSV contains plaintext PANs
+# and default-launching it would hand them to Excel / the OS default
+# CSV handler, which can pop import dialogs, embed it in a "recent
+# files" list, or cache thumbnails. Forcing the user to open it
+# explicitly is the safer default.
 _DEFAULT_ACTION: dict[str, str] = {
     "passwords": "open",
     "hibp": "open",
@@ -61,7 +66,7 @@ _DEFAULT_ACTION: dict[str, str] = {
     "cookies": "reveal",
     "history": "reveal",
     "autofill": "reveal",
-    "cards": "open",
+    "cards": "reveal",
     "search_engines": "open",
     "open_tabs": "reveal",
     "downloads": "open",

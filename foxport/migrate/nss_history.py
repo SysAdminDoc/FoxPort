@@ -21,7 +21,7 @@ from foxport.browsers.detect import (
     FirefoxProfile,
     is_firefox_profile_locked,
 )
-from foxport.fileops import replace_file_atomic
+from foxport.fileops import replace_file_atomic, timestamped_backup_path
 from foxport.migrate.history import HistoryResult, migrate_history
 from foxport.migrate.nss_cookies import ProfileLockedError
 
@@ -41,14 +41,8 @@ class HistoryDirectWriteResult:
         return self.favicons_backup_path is not None
 
 
-def _backup_path_for(target_path: Path) -> Path | None:
-    """Return the timestamped backup path for an existing file, or None."""
-    if not target_path.exists():
-        return None
-    mtime = int(target_path.stat().st_mtime)
-    return target_path.with_name(
-        f"{target_path.stem}.foxport-backup-{mtime}{target_path.suffix}"
-    )
+# Backward-compat alias for the helper that moved to foxport.fileops.
+_backup_path_for = timestamped_backup_path
 
 
 def write_history_into_target(
@@ -63,7 +57,7 @@ def write_history_into_target(
     history_result = migrate_history(source, staging_dir)
     target_path = target.profile_dir / "places.sqlite"
 
-    backup_path = _backup_path_for(target_path)
+    backup_path = timestamped_backup_path(target_path)
     if backup_path is not None:
         shutil.copy2(target_path, backup_path)
         # Clear WAL/SHM siblings so Firefox doesn't re-merge stale state into

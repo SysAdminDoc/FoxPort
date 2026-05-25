@@ -238,7 +238,10 @@ Any Gecko-based browser that ships a `profiles.ini`.
 
 ## Install
 
-Requires Python 3.11+ on Windows.
+Requires Python 3.11+. Windows-first, but the runtime and CI matrix
+cover Windows / macOS / Linux — same install steps everywhere; activate
+the venv with `.venv\Scripts\activate` on Windows or `. .venv/bin/activate`
+on macOS / Linux.
 
 ```bash
 git clone https://github.com/SysAdminDoc/FoxPort.git

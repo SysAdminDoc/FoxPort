@@ -50,6 +50,24 @@ def write_bytes_atomic(path: Path, payload: bytes) -> None:
         raise
 
 
+def timestamped_backup_path(target_path: Path) -> Path | None:
+    """Return the timestamped backup path for an existing file, or ``None``.
+
+    Convention shared by every direct-write helper: a file backed up at
+    write time becomes ``{stem}.foxport-backup-{mtime}{suffix}`` next to
+    the original. Returns ``None`` when the target doesn't exist
+    (nothing to back up — caller skips the copy step).
+    """
+
+    target_path = Path(target_path)
+    if not target_path.exists():
+        return None
+    mtime = int(target_path.stat().st_mtime)
+    return target_path.with_name(
+        f"{target_path.stem}.foxport-backup-{mtime}{target_path.suffix}"
+    )
+
+
 def replace_file_atomic(source: Path, target: Path) -> None:
     """Copy source bytes through a temp file, then atomically replace target."""
 

@@ -1187,7 +1187,9 @@ class RunPage(WizardPage):
         ("cookies", "Reveal cookies.sqlite", "reveal"),
         ("history", "Reveal places.sqlite", "reveal"),
         ("autofill", "Reveal formhistory.sqlite", "reveal"),
-        ("cards", "Open saved-cards.csv", "open"),
+        # Reveal instead of open: saved-cards.csv contains plaintext PANs.
+        # See manifest._DEFAULT_ACTION for the rationale.
+        ("cards", "Reveal saved-cards.csv", "reveal"),
         ("search_engines", "Open search-engines.json", "open"),
         ("open_tabs", "Reveal recovery.jsonlz4", "reveal"),
         ("downloads", "Open downloads.csv", "open"),

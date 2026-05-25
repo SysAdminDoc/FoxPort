@@ -80,14 +80,17 @@ follow-ons.
 - [ ] **P2** Atomic-replace failure recovery test
       Force write-error mid-replace; assert target unchanged + no orphan
       `.foxport-*` tmpfiles.
-- [ ] **P2** Lift `_backup_path_for()` into `foxport/fileops.py`
-      Duplicated in `nss_cookies.py` and `nss_history.py`.
-- [ ] **P2** `_DEFAULT_ACTION["cards"]` → `"reveal"`
+- [x] **P2** Lift `_backup_path_for()` into `foxport/fileops.py`
+      Lifted to `timestamped_backup_path()`; nss_cookies + nss_history
+      keep backward-compat alias. Three new tests in
+      `tests/test_fileops.py`.
+- [x] **P2** `_DEFAULT_ACTION["cards"]` → `"reveal"`
       Plaintext PAN CSV — default-launching with Excel is unsafe.
-      Touches `foxport/manifest.py:67` + `foxport/gui/pages.py:1190`.
-- [ ] **P2** Hide disabled telemetry/crash placeholder checkboxes
-      Three minor releases of "off until then" is enough. Feature-flag
-      behind a `_FUTURE_TELEMETRY` constant.
+      Mirrored in `foxport/gui/pages.py:ARTIFACT_ACTIONS`.
+- [x] **P2** Hide disabled telemetry/crash placeholder checkboxes
+      Feature-flagged behind a `_FUTURE_TELEMETRY = False` constant in
+      `SettingsDialog`. The hidden QCheckBox objects still hold the
+      persisted value so `_save()` doesn't need a hasattr() dance.
 - [ ] **P2** Manifest privacy: `--privacy-redact` flag
       Strip `C:\Users\<name>` from backup_path strings on demand.
 - [ ] **P2** README install snippet: cross-platform softening

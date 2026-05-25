@@ -18,7 +18,7 @@ from foxport.browsers.detect import (
     FirefoxProfile,
     is_firefox_profile_locked,
 )
-from foxport.fileops import replace_file_atomic
+from foxport.fileops import replace_file_atomic, timestamped_backup_path
 from foxport.migrate.cookies import CookieResult, migrate_cookies
 
 
@@ -33,14 +33,10 @@ class CookieDirectWriteResult:
     written: CookieResult
 
 
-def _backup_path_for(target_path: Path) -> Path | None:
-    """Return the timestamped backup path for an existing file, or None."""
-    if not target_path.exists():
-        return None
-    mtime = int(target_path.stat().st_mtime)
-    return target_path.with_name(
-        f"{target_path.stem}.foxport-backup-{mtime}{target_path.suffix}"
-    )
+# Backward-compat alias. Old name lived here before the helper moved into
+# fileops to dedupe between nss_cookies/nss_history. Keep the symbol so
+# any external caller (or pickled test fixture) still resolves.
+_backup_path_for = timestamped_backup_path
 
 
 def write_cookies_into_target(
@@ -58,7 +54,7 @@ def write_cookies_into_target(
     cookies_result = migrate_cookies(source, staging_dir)
     target_path = target.profile_dir / "cookies.sqlite"
 
-    backup_path = _backup_path_for(target_path)
+    backup_path = timestamped_backup_path(target_path)
     if backup_path is not None:
         shutil.copy2(target_path, backup_path)
         # Clear WAL/SHM siblings so Firefox doesn't re-merge stale state into

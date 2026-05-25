@@ -849,20 +849,31 @@ class SettingsDialog(QDialog):
         self._hibp_cb.setChecked(settings.hibp_scan_default)
         privacy_layout.addWidget(self._hibp_cb)
 
-        # Future-wired flags (Glean / Sentry). Off + advisory.
-        self._telemetry_cb = QCheckBox(
-            "Send anonymous usage metrics (category counts, no URLs) — v1.3+ feature, off until then"
-        )
-        self._telemetry_cb.setChecked(settings.telemetry_opt_in)
-        self._telemetry_cb.setEnabled(False)
-        privacy_layout.addWidget(self._telemetry_cb)
-
-        self._crash_cb = QCheckBox(
-            "Send crash reports (no user data) — v1.3+ feature, off until then"
-        )
-        self._crash_cb.setChecked(settings.crash_reporting_opt_in)
-        self._crash_cb.setEnabled(False)
-        privacy_layout.addWidget(self._crash_cb)
+        # Future-wired flags (Glean / Sentry). Hidden behind a feature flag
+        # until the opt-in surfaces actually ship — three minor releases of
+        # "disabled but visible" checkboxes was confusing noise. Set
+        # ``_FUTURE_TELEMETRY = True`` here when wiring v1.4's telemetry/
+        # crash plumbing so the checkboxes return in lockstep.
+        _FUTURE_TELEMETRY = False
+        if _FUTURE_TELEMETRY:
+            self._telemetry_cb = QCheckBox(
+                "Send anonymous usage metrics (category counts, no URLs)"
+            )
+            self._telemetry_cb.setChecked(settings.telemetry_opt_in)
+            privacy_layout.addWidget(self._telemetry_cb)
+            self._crash_cb = QCheckBox(
+                "Send crash reports (no user data)"
+            )
+            self._crash_cb.setChecked(settings.crash_reporting_opt_in)
+            privacy_layout.addWidget(self._crash_cb)
+        else:
+            # Stable placeholder so _save() can read the field without a
+            # hasattr() dance. The disabled QCheckBox isn't added to the
+            # layout, so it never paints.
+            self._telemetry_cb = QCheckBox()
+            self._telemetry_cb.setChecked(settings.telemetry_opt_in)
+            self._crash_cb = QCheckBox()
+            self._crash_cb.setChecked(settings.crash_reporting_opt_in)
 
         layout.addWidget(privacy_card)
 

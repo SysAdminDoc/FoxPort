@@ -43,6 +43,24 @@ that prevents the curated-map drift recurring.
   destructive write. Worker calls it alongside the existing
   passwords/cookies/history pre-flight analyzers.
 
+### Changed
+- **`_DEFAULT_ACTION["cards"]` → `"reveal"`** — `saved-cards.csv` holds
+  plaintext PANs; default-launching it with Excel / the OS CSV handler
+  was risky (recent-files list, thumbnail cache, import dialogs).
+  `RunPage.ARTIFACT_ACTIONS` mirrors the change.
+- **`SettingsDialog` hides telemetry / crash placeholders** until the
+  Glean / Sentry plumbing actually lands. Feature-flagged behind a
+  `_FUTURE_TELEMETRY = False` constant — bump it to True when wiring
+  the v1.4 surfaces and the checkboxes return.
+- **`foxport/fileops.timestamped_backup_path()`** — lifted from
+  `nss_cookies.py:_backup_path_for` (it was duplicated in `nss_history.py`
+  with identical semantics). Both modules keep the old name as a thin
+  backward-compat alias so any external caller still resolves. Three
+  new `tests/test_fileops.py` cases cover the helper.
+- **README install snippet** softened: was "Requires Python 3.11+ on
+  Windows" (despite the cross-platform CI matrix); now reflects
+  Windows-first with macOS / Linux supported via the same steps.
+
 ### Internal
 - ROADMAP.md restructured around v1.3.1 / v1.3.2 / v1.3.3 / v1.4 with
   the v1.3.0 milestone collapsed.
@@ -50,7 +68,7 @@ that prevents the curated-map drift recurring.
   baseline (was authored against an uncommitted working tree pre-v1.3).
 - CLAUDE.md status block refreshed to reflect v1.3.0 + the 13 follow-on
   commits; v1.3.1 batch noted.
-- **165 tests pass** (up from 163).
+- **168 tests pass** (up from 163).
 
 ## [1.3.0] — 2026-05-24
 
