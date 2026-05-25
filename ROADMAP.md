@@ -168,7 +168,17 @@ for the full list.
       `reset_to_defaults()`. Help menu adds "View change log" (opens
       CHANGELOG.md alongside the install) and "Report a problem
       (GitHub)" (opens the issue tracker).
-- [ ] **P2** Done "Reveal backups" action.
+- [x] **P2** Done "Reveal backups" action. `MigrationWorker` exposes
+      a new `directWriteBackups` signal that fires before `finished`
+      with `{key: backup_path_str}`. RunPage stashes the dict via
+      `set_direct_write_backups()`, and `set_done()` renders a
+      "Reveal X backup" button next to each direct-write category
+      that produced one (empty-string backup paths are filtered so the
+      "no prior file to back up" case doesn't render a dead button).
+      The button emits the new `RunPage.BACKUP_ACTION` action kind via
+      `artifactActionRequested`; `MainWindow._on_artifact_action`
+      resolves it against `_last_direct_write_backups`. Regression
+      test in `tests/test_gui_run_actions.py`.
 - [ ] **P2** Downloads direct-write into Firefox `moz_annos` when history
       direct-write is selected.
 - [ ] **P2** All-artifact Done UI render test + atomic-replace failure

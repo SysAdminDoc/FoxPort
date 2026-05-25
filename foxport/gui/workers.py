@@ -97,6 +97,12 @@ class MigrationWorker(QObject):
     log = pyqtSignal(str)
     step = pyqtSignal(int, int)  # (current, total)
     finished = pyqtSignal(bool, str, dict)  # (ok, export_dir_or_error, exports map)
+    # Direct-write backups produced this run. Keys are item slugs (passwords,
+    # cookies, history, ...); values are str paths to the timestamped backup
+    # of the previous file in the target profile, or empty string when the
+    # target had nothing to back up. The Done screen reads this to render
+    # "Reveal backup" actions next to the direct-write category buttons.
+    directWriteBackups = pyqtSignal(dict)
 
     def __init__(self, request: MigrationRequest) -> None:
         super().__init__()
@@ -427,6 +433,14 @@ class MigrationWorker(QObject):
                 self.log.emit(f"Manifest written to {manifest_path.name}")
             else:
                 self.log.emit("Dry-run complete. No files were written.")
+            # Surface backup paths to the Done screen. Empty string for keys
+            # whose direct-write either didn't run or had no previous file
+            # to back up, so the receiver can distinguish "no backup" from
+            # "category absent" by key membership.
+            self.directWriteBackups.emit({
+                k: (str(v) if v is not None else "")
+                for k, v in direct_write_backups.items()
+            })
             self.finished.emit(True, str(out_dir), {k: str(v) for k, v in exports.items()})
 
         except Exception as exc:

@@ -124,6 +124,7 @@ class MainWindow(QMainWindow):
         # add new artifact keys without touching MainWindow.
         self._last_out_dir: str = ""
         self._last_exports: dict[str, str] = {}
+        self._last_direct_write_backups: dict[str, str] = {}
         self._run_page.artifactActionRequested.connect(self._on_artifact_action)
 
     def _build_menu(self) -> None:
@@ -361,6 +362,10 @@ class MainWindow(QMainWindow):
         thread = make_thread(worker)
         worker.log.connect(self._run_page.append_log)
         worker.step.connect(self._run_page.set_step)
+        # directWriteBackups fires BEFORE finished, so set_direct_write_backups
+        # runs first and set_done() sees the backups dict when it builds the
+        # Done action bar.
+        worker.directWriteBackups.connect(self._on_direct_write_backups)
         worker.finished.connect(self._on_migration_finished)
         worker.finished.connect(thread.quit)
         thread.finished.connect(worker.deleteLater)
@@ -403,6 +408,17 @@ class MainWindow(QMainWindow):
             self._detect_thread.wait(2000)
         super().closeEvent(event)
 
+    def _on_direct_write_backups(self, backups: dict) -> None:
+        """Record direct-write backup paths + forward them to the Run page.
+
+        Stashed on the window so ``_on_artifact_action`` can resolve a
+        Reveal-backup click later; forwarded to the Run page so
+        ``set_done`` renders the Reveal buttons next to their categories.
+        """
+
+        self._last_direct_write_backups = {k: v for k, v in backups.items() if v}
+        self._run_page.set_direct_write_backups(self._last_direct_write_backups)
+
     def _on_migration_finished(self, ok: bool, payload: str, exports: dict) -> None:
         self._migration_done = ok
         if ok:
@@ -438,6 +454,11 @@ class MainWindow(QMainWindow):
             return
         if key == RunPage.CREATE_SNAPSHOT_KEY:
             self._create_snapshot_from_last_run()
+            return
+        if action_kind == RunPage.BACKUP_ACTION:
+            backup_path = self._last_direct_write_backups.get(key, "")
+            if backup_path:
+                self._reveal_path(backup_path)
             return
         raw_path = self._last_exports.get(key, "")
         if not raw_path:

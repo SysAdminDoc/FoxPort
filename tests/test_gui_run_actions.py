@@ -128,6 +128,41 @@ def test_run_page_reset_disposes_action_buttons(qt_app):
     assert page._actions.isHidden()
 
 
+def test_run_page_renders_reveal_backup_buttons(qt_app):
+    """When set_direct_write_backups is called with paths for cookies +
+    history before set_done, the Done action bar grows extra Reveal
+    buttons that emit BACKUP_ACTION via artifactActionRequested."""
+
+    from foxport.gui.pages import MigrationContext, RunPage
+    page = RunPage(MigrationContext())
+    backups = {
+        "cookies": "/tmp/firefox/cookies.foxport-backup-1700000000.sqlite",
+        "history": "/tmp/firefox/places.foxport-backup-1700000000.sqlite",
+        # Empty string should be filtered out — direct-write ran but there
+        # was no prior file to back up.
+        "passwords": "",
+    }
+    page.set_direct_write_backups(backups)
+    exports = {
+        "cookies": Path("c.sqlite"),
+        "history": Path("places.sqlite"),
+        # passwords export still produced a CSV; its absence of a backup
+        # path means no Reveal button should appear.
+        "passwords": Path("p.csv"),
+    }
+    page.set_done(True, "/tmp/out", exports)
+
+    received: list[tuple[str, str]] = []
+    page.artifactActionRequested.connect(lambda k, a: received.append((k, a)))
+    for btn in page._action_buttons:
+        btn.click()
+
+    keys_with_backup_action = [k for k, a in received if a == RunPage.BACKUP_ACTION]
+    # Exactly two reveal-backup actions fired — cookies + history. Passwords
+    # had a backup_path of "" so the button was suppressed.
+    assert sorted(keys_with_backup_action) == ["cookies", "history"]
+
+
 def test_run_page_done_failure_hides_actions(qt_app):
     from foxport.gui.pages import MigrationContext, RunPage
     page = RunPage(MigrationContext())

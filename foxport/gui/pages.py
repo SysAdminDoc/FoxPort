@@ -1197,6 +1197,10 @@ class RunPage(WizardPage):
     OUTPUT_FOLDER_KEY = "_out"
     # Sentinel "key" emitted by the "Save as snapshot..." Done button.
     CREATE_SNAPSHOT_KEY = "_snapshot"
+    # Action kind for "Reveal backup" buttons; routed separately so
+    # MainWindow can resolve the path from the backups map instead of the
+    # exports map.
+    BACKUP_ACTION = "reveal-backup"
 
     artifactActionRequested = pyqtSignal(str, str)  # (key, action_kind)
 
@@ -1246,6 +1250,9 @@ class RunPage(WizardPage):
         self.add_content(self._actions)
         # Track button widgets so reset() can dispose of them deterministically.
         self._action_buttons: list[QPushButton] = []
+        # Direct-write backups keyed by item slug; set per run via
+        # set_direct_write_backups() and consumed by set_done().
+        self._direct_write_backups: dict[str, str] = {}
 
     def on_enter(self) -> None:
         self._dry_banner.setVisible(bool(self._ctx.dry_run))
@@ -1274,6 +1281,9 @@ class RunPage(WizardPage):
         self._summary.setVisible(False)
         self._actions.setVisible(False)
         self._clear_action_buttons()
+        # Stale backups from a prior run would render incorrect Reveal
+        # buttons after a Back -> Run sequence; clear on every reset.
+        self._direct_write_backups = {}
         # Re-sync the dry-run banner in case the user changed the setting
         # between runs without leaving the Run page (rare but possible via
         # the Back → Items → Forward path).
@@ -1292,6 +1302,18 @@ class RunPage(WizardPage):
         self._progress.setValue(current)
         self._progress.setFormat(f"Step {current} of {total}")
         self._status.setText(f"Running step {current} of {total}")
+
+    def set_direct_write_backups(self, backups: dict[str, str]) -> None:
+        """Stash the per-category backup paths produced by direct-write so
+        ``set_done`` can render "Reveal backup" buttons next to the
+        matching artifact actions. Called once per run before ``set_done``.
+
+        Empty string values mean "direct-write ran but there was no prior
+        target file to back up" — we omit the button in that case rather
+        than reveal a non-existent path.
+        """
+
+        self._direct_write_backups = {k: v for k, v in backups.items() if v}
 
     def set_done(self, ok: bool, summary: str, exports: dict[str, Path]) -> None:
         self._progress.setRange(0, 1)
@@ -1330,6 +1352,18 @@ class RunPage(WizardPage):
                 )  # type: ignore[arg-type]
                 self._actions_layout.addWidget(btn)
                 self._action_buttons.append(btn)
+                # When direct-write produced a backup for this category,
+                # surface a "Reveal backup" button right next to the
+                # artifact button so a regret-undo is one click away.
+                if key in self._direct_write_backups:
+                    backup_btn = QPushButton(f"Reveal {key} backup")
+                    backup_btn.clicked.connect(
+                        lambda _checked=False, k=key: self.artifactActionRequested.emit(
+                            k, self.BACKUP_ACTION,
+                        )
+                    )  # type: ignore[arg-type]
+                    self._actions_layout.addWidget(backup_btn)
+                    self._action_buttons.append(backup_btn)
             # Save as snapshot is always last so it sits at the end of the
             # row visually. Hidden when there's nothing in the output dir
             # to bundle (dry-run with no exports).

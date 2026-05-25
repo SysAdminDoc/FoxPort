@@ -85,6 +85,24 @@ hardens the surfaces that the v1.3 GUI and release work will land on.
   button generation order, signal closure binding, reset cleanup,
   and failure-state action hiding.
 
+### Done screen "Reveal backup" actions (Phase D)
+- `MigrationWorker` grew a `directWriteBackups` signal that fires
+  before `finished` with `{key: backup_path_str}`. `RunPage.set_done`
+  reads the dict (stashed via `set_direct_write_backups()`) and
+  renders a "Reveal X backup" button next to each direct-write
+  category that produced one. Empty-string backup paths are
+  filtered out so the "no prior file to back up" case doesn't
+  render a dead button.
+- The button emits the new `RunPage.BACKUP_ACTION` action kind
+  through the same `artifactActionRequested` signal as every other
+  Done button; `MainWindow._on_artifact_action` resolves it against
+  `_last_direct_write_backups`. Regret-undo for a direct-write run
+  is now one click away from the success screen.
+- Added regression test
+  `tests/test_gui_run_actions.test_run_page_renders_reveal_backup_buttons`
+  pinning the rendering rules (one button per non-empty backup
+  entry, BACKUP_ACTION kind emitted correctly).
+
 ### First-run trust dialog + Preview network disclosure (Phase C)
 - New `FirstRunDialog` runs on the first GUI launch (gated by the new
   `Settings.first_run_acked_iso` field). Explains the four trust
