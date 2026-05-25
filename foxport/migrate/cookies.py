@@ -198,6 +198,13 @@ def _iter_decrypted_cookies(
                     plaintext = plaintext_bytes.decode("utf-8", errors="replace")
                 # Chromium's is_host_only is implied by leading dot in host_key.
                 is_host_only = not (host_key or "").startswith(".")
+                # Chromium uses ``samesite=-1`` for "unspecified" but
+                # Firefox only knows {0=none, 1=lax, 2=strict, 3=no_restriction}.
+                # Anything outside that range maps to 0 — Firefox treats
+                # 0 as "no SameSite attribute set" which is the closest
+                # equivalent to Chromium's "unspecified".
+                ss_raw = int(samesite) if isinstance(samesite, int) else 0
+                samesite_firefox = ss_raw if 0 <= ss_raw <= 3 else 0
                 yield (
                     {
                         "host": _ensure_host_format(host_key or "", is_host_only),
@@ -208,7 +215,7 @@ def _iter_decrypted_cookies(
                         "expiry": _chrome_micros_to_unix_seconds(expires_utc or 0),
                         "isSecure": 1 if is_secure else 0,
                         "isHttpOnly": 1 if is_httponly else 0,
-                        "sameSite": int(samesite or 0) if samesite is not None else 0,
+                        "sameSite": samesite_firefox,
                         "schemeMap": _scheme_map_from_secure(is_secure),
                     },
                     plaintext,
