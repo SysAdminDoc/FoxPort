@@ -85,6 +85,28 @@ hardens the surfaces that the v1.3 GUI and release work will land on.
   button generation order, signal closure binding, reset cleanup,
   and failure-state action hiding.
 
+### External bookmark adapters surfaced (Phase C)
+- `import_/adapters.write_netscape_html()` — shared emitter consumed
+  by the CLI subcommand and the GUI manual-drop branch. Groups by the
+  first folder-path segment so the user sees "Pocket / Pinboard /
+  OPML feeds / Imported" sections in their Library after import.
+  HTML-escapes title and URL; surfaces tags as the optional `TAGS=`
+  attribute. Goes through `write_text_atomic()` for safety.
+- `python -m foxport.cli import-bookmarks --input <file>` converts a
+  Pocket / Pinboard / OPML / Netscape export to a Firefox-importable
+  `.firefox.html` sibling. Format is auto-detected by content; the
+  `--format pocket|pinboard|opml|netscape` flag lets power users
+  override the heuristic. Returns non-zero on missing input or zero
+  parsed bookmarks.
+- The GUI manual-drop tile (Source step) now tries the bookmark
+  adapters before the Chromium-profile path. A dropped Pocket JSON,
+  Pinboard JSON, OPML XML, or Netscape HTML file is converted in
+  place to a `.firefox.html` sibling and the banner copy points the
+  user at Firefox Library import.
+- `tests/test_import_bookmarks_cli.py` — 5 tests covering grouping,
+  HTML escape (XSS guard), Pinboard round-trip, format override, and
+  missing-input error path.
+
 ### NSS version-skew guard (Phase C)
 - `crypto/nss.py` binds `NSS_GetVersion()` and captures the reported
   version on `NSSLibrary.version`. `open_session()` takes a

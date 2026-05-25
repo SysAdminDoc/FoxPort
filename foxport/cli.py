@@ -407,6 +407,17 @@ def build_parser() -> argparse.ArgumentParser:
     diff.add_argument("--master-password", default="",
                        help="Master password for the target Firefox profile, if set")
 
+    imp = sub.add_parser("import-bookmarks",
+                          help="Convert a Pocket / Pinboard / OPML / Netscape bookmark export to Firefox-importable HTML")
+    imp.add_argument("--input", required=True,
+                     help="Path to the source bookmark file (auto-detected by content)")
+    imp.add_argument("--out", default=None,
+                     help="Path to write the Firefox-importable HTML "
+                          "(default: <input>.firefox.html alongside the input)")
+    imp.add_argument("--format", default="auto",
+                     choices=("auto", "pocket", "pinboard", "opml", "netscape"),
+                     help="Force a specific input format if auto-detection misclassifies the file")
+
     rev = sub.add_parser("migrate-reverse",
                           help="Reverse direction: Firefox profile to Chromium-importable bundle")
     rev.add_argument("--source", required=True,
@@ -566,6 +577,63 @@ def _cmd_restore(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_import_bookmarks(args: argparse.Namespace) -> int:
+    """Convert an external bookmark export to Firefox-importable HTML.
+
+    Auto-detects the input format from content. Power users can force one
+    via ``--format`` if the heuristic misclassifies the file (e.g. a
+    custom Pinboard export with non-standard keys).
+    """
+
+    from foxport.import_.adapters import (
+        BookmarkImport,
+        detect_format,
+        parse_file,
+        parse_netscape_html,
+        parse_opml,
+        parse_pinboard_json,
+        parse_pocket_json,
+        write_netscape_html,
+    )
+
+    in_path = Path(args.input)
+    if not in_path.is_file():
+        print(f"error: {in_path} is not a file", file=sys.stderr)
+        return 2
+
+    fmt = args.format
+    if fmt == "auto":
+        fmt, entries = parse_file(in_path)
+        if fmt == "unknown":
+            print(
+                f"error: could not auto-detect bookmark format for {in_path}.\n"
+                "Try --format pocket|pinboard|opml|netscape.",
+                file=sys.stderr,
+            )
+            return 2
+    else:
+        parser_for = {
+            "pocket": parse_pocket_json,
+            "pinboard": parse_pinboard_json,
+            "opml": parse_opml,
+            "netscape": parse_netscape_html,
+        }[fmt]
+        entries = parser_for(in_path)
+
+    if not entries:
+        print(f"error: parsed 0 bookmarks from {in_path}", file=sys.stderr)
+        return 2
+
+    out_path = Path(args.out) if args.out else in_path.with_suffix(in_path.suffix + ".firefox.html")
+    write_netscape_html(entries, out_path)
+    print(f"Detected format: {fmt}")
+    print(f"Parsed:  {len(entries)} bookmark(s)")
+    print(f"Wrote:   {out_path}")
+    print("Import:  Open Firefox Library (Ctrl+Shift+O) -> Import and Backup ->")
+    print("         Import Bookmarks from HTML, then pick the file above.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -581,6 +649,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_snapshot(args)
     if args.command == "restore":
         return _cmd_restore(args)
+    if args.command == "import-bookmarks":
+        return _cmd_import_bookmarks(args)
     parser.error("no command")
     return 2
 

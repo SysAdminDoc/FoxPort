@@ -309,6 +309,11 @@ class SourcePage(WizardPage):
           * A Chromium User Data dir (contains ``Local State`` AND
             ``Default/Preferences``) — promoted via the Default subdir.
           * A standalone ``Login Data`` file — wrap the parent dir.
+          * A bookmark export (Pocket / Pinboard / OPML / Netscape HTML) —
+            converted on the spot to a Firefox-importable HTML sibling and
+            reported via the banner; no source-profile selection happens for
+            this branch because there's no profile to migrate from, just
+            bookmarks to convert.
 
         The synthetic profile is appended to the source tile list, auto-selected,
         and pushed into `ctx.source` so the rest of the wizard reads it like any
@@ -318,6 +323,30 @@ class SourcePage(WizardPage):
         p = Path(path)
         if not p.exists():
             return
+        # Try the bookmark-import path first when the drop is a file but
+        # doesn't look like Chromium's Login Data — saves a round-trip
+        # through the "couldn't recognize" branch for OPML / Pocket / etc.
+        if p.is_file() and p.name != "Login Data":
+            try:
+                from foxport.import_.adapters import parse_file, write_netscape_html
+                fmt, entries = parse_file(p)
+            except Exception:  # noqa: BLE001 — adapter import or parse failure shouldn't abort
+                fmt, entries = "unknown", []
+            if fmt != "unknown" and entries:
+                out_path = p.with_suffix(p.suffix + ".firefox.html")
+                try:
+                    write_netscape_html(entries, out_path)
+                except OSError as exc:
+                    self._banner.set_text(
+                        f"Couldn't write converted bookmarks to {out_path}: {exc}"
+                    )
+                    return
+                self._banner.set_text(
+                    f"Converted {len(entries)} bookmark(s) from {fmt} -> {out_path}. "
+                    "Open Firefox Library (Ctrl+Shift+O), then Import and Backup -> "
+                    "Import Bookmarks from HTML."
+                )
+                return
         profile_dir: Path | None = None
         user_data_dir: Path | None = None
         if p.is_file() and p.name == "Login Data":
@@ -332,7 +361,8 @@ class SourcePage(WizardPage):
                 profile_dir = p
         if profile_dir is None:
             self._banner.set_text(
-                f"Couldn't recognize {p} as a Chromium profile or User Data folder."
+                f"Couldn't recognize {p} as a Chromium profile, User Data folder, "
+                "or a supported bookmark export (Pocket / Pinboard / OPML / Netscape)."
             )
             return
         if user_data_dir is None:

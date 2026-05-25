@@ -86,9 +86,16 @@ for the full list.
       migrators.
 - [ ] **P1** GUI snapshot creation (Done screen) + GUI restore wizard
       (File menu) with bundle inspector.
-- [ ] **P1** Surface external bookmark adapters: CLI
-      `import-bookmarks` + GUI drag-and-drop on Pocket / Pinboard /
-      OPML / Netscape files.
+- [x] **P1** Surface external bookmark adapters. `foxport/import_/adapters.py`
+      grew `write_netscape_html()` — a shared emitter that groups by
+      folder, escapes special chars, surfaces tags as the optional
+      `TAGS` attr, and routes through `write_text_atomic()`. CLI:
+      `python -m foxport.cli import-bookmarks --input pocket.json` with
+      auto-detection + `--format` override. GUI: the manual-drop tile
+      now tries the bookmark adapters before the Chromium-profile path,
+      and converts in place to a `.firefox.html` sibling on success.
+      `tests/test_import_bookmarks_cli.py` (5 tests) covers grouping,
+      HTML escape, round-trip, format override, and missing-input.
 
 ### Phase D — Polish + observability
 - [ ] **P2** CLI `--json` flag + `list --detail` with per-category counts.

@@ -176,3 +176,44 @@ def parse_file(path: Path) -> tuple[str, list[BookmarkImport]]:
     if fmt == "opml":
         return fmt, parse_opml(path)
     return fmt, []
+
+
+def write_netscape_html(entries: list[BookmarkImport], out_path: Path) -> None:
+    """Emit a Firefox-importable Netscape HTML file from imported bookmarks.
+
+    Groups by the first segment of ``folder_path`` (every adapter sets one —
+    "Pocket" / "Pinboard" / "Imported" / "OPML feeds") so the user sees the
+    origin in their Bookmarks Library after import. Atomic write so a
+    crash mid-render can't leave a half-written HTML at the final path.
+    """
+
+    from html import escape
+
+    from foxport.fileops import write_text_atomic
+
+    groups: dict[str, list[BookmarkImport]] = {}
+    for entry in entries:
+        folder = entry.folder_path[0] if entry.folder_path else "Imported"
+        groups.setdefault(folder, []).append(entry)
+
+    buf: list[str] = [
+        "<!DOCTYPE NETSCAPE-Bookmark-file-1>",
+        '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">',
+        "<TITLE>Bookmarks</TITLE>",
+        "<H1>Bookmarks</H1>",
+        "<DL><p>",
+    ]
+    for folder_name, items in groups.items():
+        buf.append(f'    <DT><H3>{escape(folder_name)}</H3>')
+        buf.append("    <DL><p>")
+        for item in items:
+            href = escape(item.url, quote=True)
+            title = escape(item.title or item.url)
+            date_attr = f' ADD_DATE="{item.added_unix_secs}"' if item.added_unix_secs else ""
+            tag_attr = ""
+            if item.tags:
+                tag_attr = f' TAGS="{escape(",".join(item.tags), quote=True)}"'
+            buf.append(f'        <DT><A HREF="{href}"{date_attr}{tag_attr}>{title}</A>')
+        buf.append("    </DL><p>")
+    buf.append("</DL><p>")
+    write_text_atomic(out_path, "\n".join(buf) + "\n")
