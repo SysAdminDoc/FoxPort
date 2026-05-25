@@ -166,7 +166,16 @@ follow-ons.
 - [ ] **P2** Re-run `scripts/capture_screenshots.py`
       Current PNGs are 2026-05-23 — predate the downloads row, 4 direct-
       write checkboxes, dry-run banner, network-activity sub-tree, and the
-      per-artifact Done action bar.
+      per-artifact Done action bar. Requires a populated source profile;
+      blocked on manual environment.
+- [x] **P2** Tighten curated-map cron cadence + in-app stale-match warning
+      Auditor cron bumped from monthly to weekly (Monday 06:00 UTC) so
+      AMO slug rot is caught within ~7 days instead of ~30. Runtime
+      side: `extensions._curated_map_warnings()` surfaces a `⚠ curated
+      extension map is N days old` advisory in the GUI run log + CLI
+      migrate output when the bundled `_meta.last_verified` exceeds
+      90 days. Helps users on older releases know when to update.
+      Three new tests in `tests/migrate/test_extensions.py`.
 - [x] **P3** First-run trust dialog re-prompt on trust-model change
       `Settings.first_run_acked_trust_revision: int = 0` field +
       module-level `foxport.config._TRUST_REVISION` constant. The

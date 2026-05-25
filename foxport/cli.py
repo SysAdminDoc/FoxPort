@@ -358,6 +358,8 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
         )
         _log(f"  {r.matched} matched ({r.already_installed} already installed), "
              f"{r.unmatched} unmatched of {len(r.matches)} installed")
+        for warning in r.warnings:
+            _log(f"  ⚠ {warning}")
         json_counts["extensions"] = len(r.matches)
         if not args.dry_run:
             exports["extensions"] = r.html_path

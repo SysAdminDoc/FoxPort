@@ -300,6 +300,11 @@ class MigrationWorker(QObject):
                         f"  {ext_result.matched} matched, {ext_result.unmatched} unmatched "
                         f"out of {len(ext_result.matches)} installed."
                     )
+                # Surface curated-map staleness so the user knows to
+                # update FoxPort if AMO slugs have rotated since
+                # release. Warnings come from extensions._curated_map_warnings.
+                for warning in ext_result.warnings:
+                    self.log.emit(f"  ⚠ {warning}")
 
             if req.do_cookies:
                 current += 1

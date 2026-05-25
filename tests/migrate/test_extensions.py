@@ -16,6 +16,40 @@ def test_curated_map_loaded():
     assert len(CURATED_MAP) >= 50, "Curated map shrank unexpectedly"
 
 
+def test_curated_map_age_days_reads_meta_field():
+    """The age helper drives the v1.3.3 stale-map runtime warning."""
+
+    from foxport.migrate.extensions import _curated_map_age_days
+
+    age = _curated_map_age_days()
+    # The bundled map's last_verified is "2026-05-25" by construction;
+    # the test runs after that date, so age should always be >= 0.
+    assert age is not None and age >= 0
+
+
+def test_curated_map_warnings_silent_when_fresh(monkeypatch):
+    """No warning surfaces when the bundled meta is younger than the
+    threshold — keeps the run log clean for users on current releases.
+    """
+    from foxport.migrate import extensions as ext_mod
+
+    monkeypatch.setattr(ext_mod, "_curated_map_age_days", lambda: 5)
+    assert ext_mod._curated_map_warnings() == []
+
+
+def test_curated_map_warnings_fires_when_stale(monkeypatch):
+    """When the bundled map is older than the threshold, a single
+    advisory warning is emitted. The text mentions the actual age so
+    the user can decide whether to update."""
+    from foxport.migrate import extensions as ext_mod
+
+    monkeypatch.setattr(ext_mod, "_curated_map_age_days", lambda: 200)
+    warnings = ext_mod._curated_map_warnings()
+    assert len(warnings) == 1
+    assert "200 days old" in warnings[0]
+    assert "extensions.html" in warnings[0]
+
+
 def test_user_agent_reflects_running_version():
     """The AMO User-Agent must include the live ``__version__`` — a hardcoded
     string here misrepresents FoxPort's identity across upgrades.

@@ -1,11 +1,17 @@
 name: Curated extension map audit
 
-# Runs the AMO health check on the first of every month and on demand.
-# Fails the workflow if any curated entry is missing or disabled on AMO;
-# stale entries are reported but don't fail (override with --strict-stale).
+# Runs the AMO health check weekly + on demand. Fails the workflow if any
+# curated entry returns a non-200 or is_disabled on AMO; stale entries are
+# reported but don't fail (override with --strict-stale).
+#
+# Pre-v1.3.3 this ran monthly, but a single broken slug sat in users'
+# migrations for up to ~30 days. The May 2026 audit pass discovered 7
+# dead entries (4 × 404, 3 × 401) that had silently rotted between cron
+# runs. Weekly catches AMO removals in roughly the same window that
+# Mozilla's own moderation moves slugs.
 on:
   schedule:
-    - cron: "0 6 1 * *"     # 06:00 UTC on the 1st of each month
+    - cron: "0 6 * * MON"   # 06:00 UTC every Monday
   workflow_dispatch:
     inputs:
       strict_stale:

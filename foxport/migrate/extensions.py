@@ -68,6 +68,45 @@ def load_curated_map() -> dict[str, str]:
     return out
 
 
+def _curated_map_age_days() -> int | None:
+    """Return the age in days of ``_meta.last_verified`` in the bundled map,
+    or ``None`` when the field is missing / unparseable.
+
+    Used by :func:`match_extensions` to surface a runtime warning when the
+    curated map is older than ``CURATED_STALE_THRESHOLD_DAYS`` — a stale
+    map means a curated slug that AMO has removed could still get
+    silently rendered into ``extensions.html`` between the weekly
+    auditor cron run and a fresh release that drops the dead entry.
+    """
+
+    import datetime as _dt
+
+    path = data_file("curated_extension_map.json")
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    meta = data.get("_meta") if isinstance(data.get("_meta"), dict) else {}
+    iso = meta.get("last_verified")
+    if not isinstance(iso, str):
+        return None
+    try:
+        verified = _dt.date.fromisoformat(iso)
+    except ValueError:
+        return None
+    return (_dt.date.today() - verified).days
+
+
+# When the bundled curated map's ``_meta.last_verified`` is older than
+# this, ``match_extensions`` surfaces a runtime warning to the worker /
+# CLI log so the user knows AMO may have rotated slugs since release.
+# 90 days is conservative — the weekly cron files issues but those don't
+# reach the user until a new release lands.
+CURATED_STALE_THRESHOLD_DAYS = 90
+
+
 CURATED_MAP: dict[str, str] = load_curated_map()
 
 
@@ -100,6 +139,11 @@ class ExtensionResult:
     html_path: Path
     json_path: Path
     matches: list[ExtensionMatch]
+    # Non-fatal warnings surfaced during the match pass — currently only
+    # the "curated map last_verified is N days old" notice, but the field
+    # is shaped as a list so additional advisories can land without
+    # breaking the worker's log loop.
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def matched(self) -> int:
@@ -423,6 +467,28 @@ def _build_html(matches: list[ExtensionMatch], source_label: str) -> str:
 """
 
 
+def _curated_map_warnings() -> list[str]:
+    """Build the non-fatal warnings surfaced by every extensions run.
+
+    Currently emits a single "curated map is stale" notice when the
+    bundled ``_meta.last_verified`` date is older than the configured
+    threshold. The weekly auditor cron files issues for broken slugs,
+    but those don't reach the user until a new release lands — the
+    runtime warning closes that loop for users on older builds.
+    """
+
+    warnings: list[str] = []
+    age = _curated_map_age_days()
+    if age is not None and age > CURATED_STALE_THRESHOLD_DAYS:
+        warnings.append(
+            f"curated extension map is {age} days old (threshold "
+            f"{CURATED_STALE_THRESHOLD_DAYS}); some AMO slugs may have "
+            "rotted since release — update FoxPort if any 'Install on "
+            "Firefox' links in extensions.html 404."
+        )
+    return warnings
+
+
 def migrate_extensions(
     profile: ChromiumProfile,
     out_dir: Path,
@@ -443,11 +509,15 @@ def migrate_extensions(
         online=online and not dry_run,
         already_installed_guids=already_installed_guids,
     )
+    warnings = _curated_map_warnings()
 
     html_path = out_dir / "extensions.html"
     json_path = out_dir / "extensions.json"
     if dry_run:
-        return ExtensionResult(html_path=html_path, json_path=json_path, matches=matches)
+        return ExtensionResult(
+            html_path=html_path, json_path=json_path,
+            matches=matches, warnings=warnings,
+        )
     write_text_atomic(html_path, _build_html(matches, profile.label))
     write_text_atomic(json_path, json.dumps([
         {
@@ -469,4 +539,7 @@ def migrate_extensions(
         for m in matches
     ], indent=2))
 
-    return ExtensionResult(html_path=html_path, json_path=json_path, matches=matches)
+    return ExtensionResult(
+        html_path=html_path, json_path=json_path,
+        matches=matches, warnings=warnings,
+    )

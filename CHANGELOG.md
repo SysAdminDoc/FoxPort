@@ -7,6 +7,14 @@ All notable changes to FoxPort are documented here. Format roughly follows
 ## [Unreleased]
 
 ### Added
+- **Curated-map staleness warning.** When the bundled
+  `_meta.last_verified` is older than 90 days,
+  `extensions._curated_map_warnings()` surfaces a single advisory in
+  the GUI run log + CLI migrate output: `⚠ curated extension map is N
+  days old — some AMO slugs may have rotted since release`. Helps
+  users on older releases know when to update without forcing
+  per-curated AMO requests on every run. Three new tests in
+  `tests/migrate/test_extensions.py`.
 - **Manifest privacy redact (`--privacy-redact` / Settings toggle).**
   `foxport.manifest.redact_manifest()` strips the running user's
   home-dir prefix (per-platform: `C:\\Users\\<name>\\`, `/Users/...`,
