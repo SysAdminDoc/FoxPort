@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import pytest
 
@@ -65,3 +66,65 @@ def test_timestamped_backup_path_handles_extensionless(tmp_path):
 
     assert backup is not None
     assert backup.name == f"Login Data.foxport-backup-{fixed_mtime}"
+
+
+def test_write_bytes_atomic_preserves_target_when_replace_fails(tmp_path, monkeypatch):
+    """A torn write (here simulated by forcing ``tmp.replace`` to raise) must:
+
+    1. Leave the original target file intact (the staged file is in a
+       sibling temp file until the final replace step).
+    2. Clean up the orphan ``.{name}.foxport-*`` tmpfile so the directory
+       doesn't accumulate garbage across crashes.
+
+    This is the v1.3 invariant that lets a half-finished migration
+    abandon partial CSV / SQLite / JSON / HTML artifacts safely — the
+    README.txt and manifest.json never reference a corrupt file.
+    """
+
+    from foxport import fileops
+
+    target = tmp_path / "artifact.csv"
+    target.write_text("old content", encoding="utf-8")
+
+    real_replace = Path.replace
+
+    def boom(self, *args, **kwargs):
+        # Only fail the FIRST replace call (the one against ``artifact.csv``);
+        # the post-error unlink path uses Path.unlink, not replace, so this
+        # branch is only ever taken once per test.
+        raise OSError("disk full simulation")
+
+    monkeypatch.setattr(Path, "replace", boom)
+
+    with pytest.raises(OSError, match="disk full"):
+        fileops.write_bytes_atomic(target, b"new content")
+
+    # Original file untouched.
+    assert target.read_text(encoding="utf-8") == "old content"
+    # No `.artifact.csv.foxport-*` orphans left behind.
+    orphans = list(tmp_path.glob(".artifact.csv.foxport-*"))
+    assert orphans == [], f"orphan tmpfiles after failed replace: {orphans}"
+
+
+def test_replace_file_atomic_preserves_target_when_replace_fails(tmp_path, monkeypatch):
+    """Same invariant for the source-on-disk variant: a torn copy_atomic
+    must leave the existing target intact and leave no orphan tmpfile."""
+
+    from foxport import fileops
+
+    target = tmp_path / "logins.json"
+    target.write_text('{"existing": true}', encoding="utf-8")
+    source = tmp_path / "src.json"
+    source.write_text('{"new": true}', encoding="utf-8")
+
+    def boom(self, *args, **kwargs):
+        raise OSError("rename failed")
+
+    monkeypatch.setattr(Path, "replace", boom)
+
+    with pytest.raises(OSError, match="rename failed"):
+        fileops.replace_file_atomic(source, target)
+
+    assert target.read_text(encoding="utf-8") == '{"existing": true}'
+    orphans = list(tmp_path.glob(".logins.json.foxport-*"))
+    assert orphans == [], f"orphan tmpfiles after failed replace: {orphans}"

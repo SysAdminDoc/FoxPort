@@ -62,6 +62,15 @@ that prevents the curated-map drift recurring.
   Windows-first with macOS / Linux supported via the same steps.
 
 ### Added
+- **Atomic-replace failure recovery tests.** Two new tests in
+  `tests/test_fileops.py` monkeypatch `Path.replace` to raise mid-flow
+  and assert: (a) the existing target file is unchanged and (b) the
+  staged `.{name}.foxport-*` tmpfile is cleaned up. Covers both the
+  in-memory write path (`write_bytes_atomic`) and the file-copy path
+  (`replace_file_atomic`). Closes the ROADMAP v1.3.3 Phase D P2 test
+  gap that asserted the v1.3.0 atomic-emitter pass actually delivers
+  the "torn write leaves no half-finished artifact at the README-
+  referenced path" invariant.
 - **`--json` on every action subcommand.** `list --json` shipped in
   v1.3.0; this batch extends the same pattern to `migrate`,
   `migrate-reverse`, `diff`, `snapshot`, and `restore`. When `--json`

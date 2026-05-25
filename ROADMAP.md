@@ -85,11 +85,16 @@ follow-ons.
 - [ ] **P2** Pre-flight conflict analysis for open_tabs
       `analyze_open_tabs()` reads target `sessionstore-backups/recovery.jsonlz4`
       (decode mozLz40), counts URLs, logs replacement before mutation.
-- [ ] **P2** All-artifact Done UI render test
-      Mock `set_done` with all 11 keys; assert every artifact gets a button.
-- [ ] **P2** Atomic-replace failure recovery test
-      Force write-error mid-replace; assert target unchanged + no orphan
-      `.foxport-*` tmpfiles.
+- [x] **P2** All-artifact Done UI render test
+      Already covered by `test_run_page_done_renders_action_per_artifact`
+      in `tests/test_gui_run_actions.py` — exhausts all 11 artifact keys
+      and asserts open/reveal action kinds round-trip via the signal.
+- [x] **P2** Atomic-replace failure recovery test
+      Two new tests in `tests/test_fileops.py` monkeypatch
+      `Path.replace` to raise, then assert (a) original target intact
+      and (b) no orphan `.{name}.foxport-*` tmpfiles. Covers both
+      `write_bytes_atomic` (in-memory write path) and
+      `replace_file_atomic` (source-file copy path).
 - [x] **P2** Lift `_backup_path_for()` into `foxport/fileops.py`
       Lifted to `timestamped_backup_path()`; nss_cookies + nss_history
       keep backward-compat alias. Three new tests in
