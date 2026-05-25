@@ -140,9 +140,39 @@ def _parse_items(value: str | None, all_flag: bool) -> set[str]:
 
 
 def _cmd_list(args: argparse.Namespace) -> int:
-    print(f"{__app_name__} v{__version__}")
     chromium = detect_chromium()
     firefox = detect_firefox()
+    if getattr(args, "json", False):
+        # JSON output is the contract for IT/support automation. Schema is
+        # versioned via "schema_version" so downstream parsers can refuse
+        # an unknown shape rather than silently misinterpret it.
+        import json as _json
+        payload = {
+            "schema_version": 1,
+            "foxport_version": __version__,
+            "chromium_sources": [
+                {
+                    "browser": p.browser,
+                    "profile_name": p.profile_name,
+                    "profile_dir": str(p.profile_dir),
+                    "running": is_chromium_running(p),
+                }
+                for p in chromium
+            ],
+            "firefox_targets": [
+                {
+                    "browser": p.browser,
+                    "profile_name": p.profile_name,
+                    "profile_dir": str(p.profile_dir),
+                    "is_default": p.is_default,
+                    "locked": is_firefox_profile_locked(p),
+                }
+                for p in firefox
+            ],
+        }
+        print(_json.dumps(payload, indent=2))
+        return 0
+    print(f"{__app_name__} v{__version__}")
     print("\nChromium sources:")
     if not chromium:
         print("  (none detected)")
@@ -150,6 +180,9 @@ def _cmd_list(args: argparse.Namespace) -> int:
         marker = " [running]" if is_chromium_running(p) else ""
         print(f"  {p.browser}/{p.profile_name}{marker}")
         print(f"    {p.profile_dir}")
+        if getattr(args, "detail", False):
+            for label, count in _profile_detail_counts(p):
+                print(f"      {label}: {count}")
     print("\nFirefox targets:")
     if not firefox:
         print("  (none detected)")
@@ -159,6 +192,52 @@ def _cmd_list(args: argparse.Namespace) -> int:
         print(f"  {p.browser}/{p.profile_name}{default}{locked}")
         print(f"    {p.profile_dir}")
     return 0
+
+
+def _profile_detail_counts(profile: ChromiumProfile) -> list[tuple[str, int]]:
+    """Cheap per-category counts that don't require decryption.
+
+    Used by ``list --detail`` so support workflows can see "this profile
+    has 1,245 logins / 8,901 history visits" without doing a real
+    migration. SQLite reads run against a temp copy via the same helper
+    the Preview page uses; any error returns 0 silently.
+    """
+
+    from foxport.gui.pages import _safe_sqlite_count
+    counts: list[tuple[str, int]] = []
+    login_data = profile.profile_dir / "Login Data"
+    if login_data.is_file():
+        rows = _safe_sqlite_count(login_data, ("SELECT COUNT(*) FROM logins",))
+        if rows:
+            counts.append(("logins", rows[0]))
+    history_db = profile.profile_dir / "History"
+    if history_db.is_file():
+        rows = _safe_sqlite_count(
+            history_db,
+            ("SELECT COUNT(*) FROM urls", "SELECT COUNT(*) FROM downloads"),
+        )
+        if rows:
+            counts.append(("urls", rows[0]))
+            counts.append(("downloads", rows[1] if len(rows) > 1 else 0))
+    web_data = profile.profile_dir / "Web Data"
+    if web_data.is_file():
+        rows = _safe_sqlite_count(web_data, (
+            "SELECT COUNT(*) FROM autofill WHERE name <> '' AND value <> ''",
+            "SELECT COUNT(*) FROM credit_cards",
+            "SELECT COUNT(*) FROM keywords WHERE keyword IS NOT NULL AND keyword <> ''",
+        ))
+        if rows and len(rows) >= 3:
+            counts.append(("autofill", rows[0]))
+            counts.append(("cards", rows[1]))
+            counts.append(("search_engines", rows[2]))
+    cookies_db = profile.profile_dir / "Network" / "Cookies"
+    if not cookies_db.is_file():
+        cookies_db = profile.profile_dir / "Cookies"
+    if cookies_db.is_file():
+        rows = _safe_sqlite_count(cookies_db, ("SELECT COUNT(*) FROM cookies",))
+        if rows:
+            counts.append(("cookies", rows[0]))
+    return counts
 
 
 def _cmd_migrate(args: argparse.Namespace) -> int:
@@ -359,7 +438,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"{__app_name__} {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("list", help="List detected source and target profiles")
+    list_p = sub.add_parser("list", help="List detected source and target profiles")
+    list_p.add_argument("--detail", action="store_true",
+                         help="Also print cheap per-category counts (logins, history, autofill, ...) "
+                              "for every Chromium source. No decryption runs.")
+    list_p.add_argument("--json", action="store_true",
+                         help="Emit a schema-versioned machine-readable JSON payload instead of text")
 
     mig = sub.add_parser("migrate", help="Run a one-shot migration")
     mig.add_argument("--source", required=True,

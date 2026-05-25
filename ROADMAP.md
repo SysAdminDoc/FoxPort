@@ -102,7 +102,14 @@ for the full list.
       HTML escape, round-trip, format override, and missing-input.
 
 ### Phase D — Polish + observability
-- [ ] **P2** CLI `--json` flag + `list --detail` with per-category counts.
+- [x] **P2** CLI `--json` flag + `list --detail` with per-category counts.
+      `list --json` emits a schema-versioned payload (`schema_version: 1`)
+      with foxport_version + chromium_sources + firefox_targets, no
+      plaintext secrets. `list --detail` runs cheap COUNT queries against
+      Login Data / History / Web Data / Cookies through the existing
+      `_safe_sqlite_count` helper so support workflows can size a
+      profile without decrypting anything. Migrate/diff/snapshot
+      JSON output is the next slice (P3 backlog).
 - [x] **P2** Cards CSV column cleanup — `Name` was a duplicate of
       `Cardholder name` (both sourced from `name_on_card`). New shape:
       `Type, Cardholder name, Number, Expiration, Notes`. Comment

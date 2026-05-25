@@ -85,6 +85,22 @@ hardens the surfaces that the v1.3 GUI and release work will land on.
   button generation order, signal closure binding, reset cleanup,
   and failure-state action hiding.
 
+### CLI `--json` + `list --detail` (Phase D)
+- `python -m foxport.cli list --json` emits a schema-versioned payload
+  (`schema_version: 1`) containing foxport_version, chromium_sources,
+  and firefox_targets. Each entry has documented fields: browser,
+  profile_name, profile_dir, running (Chromium) or is_default + locked
+  (Firefox). No plaintext secrets ever appear in JSON output — guarded
+  by a regression test.
+- `python -m foxport.cli list --detail` prints cheap per-category
+  counts (logins, urls, downloads, autofill, cards, search_engines,
+  cookies) under each Chromium source. Goes through the existing
+  `_safe_sqlite_count()` helper so the queries run against a temp
+  copy and never lock the source profile.
+- `tests/test_cli_list.py` — 4 new tests covering JSON shape stability,
+  the no-secrets guard, --detail rendering, and the default
+  (no-counts) text path. 155 tests pass.
+
 ### Settings + Help menu polish (Phase D)
 - `Settings.nss_path_override` — new persisted field surfaced in a new
   Settings dialog "Advanced" section with a file picker scoped to
