@@ -71,6 +71,22 @@ def test_nss_path_override_round_trip(tmp_path, monkeypatch):
     assert loaded.nss_path_override == "C:/Portable Firefox/nss3.dll"
 
 
+def test_first_run_acked_iso_round_trip(tmp_path, monkeypatch):
+    monkeypatch.setattr("foxport.config.config_dir", lambda: tmp_path)
+    s = Settings(first_run_acked_iso="2026-05-24T12:00:00+00:00")
+    save_settings(s)
+    loaded = load_settings()
+    assert loaded.first_run_acked_iso == "2026-05-24T12:00:00+00:00"
+
+
+def test_fresh_install_has_empty_first_run_acked(tmp_path, monkeypatch):
+    """The Settings default for first_run_acked_iso is empty so a fresh
+    install triggers the trust dialog on first GUI launch."""
+
+    monkeypatch.setattr("foxport.config.config_dir", lambda: tmp_path)
+    assert load_settings().first_run_acked_iso == ""
+
+
 def test_reset_to_defaults_overwrites_persisted_values(tmp_path, monkeypatch):
     monkeypatch.setattr("foxport.config.config_dir", lambda: tmp_path)
     custom = Settings(

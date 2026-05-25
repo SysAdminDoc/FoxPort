@@ -39,6 +39,11 @@ class Settings:
     # FOXPORT_NSS_PATH env var still takes precedence over this field
     # so power users can pin a value without changing their config.
     nss_path_override: str = ""
+    # ISO-8601 timestamp of when the user dismissed the v1.3 first-run
+    # trust dialog. Empty = never shown; the next GUI launch will show it.
+    # We persist a timestamp instead of a bool so future versions can
+    # re-prompt when the trust model changes (e.g. v1.4 adds telemetry).
+    first_run_acked_iso: str = ""
 
 
 def reset_to_defaults() -> Settings:

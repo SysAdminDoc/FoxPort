@@ -85,6 +85,25 @@ hardens the surfaces that the v1.3 GUI and release work will land on.
   button generation order, signal closure binding, reset cleanup,
   and failure-state action hiding.
 
+### First-run trust dialog + Preview network disclosure (Phase C)
+- New `FirstRunDialog` runs on the first GUI launch (gated by the new
+  `Settings.first_run_acked_iso` field). Explains the four trust
+  claims: source profiles stay read-only, plaintext outputs need
+  cleanup, AMO + HIBP are the only network endpoints and both are
+  opt-in, no telemetry / crash / update calls exist. Two checkboxes
+  let the user pre-set AMO + HIBP defaults so the Items page already
+  reflects their choice. Dismissing the dialog persists the timestamp
+  so subsequent launches skip it; a future trust-model change can
+  re-prompt by clearing that field on upgrade.
+- Preview page now has a "Network activity" sub-tree that lists
+  `addons.mozilla.org`, `api.pwnedpasswords.com`, and the
+  telemetry/crash/update bucket with a per-run ENABLED / disabled
+  label. The disclosure is always present so a "no network" run can
+  be visually confirmed before the user clicks Run Migration.
+- `tests/test_config.py` adds 2 tests covering the
+  `first_run_acked_iso` round-trip and the fresh-install default
+  (empty string -> dialog triggers next launch). **157 tests pass.**
+
 ### GUI snapshot + restore (Phase C)
 - Done screen exposes a trailing "Save as snapshot…" button when the
   run produced artifacts. Routes through the same

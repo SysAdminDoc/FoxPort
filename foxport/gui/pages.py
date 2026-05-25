@@ -1076,6 +1076,31 @@ class PreviewPage(WizardPage):
                 ]))
 
         source_node.setExpanded(True)
+
+        # Network-activity disclosure: lists every optional outbound
+        # endpoint and whether this run will hit it. Always present so the
+        # user can confirm "no network" runs really won't make calls — a
+        # disabled state is just as load-bearing as an enabled one.
+        net_node = QTreeWidgetItem(["Network activity", ""])
+        amo_enabled = ctx.extensions_online and ctx.do_extensions and ctx.direction == MigrationContext.DIRECTION_FORWARD
+        net_node.addChild(QTreeWidgetItem([
+            "  addons.mozilla.org",
+            ("ENABLED — extension name/GUID lookup"
+             if amo_enabled else "disabled"),
+        ]))
+        hibp_enabled = ctx.hibp_scan and ctx.do_passwords and ctx.direction == MigrationContext.DIRECTION_FORWARD
+        net_node.addChild(QTreeWidgetItem([
+            "  api.pwnedpasswords.com",
+            ("ENABLED — k-anonymity prefix (SHA-1 first 5 chars)"
+             if hibp_enabled else "disabled"),
+        ]))
+        net_node.addChild(QTreeWidgetItem([
+            "  telemetry / crash / update",
+            "off (no opt-in surface in v1.3)",
+        ]))
+        self._tree.addTopLevelItem(net_node)
+        net_node.setExpanded(True)
+
         notes: list[str] = []
         has_warning = False
         if ctx.source_uses_abe:

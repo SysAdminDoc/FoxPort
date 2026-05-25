@@ -63,6 +63,12 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._build_menu()
         self._start_detection()
+        # First-run trust + network disclosure. Runs on a 0-ms timer so the
+        # main window paints first and the modal lands on top instead of
+        # racing the Qt event loop. Already-acked users skip the dialog.
+        if not self._settings.first_run_acked_iso:
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(0, self._show_first_run_dialog)
 
     # --------------------------------------------------------------- UI
 
@@ -169,6 +175,22 @@ class MainWindow(QMainWindow):
         self._ctx.dry_run = s.default_dry_run
         self._ctx.hibp_scan = s.hibp_scan_default
         self._ctx.mask_passwords_in_preview = s.mask_passwords_in_preview
+
+    def _show_first_run_dialog(self) -> None:
+        """Show the trust + network disclosure dialog on first launch.
+
+        The dialog saves the user's AMO + HIBP defaults plus the
+        first_run_acked_iso timestamp so subsequent launches skip it.
+        We refresh the local Settings + context immediately so the very
+        next click on Items already reflects the chosen defaults.
+        """
+
+        from foxport.gui.dialogs import FirstRunDialog
+        dialog = FirstRunDialog(self._settings, parent=self)
+        dialog.exec()
+        self._settings = dialog.settings()
+        self._apply_settings_defaults()
+        self._items_page.apply_context_defaults()
 
     def _open_settings(self) -> None:
         from foxport.gui.dialogs import SettingsDialog

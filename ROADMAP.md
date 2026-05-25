@@ -68,9 +68,16 @@ for the full list.
       emits a `*.sha256` sidecar, and attaches both to the GH release.
       **Outstanding**: provision the codesigning cert and drop a real
       `assets/icon.ico`.
-- [ ] **P1** First-run trust dialog + Preview "Network activity"
-      section listing optional AMO + HIBP calls + future-feature
-      placeholders.
+- [x] **P1** First-run trust dialog + Preview "Network activity"
+      section. `FirstRunDialog` runs once (gated by
+      `Settings.first_run_acked_iso`) and explains the four trust
+      claims (source read-only, plaintext output cleanup, opt-in
+      AMO + HIBP, no telemetry). Lets the user pre-set the AMO + HIBP
+      defaults. The Preview page now has a "Network activity"
+      sub-tree listing AMO + HIBP endpoints with per-run ENABLED /
+      disabled labels plus a "telemetry / crash / update: off" line.
+      `tests/test_config.py` adds the round-trip + fresh-install
+      assertions for `first_run_acked_iso`.
 - [x] **P1** NSS `nss3.dll` version-skew guard. `load_nss()` binds
       `NSS_GetVersion()` and stores the reported string on
       `NSSLibrary.version`. `open_session()` accepts a

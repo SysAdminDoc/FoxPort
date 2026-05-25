@@ -219,6 +219,129 @@ class RestoreInspectDialog(QDialog):
         return self._chosen_out_dir
 
 
+class FirstRunDialog(QDialog):
+    """Trust + network disclosure shown the first time the GUI launches.
+
+    Explains the four claims the security-conscious user wants verified
+    before they hand FoxPort their browser profiles:
+
+    1. Source profiles are read-only.
+    2. Output files contain plaintext credentials and should be deleted
+       after import.
+    3. The only outbound network requests are AMO + HIBP — both opt-in,
+       both able to be disabled before the run.
+    4. There is no telemetry / crash reporting / update check.
+
+    The dialog also lets the user pre-set the two optional toggles
+    (AMO + HIBP defaults) so they don't have to repeat the choice on
+    every Items page. Persisted via ``Settings.allow_online_amo_lookup``
+    and ``Settings.hibp_scan_default``.
+
+    Acknowledging the dialog writes the current ISO timestamp into
+    ``Settings.first_run_acked_iso`` so the next launch skips the
+    dialog. A future version that materially changes the trust model
+    (e.g. v1.4 turns on opt-in telemetry) can re-prompt by clearing
+    that field on upgrade.
+    """
+
+    def __init__(self, settings: Settings, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Welcome to FoxPort")
+        self.setModal(True)
+        self.resize(600, 540)
+        self._settings = settings
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(20, 18, 20, 16)
+        outer.setSpacing(12)
+
+        title = QLabel("Before you migrate, here's how FoxPort handles your data:")
+        title.setStyleSheet("font-size: 15px; font-weight: 600; color: #f5c2e7;")
+        title.setWordWrap(True)
+        outer.addWidget(title)
+
+        # Bulleted trust claims. The visual style is plain HTML so screen
+        # readers announce each as a list item rather than a series of
+        # paragraphs.
+        claims = QLabel(
+            "<ul style='margin-top: 0; color: #cdd6f4;'>"
+            "<li><b>Source profile stays read-only.</b> We copy SQLite files"
+            " to a temp dir before reading — your browser keeps every"
+            " bookmark, password, and cookie exactly where it was.</li>"
+            "<li><b>Output files contain plaintext credentials.</b>"
+            " <code>passwords.csv</code>, <code>saved-cards.csv</code>, and"
+            " <code>compromised-passwords.txt</code> are exported in the"
+            " clear. Delete them after the import succeeds.</li>"
+            "<li><b>Direct-write only into a closed Firefox profile</b>,"
+            " always via atomic replace with a timestamped backup of the"
+            " previous file.</li>"
+            "<li><b>App-Bound Encryption</b> (Chrome 127+) needs the signed"
+            " <code>foxport_abe.exe</code> sidecar — a UAC prompt will"
+            " appear when it runs.</li>"
+            "</ul>"
+        )
+        claims.setTextFormat(Qt.TextFormat.RichText)
+        claims.setWordWrap(True)
+        outer.addWidget(claims)
+
+        # Network disclosure card. Two endpoints, both opt-in.
+        net_label = QLabel("Optional network requests")
+        net_label.setStyleSheet("font-size: 14px; font-weight: 600; color: #f9e2af;")
+        outer.addWidget(net_label)
+
+        net = QLabel(
+            "<table style='color: #cdd6f4;' cellpadding='4'>"
+            "<tr><td><b>addons.mozilla.org</b></td><td>Looks up Firefox"
+            " Add-ons that match your installed Chrome extensions. No"
+            " personal data; just the AMO slug.</td></tr>"
+            "<tr><td><b>api.pwnedpasswords.com</b></td><td>HIBP breach"
+            " scan. <i>K-anonymity</i> — only the first five hex characters"
+            " of each <code>SHA-1(password)</code> are sent; plaintext"
+            " never leaves the box.</td></tr>"
+            "</table>"
+        )
+        net.setTextFormat(Qt.TextFormat.RichText)
+        net.setWordWrap(True)
+        outer.addWidget(net)
+
+        self._amo_cb = QCheckBox("Allow the AMO lookup by default")
+        self._amo_cb.setChecked(settings.allow_online_amo_lookup)
+        self._hibp_cb = QCheckBox("Run the HIBP scan by default")
+        self._hibp_cb.setChecked(settings.hibp_scan_default)
+        outer.addWidget(self._amo_cb)
+        outer.addWidget(self._hibp_cb)
+
+        no_telemetry = QLabel(
+            "FoxPort never sends telemetry, crash reports, or version"
+            " update probes. The Settings dialog placeholders for those"
+            " are wired off until v1.4 lands an opt-in surface."
+        )
+        no_telemetry.setStyleSheet("color: #94e2d5; font-style: italic;")
+        no_telemetry.setWordWrap(True)
+        outer.addWidget(no_telemetry)
+
+        outer.addStretch(1)
+
+        buttons = QDialogButtonBox()
+        self._ok_btn = QPushButton("Got it — let's go")
+        self._ok_btn.setObjectName("PrimaryButton")
+        self._ok_btn.setDefault(True)
+        buttons.addButton(self._ok_btn, QDialogButtonBox.ButtonRole.AcceptRole)
+        self._ok_btn.clicked.connect(self._save_and_accept)  # type: ignore[arg-type]
+        outer.addWidget(buttons)
+
+    def _save_and_accept(self) -> None:
+        from datetime import datetime, timezone
+        self._settings.allow_online_amo_lookup = self._amo_cb.isChecked()
+        self._settings.hibp_scan_default = self._hibp_cb.isChecked()
+        self._settings.first_run_acked_iso = datetime.now(timezone.utc).isoformat()
+        save_settings(self._settings)
+        self.accept()
+
+    def settings(self) -> Settings:
+        return self._settings
+
+
 def prompt_master_password(parent: QWidget | None, profile_label: str) -> str | None:
     """Show a one-shot password dialog. Returns the entered string, or None on Cancel."""
     text, ok = QInputDialog.getText(
