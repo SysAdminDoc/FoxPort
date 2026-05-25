@@ -62,6 +62,20 @@ that prevents the curated-map drift recurring.
   Windows-first with macOS / Linux supported via the same steps.
 
 ### Added
+- **HIBP tri-state status** distinguishing "scan ran, no hits"
+  ("checked-clean") from "scan never actually ran" ("network-error")
+  and from "user opted in and breaches were found" ("checked-hits") /
+  "user didn't opt in" ("disabled"). Before this change, the worker
+  treated `hibp_hits == 0` as success and the user got no signal
+  when every API call had failed silently. `scan_passwords` now
+  returns a `HibpScanResult` (hits + queries + network_errors +
+  `.status`); `PasswordResult.hibp_status` threads it through the
+  worker, the Run log emits an explicit "scan failed — passwords
+  were NOT checked" line when applicable, and the run manifest's
+  `network.api.pwnedpasswords.com` field carries the live status so
+  snapshot consumers (and the restore-inspect dialog from the
+  previous commit) can tell scan-failed from scan-clean. Four new
+  tests in `tests/crypto/test_hibp.py`.
 - **Restore inspect dialog surfaces the inner per-run manifest.**
   v1.3+ bundles include the per-run `manifest.json` next to README.txt
   inside the snapshot ZIP; `RestoreInspectDialog` now reads it and

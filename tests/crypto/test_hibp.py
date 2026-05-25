@@ -5,7 +5,13 @@ from unittest.mock import MagicMock
 
 import requests
 
-from foxport.crypto.hibp import HibpClient, scan_passwords
+from foxport.crypto.hibp import (
+    HIBP_STATUS_CHECKED_CLEAN,
+    HIBP_STATUS_CHECKED_HITS,
+    HIBP_STATUS_NETWORK_ERROR,
+    HibpClient,
+    scan_passwords,
+)
 
 
 def _make_session(responses: dict[str, str]) -> requests.Session:
@@ -74,18 +80,19 @@ def test_scan_passwords_only_returns_hits():
         ("https://x.com", "alice", "password123"),
         ("https://y.com", "bob", "safe-passphrase"),
     ]
-    pwned = scan_passwords(pairs, client=client)
-    assert len(pwned) == 1
-    assert pwned[0] == ("https://x.com", "alice", 42)
+    result = scan_passwords(pairs, client=client)
+    assert len(result.hits) == 1
+    assert result.hits[0] == ("https://x.com", "alice", 42)
+    assert result.status == HIBP_STATUS_CHECKED_HITS
 
 
 def test_scan_passwords_never_returns_plaintext():
     """Sanity: each result tuple has exactly (origin_url, username, count) — no password."""
     body = _hibp_body_for(["x"])
     client = HibpClient(session=_make_session(body))
-    pwned = scan_passwords([("https://x.com", "u", "x")], client=client)
-    assert pwned[0] == ("https://x.com", "u", 42)
-    assert len(pwned[0]) == 3  # not 4
+    result = scan_passwords([("https://x.com", "u", "x")], client=client)
+    assert result.hits[0] == ("https://x.com", "u", 42)
+    assert len(result.hits[0]) == 3  # not 4
 
 
 def test_network_failure_returns_none():
@@ -95,3 +102,48 @@ def test_network_failure_returns_none():
     session.close = MagicMock()
     client = HibpClient(session=session)
     assert client.check("anything") is None
+
+
+def test_scan_passwords_reports_checked_clean_when_nothing_pwned():
+    """Tri-state: every prefix returned cleanly but found no matches."""
+    body = _hibp_body_for(["something-else"])
+    client = HibpClient(session=_make_session(body))
+    result = scan_passwords(
+        [("https://x.com", "alice", "a-safe-passphrase-nobody-uses")],
+        client=client,
+    )
+    assert result.hits == []
+    assert result.network_errors == 0
+    assert result.status == HIBP_STATUS_CHECKED_CLEAN
+
+
+def test_scan_passwords_reports_network_error_when_every_prefix_fails():
+    """Tri-state: every prefix lookup raised — caller must see this distinctly
+    from "no hits". Before v1.3.1 these were indistinguishable.
+    """
+    session = MagicMock(spec=requests.Session)
+    session.headers = {}
+    session.get.side_effect = requests.RequestException("dns broke")
+    session.close = MagicMock()
+    client = HibpClient(session=session)
+    result = scan_passwords(
+        [("https://x.com", "alice", "anything")],
+        client=client,
+    )
+    assert result.hits == []
+    assert result.network_errors == 1
+    assert result.status == HIBP_STATUS_NETWORK_ERROR
+
+
+def test_hibp_client_tracks_network_errors_once_per_prefix():
+    """A failed prefix counts once even when 50 different passwords share it."""
+    session = MagicMock(spec=requests.Session)
+    session.headers = {}
+    session.get.side_effect = requests.RequestException("flaky link")
+    session.close = MagicMock()
+    client = HibpClient(session=session)
+    for i in range(5):
+        client.check(f"unique-password-{i}")
+    # Each unique password has a distinct prefix, so each is a fresh
+    # network error.
+    assert client.network_error_count == 5

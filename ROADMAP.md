@@ -71,10 +71,15 @@ follow-ons.
       `list --json` is the precedent. Same shape as `manifest.json` for
       migrate/migrate-reverse; command-specific schema_versioned payloads
       for diff/snapshot/restore. No secrets in output.
-- [ ] **P1** HIBP tri-state ("unchecked" vs "checked-clean" vs "checked-hits")
-      `PasswordResult.hibp_status` tri-state replaces the silent
-      "0 hits == success" assumption. Worker emits an explicit
-      "scan failed — passwords NOT checked" line when applicable.
+- [x] **P1** HIBP tri-state ("checked-clean" vs "checked-hits" vs
+      "network-error" vs "disabled")
+      `scan_passwords` now returns `HibpScanResult` with hits + queries +
+      network_errors + `.status` property; `PasswordResult.hibp_status`
+      threads it through; worker emits an explicit "scan failed —
+      passwords were NOT checked" line when applicable; manifest
+      `network.api.pwnedpasswords.com` records the live status so
+      snapshot consumers can tell "scan ran cleanly" from "scan
+      failed". 4 new tests in `tests/crypto/test_hibp.py`.
 - [ ] **P2** Pre-flight conflict analysis for open_tabs
       `analyze_open_tabs()` reads target `sessionstore-backups/recovery.jsonlz4`
       (decode mozLz40), counts URLs, logs replacement before mutation.

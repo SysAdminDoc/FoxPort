@@ -133,6 +133,11 @@ class MigrationWorker(QObject):
         # consumes the snapshot at the end of the try/except block.
         counts: dict[str, int] = {}
         direct_write_backups: dict[str, Path | None] = {}
+        # HIBP tri-state ("" until passwords runs with the scan opted in;
+        # then "checked-clean" / "checked-hits" / "network-error" / "disabled").
+        # Drives both the Run log line above AND the manifest network field
+        # so a snapshot consumer can tell scan-failed from scan-clean.
+        hibp_status: str = ""
 
         already_installed: set[str] = set()
         if req.target and not req.dry_run:
@@ -212,15 +217,28 @@ class MigrationWorker(QObject):
                         if len(result.failures) > 5:
                             self.log.emit(f"    ... +{len(result.failures) - 5} more")
                     if req.hibp_scan:
-                        if result.hibp_hits > 0:
+                        # Tri-state — "no hits" + "network error" used to both
+                        # log as "no passwords found in known breaches", which
+                        # silently hid scan failures. Distinguish them now so
+                        # the user knows whether the absence of hits is real.
+                        status = getattr(result, "hibp_status", "")
+                        hibp_status = status
+                        if status == "checked-hits":
                             self.log.emit(
                                 f"  HIBP: {result.hibp_hits} passwords found in known breaches "
                                 f"— see {result.hibp_report_path.name}"
                             )
                             exports["hibp"] = result.hibp_report_path
                             counts["hibp"] = result.hibp_hits
-                        else:
+                        elif status == "checked-clean":
                             self.log.emit("  HIBP: no passwords found in known breaches.")
+                        elif status == "network-error":
+                            self.log.emit(
+                                "  HIBP: scan failed — one or more passwords were NOT checked. "
+                                "Retry with a working network or accept the risk."
+                            )
+                        else:
+                            self.log.emit("  HIBP: status unknown.")
 
             if req.do_bookmarks:
                 current += 1
@@ -481,6 +499,7 @@ class MigrationWorker(QObject):
                     exports=exports,
                     direct_write_backups=direct_write_backups,
                     counts=counts,
+                    hibp_status=hibp_status,
                 )
                 self.log.emit(f"Manifest written to {manifest_path.name}")
             else:
@@ -590,6 +609,7 @@ def _write_run_manifest(
     exports: dict[str, Path],
     direct_write_backups: dict[str, Path | None],
     counts: dict[str, int],
+    hibp_status: str = "",
 ) -> Path:
     """Hash every emitted file and write the run manifest next to README.txt.
 
@@ -629,7 +649,13 @@ def _write_run_manifest(
 
     network = {
         "addons.mozilla.org": "enabled" if req.extensions_online and req.do_extensions else "disabled",
-        "api.pwnedpasswords.com": "enabled" if req.hibp_scan and req.do_passwords else "disabled",
+        # api.pwnedpasswords.com carries the tri-state outcome
+        # (checked-clean / checked-hits / network-error) when the user
+        # opted in. The worker passes the live status via the
+        # ``hibp_status`` parameter; absent => "disabled".
+        "api.pwnedpasswords.com": hibp_status or (
+            "enabled" if req.hibp_scan and req.do_passwords else "disabled"
+        ),
     }
 
     manifest = RunManifest(

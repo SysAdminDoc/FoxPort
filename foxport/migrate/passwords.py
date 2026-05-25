@@ -65,6 +65,18 @@ class PasswordResult:
     Invariant: ``total == decrypted + skipped_empty + failed`` for any
     completed (non-exception) run. Empty-blob rows are counted in
     ``skipped_empty`` so the math always balances.
+
+    ``hibp_status`` is the tri-state from :mod:`foxport.crypto.hibp`:
+
+    * ``"disabled"`` — the user didn't opt in.
+    * ``"checked-clean"`` — scan ran successfully, no breaches.
+    * ``"checked-hits"`` — scan ran successfully, found at least one breach.
+    * ``"network-error"`` — scan was requested but one or more API calls
+      failed. ``hibp_hits`` may still be > 0 if some prefixes did succeed,
+      but the user should treat "no hits" as "we don't actually know".
+
+    Before v1.3.1 the worker treated ``hibp_hits == 0`` as success even
+    when every API call had failed; the tri-state distinguishes those.
     """
 
     csv_path: Path
@@ -75,6 +87,7 @@ class PasswordResult:
     failures: list[str] = field(default_factory=list)
     hibp_report_path: Path | None = None
     hibp_hits: int = 0
+    hibp_status: str = "disabled"
 
 
 PasswordPredicate = Callable[[PasswordRow], bool]
@@ -215,24 +228,37 @@ def migrate_passwords(
 
     hibp_report_path: Path | None = None
     hibp_hits = 0
+    # Default to "disabled" — the user didn't opt in, or the dry-run
+    # branch skipped the scan entirely.
+    hibp_status = "disabled"
 
     if not dry_run:
         _write_csv(decrypted, csv_path)
 
         if hibp_scan and decrypted:
-            from foxport.crypto.hibp import scan_passwords
+            from foxport.crypto.hibp import (
+                HIBP_STATUS_NETWORK_ERROR,
+                scan_passwords,
+            )
             # Reuse the already-decrypted list — no second decrypt pass.
             scan_input = [(row.origin_url, row.username, plain)
                           for row, plain in decrypted]
             try:
-                pwned = scan_passwords(scan_input)
+                scan = scan_passwords(scan_input)
             except Exception as exc:  # noqa: BLE001 — network failure must not abort
                 failures.append(f"hibp scan: {exc}")
-                pwned = []
-            hibp_hits = len(pwned)
-            if pwned:
-                hibp_report_path = out_dir / "compromised-passwords.txt"
-                _write_hibp_report(pwned, hibp_report_path)
+                hibp_status = HIBP_STATUS_NETWORK_ERROR
+            else:
+                hibp_status = scan.status
+                hibp_hits = len(scan.hits)
+                if scan.network_errors:
+                    failures.append(
+                        f"hibp scan: {scan.network_errors} prefix lookup(s) "
+                        "failed — some passwords were NOT checked"
+                    )
+                if scan.hits:
+                    hibp_report_path = out_dir / "compromised-passwords.txt"
+                    _write_hibp_report(scan.hits, hibp_report_path)
 
     return PasswordResult(
         csv_path=csv_path,
@@ -243,4 +269,5 @@ def migrate_passwords(
         failures=failures,
         hibp_report_path=hibp_report_path,
         hibp_hits=hibp_hits,
+        hibp_status=hibp_status,
     )
