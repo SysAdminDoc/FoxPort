@@ -79,6 +79,7 @@ class MigrationContext:
         self.do_open_tabs: bool = False
         self.do_downloads: bool = False
         self.extensions_online: bool = True
+        self.extension_settings_allowlist: set[str] = set()
         self.dry_run: bool = False
         self.direct_write_passwords: bool = False
         self.direct_write_cookies: bool = False
@@ -578,7 +579,9 @@ class ItemsPage(WizardPage):
             customize_callback=self._customize_bookmarks,
             customize_label="Folders")
         self._extensions_row = self._make_row("extensions", "Extensions",
-            "Map installed Chrome extensions to Firefox Add-ons install links.")
+            "Map installed Chrome extensions to Firefox Add-ons install links.",
+            customize_callback=self._customize_extension_settings,
+            customize_label="Settings")
         self._cookies_row = self._make_row("cookies", "Cookies",
             "Create a Firefox cookies.sqlite for a closed target profile.",
             default_checked=False)
@@ -835,6 +838,14 @@ class ItemsPage(WizardPage):
             if self._extensions_row[1].isChecked()
             else "Select extensions first."
         )
+        settings_btn = self._extensions_row[3]
+        if settings_btn is not None:
+            settings_btn.setEnabled(self._extensions_row[1].isChecked() and not reverse)
+            settings_btn.setToolTip(
+                "Choose allowlisted Chromium extension settings to export."
+                if self._extensions_row[1].isChecked() and not reverse
+                else "Extension settings export is forward-only."
+            )
         direct_tooltip = (
             "Requires the matching category and a closed Firefox target profile."
         )
@@ -919,6 +930,18 @@ class ItemsPage(WizardPage):
         )
         if dlg.exec():
             self._ctx.bookmark_excluded_paths = dlg.excluded_paths()
+
+    def _customize_extension_settings(self) -> None:
+        if not self._ctx.source or self._ctx.direction != MigrationContext.DIRECTION_FORWARD:
+            return
+        from foxport.gui.dialogs import ExtensionSettingsDialog
+        dlg = ExtensionSettingsDialog(
+            self._ctx.source,
+            selected=self._ctx.extension_settings_allowlist,
+            parent=self,
+        )
+        if dlg.exec():
+            self._ctx.extension_settings_allowlist = dlg.selected_keys()
 
     def _customize_history(self) -> None:
         from foxport.gui.dialogs import HistoryFilterDialog
@@ -1059,6 +1082,12 @@ class PreviewPage(WizardPage):
                     node.addChild(child)
                 if len(extensions) > 10:
                     node.addChild(QTreeWidgetItem([f"   …+{len(extensions) - 10} more", ""]))
+                if ctx.extension_settings_allowlist:
+                    selected = ", ".join(sorted(ctx.extension_settings_allowlist))
+                    node.addChild(QTreeWidgetItem([
+                        "   Allowlisted settings",
+                        f"extension-settings.json ({selected})",
+                    ]))
                 self._tree.addTopLevelItem(node)
                 node.setExpanded(True)
                 self._yield_to_event_loop()
@@ -1235,6 +1264,7 @@ class RunPage(WizardPage):
         ("hibp", "Open compromised-passwords.txt", "open"),
         ("bookmarks", "Open bookmarks.html", "open"),
         ("extensions", "Open extensions.html", "open"),
+        ("extension_settings", "Open extension-settings.json", "open"),
         ("cookies", "Reveal cookies.sqlite", "reveal"),
         ("history", "Reveal places.sqlite", "reveal"),
         ("autofill", "Reveal formhistory.sqlite", "reveal"),

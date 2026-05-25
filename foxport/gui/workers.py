@@ -28,6 +28,7 @@ from foxport.migrate.cards import migrate_cards
 from foxport.migrate.cookies import migrate_cookies
 from foxport.migrate.downloads import migrate_downloads
 from foxport.migrate.extensions import migrate_extensions
+from foxport.migrate.extension_settings import migrate_extension_settings
 from foxport.migrate.history import migrate_history
 from foxport.migrate.nss_cookies import write_cookies_into_target
 from foxport.migrate.nss_history import write_history_into_target
@@ -60,6 +61,7 @@ class MigrationRequest:
     do_search_engines: bool = False
     do_open_tabs: bool = False
     do_downloads: bool = False
+    extension_settings_allowlist: set[str] = field(default_factory=set)
     extensions_online: bool = True
     dry_run: bool = False
     password_include_keys: set[str] | None = None
@@ -347,6 +349,25 @@ class MigrationWorker(QObject):
                 # release. Warnings come from extensions._curated_map_warnings.
                 for warning in ext_result.warnings:
                     self.log.emit(f"  ⚠ {warning}")
+                if req.extension_settings_allowlist:
+                    selected = ", ".join(sorted(req.extension_settings_allowlist))
+                    self.log.emit(f"  Exporting allowlisted extension settings ({selected})...")
+                    settings_result = migrate_extension_settings(
+                        req.source,
+                        out_dir,
+                        selected=req.extension_settings_allowlist,
+                        dry_run=req.dry_run,
+                    )
+                    counts["extension_settings"] = settings_result.count
+                    if not req.dry_run and settings_result.json_path.exists():
+                        exports["extension_settings"] = settings_result.json_path
+                    if settings_result.exported:
+                        labels = ", ".join(item.label for item in settings_result.exported)
+                        self.log.emit(f"  Extension settings exported for: {labels}.")
+                    for line in settings_result.skipped[:5]:
+                        self.log.emit(f"    - {line}")
+                    for line in settings_result.failures[:5]:
+                        self.log.emit(f"    ! {line}")
 
             if req.do_cookies:
                 current += 1
@@ -745,6 +766,7 @@ def _selected_items(req: MigrationRequest) -> list[str]:
         ("passwords", req.do_passwords),
         ("bookmarks", req.do_bookmarks),
         ("extensions", req.do_extensions),
+        ("extension_settings", req.do_extensions and bool(req.extension_settings_allowlist)),
         ("cookies", req.do_cookies),
         ("history", req.do_history),
         ("autofill", req.do_autofill),

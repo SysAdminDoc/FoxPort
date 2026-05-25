@@ -52,6 +52,41 @@ Toolbar root.
 `chrome://`, `about:`, `edge://`, etc. URLs are filtered by default —
 they aren't navigable in Firefox.
 
+## `extension-settings.json` — allowlisted add-on settings
+
+Opt-in artifact emitted only when the user selects supported extension
+settings. Schema:
+
+```json
+{
+  "schema_version": 1,
+  "supported_keys": ["bitwarden", "stylus", "ublock"],
+  "exported": [
+    {
+      "key": "ublock",
+      "label": "uBlock Origin",
+      "extension_id": "cjpalhdlnbpafiamejdnhcphjbkeiagm",
+      "extension_name": "uBlock Origin",
+      "data": {},
+      "warnings": []
+    }
+  ],
+  "skipped": [],
+  "failures": []
+}
+```
+
+Only allowlisted fields are serialized:
+
+* uBlock Origin: selected filter lists, custom filters, trusted sites,
+  and dynamic/url/hostname rule strings.
+* Stylus: user style records suitable for review/import through Stylus'
+  manager JSON flow where recoverable from IndexedDB records.
+* Bitwarden: self-hosted environment/server URLs only.
+
+Raw extension storage, auth tokens, encrypted vault blobs, cached remote
+data, and unknown keys are intentionally omitted.
+
 ## `cookies.sqlite` — Firefox schema v17
 
 ```sql

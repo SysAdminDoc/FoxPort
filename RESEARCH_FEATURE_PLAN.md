@@ -25,6 +25,9 @@ when the work ships.
   `moz_places` rows receive Firefox-compatible
   `downloads/destinationFileURI` and `downloads/metaData` annotations while
   `downloads.csv` remains the portable reference artifact.
+- v1.4 Extension settings allowlist is now shipped: uBlock Origin,
+  Stylus, and Bitwarden settings are exported only through explicit opt-in
+  and only as allowlisted fields in `extension-settings.json`.
 
 ## Current Process
 

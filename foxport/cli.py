@@ -48,8 +48,12 @@ from foxport.migrate.autofill import migrate_autofill
 from foxport.migrate.bookmarks import migrate_bookmarks
 from foxport.migrate.cards import migrate_cards
 from foxport.migrate.cookies import migrate_cookies
-from foxport.migrate.extensions import migrate_extensions
 from foxport.migrate.downloads import migrate_downloads
+from foxport.migrate.extensions import migrate_extensions
+from foxport.migrate.extension_settings import (
+    migrate_extension_settings,
+    parse_extension_settings_selection,
+)
 from foxport.migrate.history import migrate_history
 from foxport.migrate.open_tabs import migrate_open_tabs
 from foxport.migrate.passwords import migrate_passwords
@@ -298,6 +302,15 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
             return 2
 
     items = _parse_items(args.items, args.all)
+    try:
+        extension_settings = parse_extension_settings_selection(
+            getattr(args, "extension_settings", None)
+        )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if extension_settings:
+        items.add("extensions")
     out_root = Path(args.out) if args.out else Path.home() / "Documents" / "FoxPort"
     target_label = target.label if target else "firefox"
     if args.dry_run:
@@ -364,6 +377,24 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
         json_counts["extensions"] = len(r.matches)
         if not args.dry_run:
             exports["extensions"] = r.html_path
+        if extension_settings:
+            selected = ", ".join(sorted(extension_settings))
+            _log(f"  Exporting allowlisted extension settings ({selected})")
+            sr = migrate_extension_settings(
+                source,
+                out_dir,
+                selected=extension_settings,
+                dry_run=args.dry_run,
+            )
+            json_counts["extension_settings"] = sr.count
+            if not args.dry_run and sr.json_path.exists():
+                exports["extension_settings"] = sr.json_path
+            if sr.exported:
+                _log("  Settings exported for: " + ", ".join(i.label for i in sr.exported))
+            for line in sr.skipped[:5]:
+                _log(f"    - {line}")
+            for line in sr.failures[:5]:
+                _log(f"    ! {line}")
 
     if "cookies" in items:
         _log("\n[cookies]")
@@ -547,6 +578,10 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Output root directory (default: ~/Documents/FoxPort)")
     mig.add_argument("--no-online", action="store_true",
                      help="Skip AMO online lookup for unknown extensions")
+    mig.add_argument("--extension-settings", default=None,
+                     help="Opt-in allowlisted extension settings export. Comma-separated "
+                          "keys: ublock,stylus,bitwarden, or all. Emits "
+                          "extension-settings.json when supported settings are found.")
     mig.add_argument("--hibp", action="store_true",
                      help="Check decrypted passwords against haveibeenpwned.com (k-anonymity API)")
     mig.add_argument("--json", action="store_true",

@@ -137,6 +137,14 @@ def import_instructions(profile, exports: dict[str, Path | str]) -> str:
             "  Unmatched rows are preserved so you can decide whether to skip or search manually.",
             "",
         ])
+    if "extension_settings" in exports:
+        lines.extend([
+            "Extension settings:",
+            f"  File: {p('extension_settings')}",
+            "  Review this allowlisted JSON and import settings through each add-on's own UI.",
+            "  Raw extension storage is not copied; secrets and vault data are intentionally omitted.",
+            "",
+        ])
     if "cookies" in exports:
         lines.extend([
             "Cookies (advanced):",

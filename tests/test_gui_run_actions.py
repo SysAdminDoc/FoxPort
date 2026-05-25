@@ -7,8 +7,8 @@ run in CI without a display. They cover the v1.3 parity changes:
   registered category, not only the first five.
 * ``RunPage.set_done()`` emits a button + signal for every artifact key the
   worker produced, including the newer ``hibp / autofill / cards /
-  search_engines / open_tabs / downloads`` categories the previous version
-  silently dropped.
+  search_engines / open_tabs / downloads / extension_settings`` categories
+  the previous version silently dropped.
 """
 
 from __future__ import annotations
@@ -81,6 +81,7 @@ def test_run_page_done_renders_action_per_artifact(qt_app):
         "hibp": Path("h.txt"),
         "bookmarks": Path("b.html"),
         "extensions": Path("e.html"),
+        "extension_settings": Path("extension-settings.json"),
         "cookies": Path("c.sqlite"),
         "history": Path("places.sqlite"),
         "autofill": Path("a.sqlite"),

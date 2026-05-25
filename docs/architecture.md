@@ -48,6 +48,7 @@ foxport/
 │   ├── bookmarks.py            # Netscape HTML
 │   ├── extensions.py           # 4-stage AMO matcher → install-page HTML; User-Agent
 │   │                           #   tracks __version__
+│   ├── extension_settings.py   # opt-in allowlisted uBO/Stylus/Bitwarden settings
 │   ├── cookies.py              # writes cookies.sqlite (v17) from scratch; Chrome 130+
 │   │                           #   HOST_KEY prefix stripped in bytes-space
 │   ├── history.py              # writes places.sqlite (v86) from scratch; can add
@@ -169,6 +170,7 @@ BEFORE UTF-8 decoding.
     ├── bookmarks.html             # Library import
     ├── extensions.html            # one-click AMO install page
     ├── extensions.json            # machine-readable
+    ├── extension-settings.json    # opt-in allowlisted extension settings
     ├── cookies.sqlite             # swap in to closed profile
     ├── places.sqlite              # swap in to closed profile; may include download moz_annos
     ├── formhistory.sqlite         # swap in to closed profile

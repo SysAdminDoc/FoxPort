@@ -203,9 +203,12 @@ the last P1 (conflict-review dialog) plus the P2/P3 follow-ons.
       `downloads/destinationFileURI` + `downloads/metaData` when
       Downloads are selected with history direct-write `apply`. The
       standalone CSV remains the portable reference artifact.
-- [ ] **P2** Extension settings allowlist
-      uBO filter lists, Stylus userstyles, Bitwarden vault URL. Three
-      stable WebExtension storage formats; opt-in per extension.
+- [x] **P2** Extension settings allowlist
+      uBO filter lists/user rules, Stylus userstyles, and Bitwarden
+      self-hosted server URLs now export to `extension-settings.json`
+      through an explicit CLI flag or the Extensions-row Settings
+      picker. Raw extension storage and unknown keys are intentionally
+      omitted.
 - [ ] **P3** Opt-in Glean telemetry with declared metrics
 - [ ] **P3** Opt-in Sentry crash reporting (path-stripped)
 - [ ] **P3** Signed update appcast (WinSparkle)

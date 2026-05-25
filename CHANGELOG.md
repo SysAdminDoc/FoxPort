@@ -19,6 +19,16 @@ All notable changes to FoxPort are documented here. Format roughly follows
   sizes continue to grow.
 
 ### Added
+- **Extension settings allowlist.** Extensions now have a separate,
+  opt-in settings export for three stable WebExtension surfaces:
+  uBlock Origin filter/user rules, Stylus user styles, and Bitwarden
+  self-hosted server URLs. CLI: `--extension-settings
+  ublock,stylus,bitwarden` (or `all`). GUI: the Extensions row has a
+  "Settings" picker that enables installed supported extensions per
+  run. Output is `extension-settings.json`; raw extension storage,
+  auth tokens, cached vault data, and unknown keys are intentionally
+  omitted. Four new tests cover selection parsing, installed-extension
+  detection, allowlisted-field output, and dry-run behavior.
 - **Downloads → `places.sqlite.moz_annos` direct-write.** When
   Downloads are selected alongside history direct-write with the
   `apply` policy, `migrate_history(...,

@@ -43,6 +43,7 @@ _SENSITIVITY: dict[str, str] = {
     "hibp": "normal",               # site + username only, no plaintext
     "bookmarks": "normal",
     "extensions": "normal",
+    "extension_settings": "sensitive",  # filters/styles/self-hosted URLs may expose habits/orgs
     "cookies": "sensitive",         # session-bearing
     "history": "sensitive",         # browsing URLs
     "autofill": "sensitive",        # may include addresses, names
@@ -65,6 +66,7 @@ _DEFAULT_ACTION: dict[str, str] = {
     "hibp": "open",
     "bookmarks": "open",
     "extensions": "open",
+    "extension_settings": "open",
     "cookies": "reveal",
     "history": "reveal",
     "autofill": "reveal",

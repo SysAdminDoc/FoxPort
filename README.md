@@ -214,6 +214,7 @@ in `RESEARCH_FEATURE_PLAN.md` plus a basket of P1/P2 trust + polish wins.
 | **Passwords** | `Login Data` SQLite + DPAPI key (+ ABE sidecar for Chrome 127+) | Firefox CSV (`url,username,password,...`) | `about:logins` → menu → Import from a File |
 | **Bookmarks** | `Bookmarks` JSON | Netscape HTML | Library (`Ctrl+Shift+O`) → Import Bookmarks from HTML |
 | **Extensions** | Profile `Extensions/<id>/<ver>/manifest.json` | HTML page of AMO install links | Open the HTML in Firefox, click each link |
+| **Extension settings** | Allowlisted storage for uBO, Stylus, Bitwarden | `extension-settings.json` | Opt in per extension; import through each add-on's own UI |
 | **Cookies** | `Network/Cookies` SQLite + DPAPI key | Firefox `cookies.sqlite` (v17) | Close Firefox, back up existing, drop in |
 | **History** | `History` SQLite (`urls` + `visits`) | Firefox `places.sqlite` (v77; includes matching download annotations when paired with history direct-write) | Close Firefox, back up existing, drop in |
 | **Form autofill** | `Web Data.autofill` SQLite | Firefox `formhistory.sqlite` | Close Firefox, back up existing, drop in |
@@ -273,12 +274,18 @@ The `Bookmarks` file is plain JSON. FoxPort walks the `bookmark_bar`, `other`, a
 ### Extensions
 Chrome and Firefox both speak WebExtensions, but Chrome's MV3 lockdown means extensions are not byte-for-byte portable. FoxPort instead resolves the **identity** of each Chrome extension through four progressively-less-confident stages:
 
-1. **Curated map** (`foxport/data/curated_extension_map.json`) — 56 hand-verified Chrome ID → AMO slug pairs across 14 categories (ad blockers, password managers, userscripts, dev tools, AI assistants, ...). Zero network. Open the JSON file to contribute additions. The monthly `curated-map-audit.yml` workflow re-verifies every slug against AMO and files a GitHub issue on broken or removed entries. The `_meta.entry_count` field is asserted by the auditor so the docs can't drift again silently — see `_meta.description` for the dead-link policy.
+1. **Curated map** (`foxport/data/curated_extension_map.json`) — 56 hand-verified Chrome ID → AMO slug pairs across 14 categories (ad blockers, password managers, userscripts, dev tools, AI assistants, ...). Zero network. Open the JSON file to contribute additions. The weekly `curated-map-audit.yml` workflow re-verifies every slug against AMO and files a GitHub issue on broken or removed entries. The `_meta.entry_count` field is asserted by the auditor so the docs can't drift again silently — see `_meta.description` for the dead-link policy.
 2. **Gecko ID probe** — If the Chromium manifest declares `browser_specific_settings.gecko.id`, FoxPort hits AMO's detail endpoint with that GUID for a 100%-confidence match.
 3. **AMO name search** — Otherwise, the localized extension name is queried against `addons.mozilla.org/api/v5/addons/search/` and the top hit is taken, ranked by exact-name + prefix overlap, filtered to public + non-disabled.
 4. **Permission overlap** — For non-curated matches, FoxPort compares Chrome's declared permissions to the candidate's AMO permissions and downgrades confidence when overlap is poor (`amo-search-low` if < 30%).
 
 The resulting `extensions.html` shows match confidence, permission requests, user count, AMO rating, and whether the equivalent is already installed in your target Firefox profile (struck through). Offline runs (uncheck "Allow online AMO lookup") still produce a usable page from the curated table.
+
+Extension settings are separate and opt-in. FoxPort currently allowlists
+uBlock Origin filter/user rules, Stylus user styles, and Bitwarden self-hosted
+server URLs. It writes `extension-settings.json` only with those fields; raw
+extension storage, auth tokens, cached vault data, and other private keys are
+not copied.
 
 ---
 
@@ -291,6 +298,7 @@ The resulting `extensions.html` shows match confidence, permission requests, use
     ├── bookmarks.html        # for Library import
     ├── extensions.html       # one-click AMO install page
     ├── extensions.json       # machine-readable mapping
+    ├── extension-settings.json # opt-in allowlisted settings
     └── README.txt            # step-by-step import instructions
 ```
 

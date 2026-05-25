@@ -422,6 +422,7 @@ class MainWindow(QMainWindow):
             do_search_engines=self._ctx.do_search_engines,
             do_open_tabs=self._ctx.do_open_tabs,
             do_downloads=self._ctx.do_downloads,
+            extension_settings_allowlist=set(self._ctx.extension_settings_allowlist),
             extensions_online=self._ctx.extensions_online,
             dry_run=self._ctx.dry_run,
             password_include_keys=self._ctx.password_include_keys,

@@ -31,6 +31,7 @@ from foxport.browsers.chromium import (
     BookmarkNode,
     PasswordRow,
     read_bookmarks,
+    read_extensions,
     read_password_rows,
 )
 from foxport.browsers.detect import ChromiumProfile
@@ -41,6 +42,10 @@ from foxport.config import (
     save_settings,
 )
 from foxport.crypto.dpapi import decrypt_value, load_master_key
+from foxport.migrate.extension_settings import (
+    SUPPORTED_EXTENSION_SETTINGS,
+    installed_supported_settings,
+)
 
 from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 
@@ -924,6 +929,63 @@ class BookmarkFilterDialog(QDialog):
 
     def excluded_paths(self) -> set[tuple[str, ...]]:
         return set(self._excluded)
+
+
+class ExtensionSettingsDialog(QDialog):
+    """Opt-in picker for allowlisted extension settings exports."""
+
+    def __init__(
+        self,
+        profile: ChromiumProfile,
+        *,
+        selected: set[str] | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Extension settings")
+        self.resize(560, 320)
+        self._checks: dict[str, QCheckBox] = {}
+        selected = set(selected or set())
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
+        header = QLabel(
+            "Export only allowlisted settings for installed extensions. "
+            "Raw extension storage and secrets are not copied."
+        )
+        header.setWordWrap(True)
+        header.setStyleSheet("color: #a6adc8;")
+        layout.addWidget(header)
+
+        installed = installed_supported_settings(read_extensions(profile))
+        if not installed:
+            empty = QLabel("No supported extension settings found in this source profile.")
+            empty.setWordWrap(True)
+            empty.setStyleSheet("color: #a6adc8;")
+            layout.addWidget(empty)
+        for key, spec in SUPPORTED_EXTENSION_SETTINGS.items():
+            ext = installed.get(key)
+            cb = QCheckBox(f"{spec.label} — {spec.notes}")
+            cb.setEnabled(ext is not None)
+            cb.setChecked(key in selected and ext is not None)
+            if ext is None:
+                cb.setToolTip("This extension was not found in the selected source profile.")
+            else:
+                cb.setToolTip(f"Source: {ext.name} ({ext.extension_id})")
+            layout.addWidget(cb)
+            self._checks[key] = cb
+
+        layout.addStretch(1)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)  # type: ignore[arg-type]
+        buttons.rejected.connect(self.reject)  # type: ignore[arg-type]
+        layout.addWidget(buttons)
+
+    def selected_keys(self) -> set[str]:
+        return {key for key, cb in self._checks.items() if cb.isChecked()}
 
 
 # Chrome WebKit µs since 1601-01-01 UTC for the Unix epoch.
