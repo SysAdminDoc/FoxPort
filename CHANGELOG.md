@@ -6,6 +6,16 @@ All notable changes to FoxPort are documented here. Format roughly follows
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-05-25
+
+Trust + supply-chain + completeness arc. The v1.4 plan promoted to a
+shipped release: opt-in telemetry/crash reporting, signed appcast +
+SLSA build provenance + CycloneDX SBOM, raster branding, direct-write
+merge mode for cookies and history, passkey inventory CLI, restore-
+from-backup regret-undo wizard, extension settings allowlist,
+Downloads → `places.sqlite.moz_annos` direct-write, and curated-map
+hot-reload + AMO cache. **271 tests pass** (up from 207 at v1.3.3).
+
 ### Added
 - **SBOM + signed build provenance.** The release workflow now emits a
   CycloneDX 1.6 SBOM (`FoxPort-<tag>-sbom.cdx.json`) via `cyclonedx-bom`
