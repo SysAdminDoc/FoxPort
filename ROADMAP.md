@@ -1,15 +1,16 @@
 # ROADMAP
 
 Single source of truth for actionable work. Items here are concrete units of
-work — check them off as shipped. `RESEARCH_FEATURE_PLAN.md` is the deeper
-analysis backing each entry; `CHANGELOG.md` records what shipped. This file
-is the to-do list and nothing else.
+work — check them off as shipped. `RESEARCH_REPORT.md` summarizes the research
+context and archive; `COMPLETED.md` summarizes shipped roadmap history;
+`CHANGELOG.md` records release-level detail. This file is the to-do list and
+nothing else.
 
 > **Read this first if you're picking up where the last session left off:**
-> `RESEARCH_FEATURE_PLAN.md` is the most recent research output (refreshed
-> 2026-05-25, post-v1.3.0). The Phase A v1.3.1 batch below is the next active
-> work; v1.3.0 + the 13 follow-on commits collapsed in the v1.3 entry under
-> "Historical milestones".
+> `RESEARCH_REPORT.md` summarizes the latest research output and points to the
+> archived 2026-05-25 feature plan. The remaining active work starts with the
+> unchecked items below; shipped v1.3/v1.4 history is summarized in
+> `COMPLETED.md` and detailed in `CHANGELOG.md`.
 
 ---
 

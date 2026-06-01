@@ -6,6 +6,13 @@ All notable changes to FoxPort are documented here. Format roughly follows
 
 ## [Unreleased]
 
+### Docs
+
+- Consolidated planning docs: active work remains in `ROADMAP.md`, shipped
+  roadmap history is summarized in `COMPLETED.md`, and research context is
+  summarized in `RESEARCH_REPORT.md` with the previous research feature plan
+  archived under `docs/archive/research/`.
+
 ## [1.4.0] — 2026-05-25
 
 Trust + supply-chain + completeness arc. The v1.4 plan promoted to a

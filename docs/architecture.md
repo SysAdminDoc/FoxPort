@@ -255,5 +255,5 @@ so CLI consumers catch them cleanly.
 * `docs/supply-chain.md` — CycloneDX SBOM + SLSA build provenance, plus
   how to verify a downloaded release before running it
 * `docs/update-appcast.md` — signed WinSparkle appcast pipeline
-* `RESEARCH_FEATURE_PLAN.md` — historic deep-research pass; many P2/P3
+* `RESEARCH_REPORT.md` — research summary and archive index; many P2/P3
   items in there have since been shipped.

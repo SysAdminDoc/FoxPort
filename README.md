@@ -34,7 +34,7 @@ left-rail step indicator and Catppuccin Mocha dark theme:
 ## What's new in v1.2.0
 
 **Research-driven correctness pass** — fixes for three P0 bugs identified
-in `RESEARCH_FEATURE_PLAN.md` plus a basket of P1/P2 trust + polish wins.
+in the archived research plan plus a basket of P1/P2 trust + polish wins.
 
 - **Correct `places.sqlite`** — schema bumped to Firefox tip (v86), new
   `block_until_ms` / `block_pages_until_ms` columns on `moz_origins`,
@@ -334,6 +334,13 @@ The output folder is configurable in the UI.
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md).
+
+## Project Planning
+
+- [ROADMAP.md](ROADMAP.md) — active to-do list.
+- [COMPLETED.md](COMPLETED.md) — shipped roadmap history.
+- [RESEARCH_REPORT.md](RESEARCH_REPORT.md) — research summary and archive index.
+- [CHANGELOG.md](CHANGELOG.md) — release-level details.
 
 ## Changelog
 
