@@ -13,6 +13,38 @@ All notable changes to FoxPort are documented here. Format roughly follows
   summarized in `RESEARCH_REPORT.md` with the previous research feature plan
   archived under `docs/archive/research/`.
 
+## [1.4.2] — 2026-06-03
+
+### Fixed
+
+- **Forward curated map: corrected duplicate-slug mismatches (issue #1).** Audited
+  every case where multiple Chrome IDs mapped to the same AMO slug and verified
+  each ID's real Chrome Web Store listing. Five entries were wrong; `entry_count`
+  56→52 (three removals, two remaps, zero additions):
+  - `iikmkjmpaadaobahmlepeloendndfphd` was mapped to `violentmonkey` but is
+    actually **Tampermonkey** (confirmed via Extpose + Microsoft Edge Add-ons) —
+    remapped to `tampermonkey`.
+  - `gighmmpiobklfepjocnamgkkbiglidom` was mapped to `adblock-plus` but is
+    actually **AdBlock** (getadblock.com, a different product than Adblock Plus
+    by eyeo) — remapped to its correct AMO listing `adblock-for-firefox`.
+  - `ddkjiahejlhfcafbddmgiahcphecmpfh` was mapped to `ublock-origin` but is
+    actually **uBlock Origin Lite** (uBOL, a distinct MV3 fork) — removed; the
+    `ublock-origin-lite` AMO slug 404s, so there is no valid Firefox target.
+  - `lifbcibllhkdhoafpjfnlhfpfgnpldfl` was mapped to `skip-redirect` but is
+    actually **Skype** (delisted 2025-09-17) — removed.
+  - `bfbmjmiodbnnpllbbbfblcplfjjepjdn` was mapped to `darkreader` but is actually
+    **Turn Off the Lights** — removed (Dark Reader's real ID
+    `eimadpbcbfnmbkopoojfekhnkhdbieeh` stays).
+  - Verified-correct and kept: `cjpalhdlnbpafiamejdnhcphjbkeiagm` (uBlock Origin),
+    `cfhdojbkjhnklbpkdaibdccddilifddb` (Adblock Plus by eyeo),
+    `aeblfdkhhhdcdjpifhhbdiojplfjncoa` + `dppgmdbiimibapkepcbdbmkaabgiofem`
+    (both genuine 1Password listings), `jaoafjdoijdconemdmodhbfpianehlon`
+    (Skip Redirect).
+  - `fdoeckjeapimfjeoddjlpdkogdfnighb` (mapped to `ublock-origin`) could not be
+    positively identified across CWS, Extpose, crx4chrome, chrome-stats, Edge,
+    and web search — left unchanged pending verification rather than removed on a
+    guess.
+
 ## [1.4.1] — 2026-06-03
 
 ### Fixed

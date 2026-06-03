@@ -4,7 +4,7 @@
 
 # FoxPort
 
-[![version](https://img.shields.io/badge/version-1.4.1-f5c2e7?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-1.4.2-f5c2e7?style=flat-square)](CHANGELOG.md)
 [![license](https://img.shields.io/badge/license-MIT-89b4fa?style=flat-square)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-cdd6f4?style=flat-square)](#)
 [![python](https://img.shields.io/badge/python-3.11%2B-a6e3a1?style=flat-square)](https://www.python.org/)
@@ -198,7 +198,7 @@ in the archived research plan plus a basket of P1/P2 trust + polish wins.
 ## What's new in v0.2.0
 
 - **Five-step wizard UI** — Source → Target → Items → Preview → Run/Done, with a left-rail step indicator, tile-based pickers, drag-and-drop support, and a sample-rich preview pane before commit.
-- **Smarter extension matching** — A 63-entry curated map plus a manifest-`gecko.id` probe against the AMO detail endpoint plus permission-overlap confidence scoring on every match.
+- **Smarter extension matching** — A 52-entry curated map plus a manifest-`gecko.id` probe against the AMO detail endpoint plus permission-overlap confidence scoring on every match.
 - **Already-installed detection** — FoxPort reads the target Firefox profile's `extensions.json` and strikes through extensions you already have so a click-through install doesn't re-tap them.
 - **App-Bound Encryption awareness** — Detects Chrome 127+ ABE on the source and reports clearly. Bookmarks and extensions still migrate; passwords on ABE-only profiles are flagged for v0.3.
 - **Opera Stable / GX flat-profile layout** — Now detected correctly (no `Default/` subdir).
@@ -275,7 +275,7 @@ The `Bookmarks` file is plain JSON. FoxPort walks the `bookmark_bar`, `other`, a
 ### Extensions
 Chrome and Firefox both speak WebExtensions, but Chrome's MV3 lockdown means extensions are not byte-for-byte portable. FoxPort instead resolves the **identity** of each Chrome extension through four progressively-less-confident stages:
 
-1. **Curated map** (`foxport/data/curated_extension_map.json`) — 56 hand-verified Chrome ID → AMO slug pairs across 14 categories (ad blockers, password managers, userscripts, dev tools, AI assistants, ...). Zero network. Open the JSON file to contribute additions. The weekly `curated-map-audit.yml` workflow re-verifies every slug against AMO and files a GitHub issue on broken or removed entries. The `_meta.entry_count` field is asserted by the auditor so the docs can't drift again silently — see `_meta.description` for the dead-link policy. Advanced users/CI can point `FOXPORT_CURATED_MAP_PATH` at a replacement JSON; FoxPort reloads the active map for every run.
+1. **Curated map** (`foxport/data/curated_extension_map.json`) — 52 hand-verified Chrome ID → AMO slug pairs across 14 categories (ad blockers, password managers, userscripts, dev tools, AI assistants, ...). Zero network. Open the JSON file to contribute additions. The weekly `curated-map-audit.yml` workflow re-verifies every slug against AMO and files a GitHub issue on broken or removed entries. The `_meta.entry_count` field is asserted by the auditor so the docs can't drift again silently — see `_meta.description` for the dead-link policy. Advanced users/CI can point `FOXPORT_CURATED_MAP_PATH` at a replacement JSON; FoxPort reloads the active map for every run.
 2. **Gecko ID probe** — If the Chromium manifest declares `browser_specific_settings.gecko.id`, FoxPort hits AMO's detail endpoint with that GUID for a 100%-confidence match. Duplicate GUIDs share one in-run AMO cache.
 3. **AMO name search** — Otherwise, the localized extension name is queried against `addons.mozilla.org/api/v5/addons/search/` and the top hit is taken, ranked by exact-name + prefix overlap, filtered to public + non-disabled. Duplicate names share the same in-run AMO cache.
 4. **Permission overlap** — For non-curated matches, FoxPort compares Chrome's declared permissions to the candidate's AMO permissions and downgrades confidence when overlap is poor (`amo-search-low` if < 30%).
