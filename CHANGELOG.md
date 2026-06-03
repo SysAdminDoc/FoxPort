@@ -13,6 +13,28 @@ All notable changes to FoxPort are documented here. Format roughly follows
   summarized in `RESEARCH_REPORT.md` with the previous research feature plan
   archived under `docs/archive/research/`.
 
+## [1.4.1] — 2026-06-03
+
+### Fixed
+
+- **Reverse curated map: corrected 5 stale AMO GUIDs (issue #1).** The monthly
+  audit flagged five `AMO_GUID_TO_CHROME` reverse entries whose GUIDs no longer
+  resolve on AMO (the auditor keys on GUID and 404s when the listing is gone).
+  Re-harvested the canonical GUIDs from the AMO v5 API and replaced the
+  placeholder/stale values:
+  `FirefoxAddon@1Password.com` → `{d634138d-c276-4fc8-924b-40a0ea21d284}`,
+  `Stylus@elliedan.com` → `{7a7a4a92-a2a0-41d1-9fd7-1e92480d612d}`,
+  `Tampermonkey@example.com` → `firefox@tampermonkey.net`,
+  `ublock@adblockplus.org` → `{d10d0bf8-f5b5-c8b4-a8b2-2b9879e08c5d}`,
+  `violentmonkey@violentmonkey.com` → `{aecec67f-0d10-4fa7-b7c7-609a2db280cf}`.
+  Four of the five Chrome IDs were already live and unchanged; only **Stylus**
+  had a dead Chrome ID, corrected `ikenrfhkjjdpjnpldmonkadbnkgmgcco` →
+  `clngdbkpkpeebahjckkjfobafhncgmne` (the current Featured CWS listing).
+- **Forward curated map: dropped the dead Stylus Chrome ID.** Removed the
+  unreachable `ikenrfhkjjdpjnpldmonkadbnkgmgcco` → `stylus` entry so the live
+  `clngdbkpkpeebahjckkjfobafhncgmne` is the sole (and harvester-preferred)
+  Stylus mapping; `_meta.entry_count` 56 → 55, `last_verified` → 2026-06-03.
+
 ## [1.4.0] — 2026-05-25
 
 Trust + supply-chain + completeness arc. The v1.4 plan promoted to a

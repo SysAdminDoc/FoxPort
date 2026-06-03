@@ -2,9 +2,9 @@
   "_meta": {
     "schema": 1,
     "description": "Chrome extension ID -> Firefox AMO slug. Verified against live AMO listings. When AMO removes or 401s a slug, drop the entry — a curated 404 link in extensions.html is worse than no curated match (AMO search fallback still runs). entry_count + category_count are asserted by scripts/check_curated_map.py.",
-    "last_verified": "2026-05-25",
+    "last_verified": "2026-06-03",
     "source": "https://github.com/SysAdminDoc/FoxPort",
-    "entry_count": 56,
+    "entry_count": 55,
     "category_count": 14
   },
   "ad_tracker_privacy": {
@@ -37,7 +37,6 @@
     "iikmkjmpaadaobahmlepeloendndfphd": "violentmonkey"
   },
   "styling_themes": {
-    "ikenrfhkjjdpjnpldmonkadbnkgmgcco": "stylus",
     "clngdbkpkpeebahjckkjfobafhncgmne": "stylus",
     "eimadpbcbfnmbkopoojfekhnkhdbieeh": "darkreader",
     "bfbmjmiodbnnpllbbbfblcplfjjepjdn": "darkreader"

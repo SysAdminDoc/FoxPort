@@ -48,11 +48,11 @@ AMO_GUID_TO_CHROME: dict[str, str] = {
     "addon@darkreader.org":            "eimadpbcbfnmbkopoojfekhnkhdbieeh",  # Dark Reader
     "jid1-BoFifL9Vbdl2zQ@jetpack":     "mnjggcdmjocbbbhaepdhchncahnbgone",  # SponsorBlock
     "{e58d3966-3d76-4cd9-8552-1582fbc800c1}": "kbfnbcaeplbcioakkpcpgfkobkghlhen",  # Grammarly
-    "Tampermonkey@example.com":        "dhdgffkkebhmkfjojejmpbldmpobfkfo",  # Tampermonkey (deliberate alias)
-    "violentmonkey@violentmonkey.com": "jinjaccalgkegednnccohejagnlnfdag",  # Violentmonkey
-    "FirefoxAddon@1Password.com":      "aeblfdkhhhdcdjpifhhbdiojplfjncoa",  # 1Password X
-    "ublock@adblockplus.org":          "cfhdojbkjhnklbpkdaibdccddilifddb",  # Adblock Plus
-    "Stylus@elliedan.com":             "ikenrfhkjjdpjnpldmonkadbnkgmgcco",  # Stylus
+    "firefox@tampermonkey.net":        "dhdgffkkebhmkfjojejmpbldmpobfkfo",  # Tampermonkey
+    "{aecec67f-0d10-4fa7-b7c7-609a2db280cf}": "jinjaccalgkegednnccohejagnlnfdag",  # Violentmonkey
+    "{d634138d-c276-4fc8-924b-40a0ea21d284}": "aeblfdkhhhdcdjpifhhbdiojplfjncoa",  # 1Password X
+    "{d10d0bf8-f5b5-c8b4-a8b2-2b9879e08c5d}": "cfhdojbkjhnklbpkdaibdccddilifddb",  # Adblock Plus
+    "{7a7a4a92-a2a0-41d1-9fd7-1e92480d612d}": "clngdbkpkpeebahjckkjfobafhncgmne",  # Stylus
     "vimium-c@gdh1995.cn":             "dbepggeogbaibhgnhhndojpepiihcmeb",  # Vimium-c
 }
 

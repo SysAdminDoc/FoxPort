@@ -4,7 +4,7 @@
 
 # FoxPort
 
-[![version](https://img.shields.io/badge/version-1.2.1-f5c2e7?style=flat-square)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-1.4.1-f5c2e7?style=flat-square)](CHANGELOG.md)
 [![license](https://img.shields.io/badge/license-MIT-89b4fa?style=flat-square)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-cdd6f4?style=flat-square)](#)
 [![python](https://img.shields.io/badge/python-3.11%2B-a6e3a1?style=flat-square)](https://www.python.org/)
