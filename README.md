@@ -8,7 +8,6 @@
 [![license](https://img.shields.io/badge/license-MIT-89b4fa?style=flat-square)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-cdd6f4?style=flat-square)](#)
 [![python](https://img.shields.io/badge/python-3.11%2B-a6e3a1?style=flat-square)](https://www.python.org/)
-[![CI](https://github.com/SysAdminDoc/FoxPort/actions/workflows/ci.yml/badge.svg)](https://github.com/SysAdminDoc/FoxPort/actions/workflows/ci.yml)
 
 **Port Chromium browsers to Firefox.** FoxPort scans your installed Chromium-family browsers (Chrome, Brave, Edge, Vivaldi, Opera, Arc, Thorium, Yandex, ...), decrypts your saved passwords, packages up your bookmarks, and maps your Chrome extensions to their Firefox equivalents on addons.mozilla.org — all in one click.
 
@@ -45,8 +44,8 @@ in the archived research plan plus a basket of P1/P2 trust + polish wins.
   live: previous extractor returned 0 URLs; new one returns 12 from the
   same Chrome profile.
 - **48-test pytest suite** — `tests/` tree with synthetic fixtures for
-  Chromium Bookmarks JSON, History SQLite, SNSS Tabs files. CI runs
-  `pytest` cross-platform.
+  Chromium Bookmarks JSON, History SQLite, SNSS Tabs files. Run
+  `pytest` locally before packaging.
 - **HIBP password scan** (opt-in, free k-anonymity API). Produces
   `compromised-passwords.txt` with URL+username (no plaintext).
 - **Drag-and-drop "Manual source" tile now works** — promotes the
@@ -101,7 +100,7 @@ in the archived research plan plus a basket of P1/P2 trust + polish wins.
   foxport.cli diff --source "Brave/Default" --target "Firefox/default-release"`.
 - **Curated-map auditor** — `scripts/check_curated_map.py` hits AMO for
   every slug in the curated map, flags 404s / disabled / stale entries,
-  exits non-zero on broken results. Designed for monthly CI runs.
+  exits non-zero on broken results. Designed for scheduled local audits.
 
 ## What's new in v1.0.0
 
@@ -241,8 +240,8 @@ Any Gecko-based browser that ships a `profiles.ini`.
 
 ## Install
 
-Requires Python 3.11+. Windows-first, but the runtime and CI matrix
-cover Windows / macOS / Linux — same install steps everywhere; activate
+Requires Python 3.11+. Windows-first, but the runtime supports Windows /
+macOS / Linux — same install steps everywhere; activate
 the venv with `.venv\Scripts\activate` on Windows or `. .venv/bin/activate`
 on macOS / Linux.
 
@@ -275,7 +274,7 @@ The `Bookmarks` file is plain JSON. FoxPort walks the `bookmark_bar`, `other`, a
 ### Extensions
 Chrome and Firefox both speak WebExtensions, but Chrome's MV3 lockdown means extensions are not byte-for-byte portable. FoxPort instead resolves the **identity** of each Chrome extension through four progressively-less-confident stages:
 
-1. **Curated map** (`foxport/data/curated_extension_map.json`) — 52 hand-verified Chrome ID → AMO slug pairs across 14 categories (ad blockers, password managers, userscripts, dev tools, AI assistants, ...). Zero network. Open the JSON file to contribute additions. The weekly `curated-map-audit.yml` workflow re-verifies every slug against AMO and files a GitHub issue on broken or removed entries. The `_meta.entry_count` field is asserted by the auditor so the docs can't drift again silently — see `_meta.description` for the dead-link policy. Advanced users/CI can point `FOXPORT_CURATED_MAP_PATH` at a replacement JSON; FoxPort reloads the active map for every run.
+1. **Curated map** (`foxport/data/curated_extension_map.json`) — 52 hand-verified Chrome ID → AMO slug pairs across 14 categories (ad blockers, password managers, userscripts, dev tools, AI assistants, ...). Zero network. Open the JSON file to contribute additions. `scripts/check_curated_map.py` re-verifies every slug against AMO and reports broken or removed entries. The `_meta.entry_count` field is asserted by the auditor so the docs can't drift again silently — see `_meta.description` for the dead-link policy. Advanced users can point `FOXPORT_CURATED_MAP_PATH` at a replacement JSON; FoxPort reloads the active map for every run.
 2. **Gecko ID probe** — If the Chromium manifest declares `browser_specific_settings.gecko.id`, FoxPort hits AMO's detail endpoint with that GUID for a 100%-confidence match. Duplicate GUIDs share one in-run AMO cache.
 3. **AMO name search** — Otherwise, the localized extension name is queried against `addons.mozilla.org/api/v5/addons/search/` and the top hit is taken, ranked by exact-name + prefix overlap, filtered to public + non-disabled. Duplicate names share the same in-run AMO cache.
 4. **Permission overlap** — For non-curated matches, FoxPort compares Chrome's declared permissions to the candidate's AMO permissions and downgrades confidence when overlap is poor (`amo-search-low` if < 30%).
@@ -325,9 +324,9 @@ The output folder is configurable in the UI.
 - **`manifest.json` per run.** Every non-dry-run migration writes a schema-versioned manifest next to `README.txt` listing every emitted artifact with its SHA-256, size, sensitivity label, and (when applicable) the absolute path of any direct-write backup. Plaintext secret values never appear in the manifest, only metadata about the files that contain them.
 - **Direct-write into Firefox only via atomic replace.** When you opt in to writing `logins.json` / `cookies.sqlite` / `places.sqlite` / `recovery.jsonlz4` straight into a closed target profile, FoxPort stages the file in a temp dir, fsyncs, and swaps it atomically — an interrupted write can never leave a half-written file in your profile. Backups of the previous file are kept under timestamped names so a regret-undo is always possible. Cookies/history can use the `merge` policy to preserve the target DB and add only source cookies absent by host/path/name or source history visits absent by URL+visit timestamp.
 - **DPAPI scoping.** Decryption only succeeds when running as the Windows user who originally saved the passwords.
-- **App-Bound Encryption** (Chrome 127+, Brave) is detected and surfaced clearly; a full ABE bypass via the `foxport_abe.exe` sidecar ships when the signed-release pipeline lands.
+- **App-Bound Encryption** (Chrome 127+, Brave) is detected and surfaced clearly; a full ABE bypass via the `foxport_abe.exe` sidecar is bundled when a local MSVC build has produced it.
 - **NSS version guard.** Before any direct-write into `logins.json` FoxPort checks the version reported by the loaded `nss3.dll`. Below NSS 3.x we refuse — set `FOXPORT_NSS_FORCE=1` to override only if you know what you're doing.
-- **SBOM + signed build provenance.** Each release publishes a CycloneDX SBOM of the bundled Python dependencies plus a SLSA build-provenance attestation signed via GitHub OIDC + Sigstore. Verify with `gh attestation verify FoxPort-<tag>-windows-x64.zip --owner SysAdminDoc --repo SysAdminDoc/FoxPort`. See [docs/supply-chain.md](docs/supply-chain.md).
+- **Local release artifacts.** Windows packages are built from `foxport.spec`, include the curated map, telemetry declarations, runtime icon, optional ABE sidecar, and bundled change log, and ship with a SHA-256 sidecar for verification. See [docs/supply-chain.md](docs/supply-chain.md).
 
 ---
 

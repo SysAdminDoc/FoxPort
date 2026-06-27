@@ -12,8 +12,8 @@ from pathlib import Path
 block_cipher = None
 
 # Optional Windows EXE branding. PyInstaller picks these up when present;
-# the release workflow generates assets/version_info.txt from __version__
-# on each build so the EXE's File Version metadata matches the tag.
+# assets/version_info.txt must match __version__ before each local release
+# build so the EXE's File Version metadata matches the tag.
 _icon = Path("assets/icon.ico")
 _version_info = Path("assets/version_info.txt")
 

@@ -6,7 +6,7 @@ Usage:
     python scripts/check_curated_map.py --json out/audit.json
     python scripts/check_curated_map.py --stale-months 24
 
-Designed to run from CI on a monthly schedule. Returns non-zero if any
+Designed to run from a scheduled local audit. Returns non-zero if any
 curated entry is missing or `is_disabled=True` on AMO.
 """
 

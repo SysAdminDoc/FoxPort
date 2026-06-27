@@ -8,7 +8,7 @@ Writes the following assets (overwrites in place):
 
 * ``assets/icon.ico`` — multi-resolution Windows ICO embedding the
   16/24/32/48/64/128/256-px frames PyInstaller and Explorer want. The
-  release workflow + ``foxport.spec`` pick this file up for the signed
+  local release build and ``foxport.spec`` pick this file up for the
   EXE's icon resource, and browsers treat ``icon.ico`` as a usable
   favicon if linked from a web page.
 * ``assets/icon-256.png`` — high-resolution PNG for README usage and as
